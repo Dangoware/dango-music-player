@@ -1,4 +1,4 @@
-pub mod music_db;
+mod music_db;
 
 fn main() {
 
