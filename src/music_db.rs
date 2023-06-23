@@ -16,18 +16,38 @@ struct Song {
     album: String,
     tracknum: usize,
     artist: String,
+    date: Date,
+    genre: String,
     plays: usize,
     favorited: bool,
-    date: Date,
     format: FileFormat,
     duration: Duration,
-    genre: String,
     rating: i8,
 }
 
 pub fn create_db() -> Result<(), rusqlite::Error> {
     let path = "./music_database.db3";
-    Connection::open(path)?;
+    let db = Connection::open(path)?;
+
+    db.execute(
+        "CREATE TABLE music_collection (
+            uuid    TEXT PRIMARY KEY,
+            path    TEXT NOT NULL,
+            title   TEXT,
+            album   TEXT,
+            tracknum INTEGER,
+            artist  TEXT,
+            date    INTEGER,
+            genre   TEXT,
+            plays   INTEGER,
+            favorited BLOB,
+            format  TEXT,
+            duration INTEGER,
+            rating  INTEGER
+        )",
+        (), // empty list of parameters.
+    )?;
+
     Ok(())
 }
 
