@@ -1,4 +1,4 @@
-pub mod init {
+
     use std::path::Path;
     use std::fs::File;
 
@@ -17,4 +17,4 @@ pub mod init {
     fn init_db() {
 
     }
-}
+

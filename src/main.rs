@@ -1,6 +1,6 @@
 mod music_db;
 mod music_controller;
-mod init;
+pub mod bus_control;
 
 fn main() {
 
