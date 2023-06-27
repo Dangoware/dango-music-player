@@ -5,7 +5,7 @@ use std::io::Read;
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
-    db_path: Box<PathBuf>,
+    pub db_path: Box<PathBuf>,
 }
 
 impl Config {
@@ -17,7 +17,7 @@ impl Config {
         }   
     }
 
-    fn from(config_file: &PathBuf) -> Config {
+    pub fn from(config_file: &PathBuf) -> Config {
         return toml::from_str(&read_to_string(config_file)
             .expect("Failed to initalize music config: File not found!")).unwrap();
     }
