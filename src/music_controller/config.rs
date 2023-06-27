@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
        
-struct Config {
+pub struct Config {
     db_path: Box<PathBuf>,
 }
 
@@ -13,4 +13,3 @@ impl Config {
         }   
     }
 }
-  

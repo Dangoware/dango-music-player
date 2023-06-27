@@ -1,3 +1,3 @@
 pub mod music_controller;
-mod config;
-mod init;   
+pub mod config;
+pub mod init;

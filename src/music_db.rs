@@ -1,6 +1,6 @@
 /// SQLite Database handler for the music player
 use uuid::Uuid;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::fs;
 use cue::cd::CD;
