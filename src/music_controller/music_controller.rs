@@ -18,7 +18,7 @@ pub struct MusicController {
 
 impl MusicController {
     pub fn from(config_path: &PathBuf) -> MusicController {
-
+        let config = Config::from(config_path);
 
         MusicController{
 
