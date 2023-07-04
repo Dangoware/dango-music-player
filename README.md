@@ -1,5 +1,7 @@
 # dango-music-player
-A cross-platform music player focused on being user-friendly and customizable.
+A WIP cross-platform music player focused on being user-friendly and customizable.
+
+This repository is subject to change at any time and no feature has yet been stabilized.
 
 
 Features:

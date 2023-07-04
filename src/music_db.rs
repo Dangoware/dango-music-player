@@ -77,7 +77,6 @@ pub fn find_all_music(target_path: &str) -> Result<(), Box<dyn std::error::Error
                 i += cuesheet.get_track_count();
             }
         }
-
     }
 
     println!("{}", i);

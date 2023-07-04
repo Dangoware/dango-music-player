@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use std::fs::{File, read_to_string};
-use std::io::{Read, Write};
+use std::io::{Read, Write, Result};
 use std::fs;
 
 #[derive(Serialize, Deserialize)]
@@ -10,17 +10,22 @@ pub struct Config {
 }
 
 impl Config {
-    fn new() -> Config {
-        let path = "./music_database.db3";
+    // Creates and saves a new config with default values
+    pub fn new(config_file: &PathBuf) -> std::io::Result<Config> {
+        let path = PathBuf::from("./music_database.db3");
         
-        Config {
-            db_path: Box::new(PathBuf::new()),
-        }   
+        let config = Config {
+            db_path: Box::new(path),
+        };
+        config.save(config_file)?;
+        
+        Ok(config)
     }
 
-    pub fn from(config_file: &PathBuf) -> Config {
+    // Loads config from given file path
+    pub fn from(config_file: &PathBuf) -> std::result::Result<Config, toml::de::Error> {
         return toml::from_str(&read_to_string(config_file)
-            .expect("Failed to initalize music config: File not found!")).unwrap();
+            .expect("Failed to initalize music config: File not found!"));
     }
     
     // Saves config to given path
@@ -32,9 +37,13 @@ impl Config {
         temp_file.set_extension("tomltemp");
         
         fs::write(&temp_file, toml)?;
-        
-        fs::remove_file(config_file)?;
-        
+
+        // If configuration file already exists, delete it
+        match fs::metadata(config_file) {
+            Ok(_) => fs::remove_file(config_file)?,
+            Err(_) => {},
+        }
+
         fs::rename(temp_file, config_file)?;
         Ok(())
     }
