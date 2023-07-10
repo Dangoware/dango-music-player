@@ -1,16 +1,17 @@
 use std::path::PathBuf;
-
+use std::path::Path;
 use music_controller::music_controller::MusicController;
-use music_db::create_db;
+use music_db::find_all_music;
+use music_db::{create_db, add_to_db};
+use rusqlite::Connection;
 
 mod music_db;
 mod music_controller;
 
 fn main() {
-    create_db().unwrap();
+    //create_db().unwrap();
     let config_path = PathBuf::from("config.toml");
-    let controller = MusicController::new(&config_path).unwrap();
-    let rows = controller.connection.execute("SELECT * FROM music_collection", ()).unwrap();
+    let controller = MusicController::from(&config_path).unwrap();
     
-    println!("Rows affected: {}", rows);
+    find_all_music(&controller.config, "music").unwrap();
 }

@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 cue = "1.1.0"
 file-format = { version = "0.17.3", features = ["reader"] }
+lofty = "0.14.0"
 rusqlite = { version = "0.29.0", features = ["bundled"] }
 serde = { version = "1.0.164", features = ["derive"] }
 time = "0.3.22"

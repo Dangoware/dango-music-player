@@ -1,13 +1,16 @@
-/// SQLite Database handler for the music player
-use uuid::Uuid;
+use crate::music_controller::config::Config;
+use cue::cd::CD;
+use file_format::{FileFormat, Kind};
+use lofty::{Accessor, AudioFile, Probe, TaggedFileExt};
+use rusqlite::{params, Connection};
+use std::fs;
+use std::io::Error;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use std::fs;
-use cue::cd::CD;
 use time::Date;
-use file_format::{FileFormat, Kind};
+/// SQLite Database handler for the music player
+use uuid::Uuid;
 use walkdir::WalkDir;
-use rusqlite::Connection;
 
 struct Song {
     uuid: Uuid,
@@ -22,7 +25,6 @@ struct Song {
     favorited: bool,
     format: FileFormat,
     duration: Duration,
-    rating: i8,
 }
 
 pub fn create_db() -> Result<(), rusqlite::Error> {
@@ -42,8 +44,7 @@ pub fn create_db() -> Result<(), rusqlite::Error> {
             plays   INTEGER,
             favorited BLOB,
             format  TEXT,
-            duration INTEGER,
-            rating  INTEGER
+            duration INTEGER
         )",
         (), // empty list of parameters.
     )?;
@@ -51,36 +52,69 @@ pub fn create_db() -> Result<(), rusqlite::Error> {
     Ok(())
 }
 
-pub fn find_all_music(target_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut i = 0;
-    let mut x = 0;
+pub fn find_all_music(
+    config: &Config,
+    target_path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut db_connection = Connection::open(&*config.db_path).unwrap();
+
     for entry in WalkDir::new(target_path).follow_links(true) {
         let target_file = entry?;
         let is_file = fs::metadata(target_file.path())?.is_file();
-        x += 1; // Count the total of all things scanned
 
         // Ensure the target is a file and not a directory, if it isn't, skip this loop
-        if !is_file { continue }
+        if !is_file {
+            continue;
+        }
 
         let format = FileFormat::from_file(target_file.path())?;
-        let extension =  target_file.path().extension().expect("Could not find file extension");
+        let extension = target_file
+            .path()
+            .extension()
+            .expect("Could not find file extension");
 
         if format.kind() == Kind::Audio {
-            println!("{:?}", format.kind());
-            println!("{}", target_file.path().display());
-            i += 1; // Count the number of files, temporary
+            add_to_db(target_file.path(), &mut db_connection)
         } else if extension == "cue" {
-            if let Ok(ret) = fs::read_to_string(target_file.path()) {
+            /* if let Ok(ret) = fs::read_to_string(target_file.path()) {
                 let contents = ret.to_string();
                 let cuesheet = CD::parse(contents)?;
                 println!("{}", cuesheet.get_track_count());
                 i += cuesheet.get_track_count();
-            }
+            } */
         }
     }
 
-    println!("{}", i);
-    println!("{}", x);
-
     Ok(())
+}
+
+pub fn add_to_db(target_file: &Path, connection: &mut Connection) {
+    // TODO: Fix error handling here
+    let tagged_file = Probe::open(target_file)
+        .unwrap()
+        .guess_file_type()
+        .unwrap()
+        .read()
+        .unwrap();
+
+    let tag = match tagged_file.primary_tag() {
+        Some(primary_tag) => primary_tag,
+
+        None => tagged_file.first_tag().expect("No tags!~"),
+    };
+
+    let song_uuid = Uuid::new_v4().to_string();
+    
+    let format = FileFormat::from_file(target_file).unwrap().to_string();
+    
+    let duration = tagged_file.properties().duration().as_secs().to_string();
+    
+    // TODO: fix
+    let binding = fs::canonicalize(target_file).unwrap();
+    let abs_path = binding.to_str().unwrap();
+
+    connection.execute(
+        "INSERT INTO music_collection (uuid, path, title, album, tracknum, artist, date, genre, plays, favorited, format, duration) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        params![song_uuid, abs_path, tag.title(), tag.album(), tag.track(), tag.artist(), tag.year(), tag.genre(), 0, false, format, duration],
+    ).unwrap();
 }
