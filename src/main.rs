@@ -9,9 +9,9 @@ mod music_db;
 mod music_controller;
 
 fn main() {
-    //create_db().unwrap();
+    create_db().unwrap();
     let config_path = PathBuf::from("config.toml");
-    let controller = MusicController::from(&config_path).unwrap();
+    let controller = MusicController::new(&config_path).unwrap();
     
-    find_all_music(&controller.config, "music").unwrap();
+    find_all_music(&controller.config, "/media/g2/Storage4/Media-Files/Music/Albums/").unwrap();
 }

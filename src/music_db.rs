@@ -58,7 +58,10 @@ pub fn find_all_music(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut db_connection = Connection::open(&*config.db_path).unwrap();
 
+    let mut i = 0;
+
     for entry in WalkDir::new(target_path).follow_links(true) {
+        i += 1;
         let target_file = entry?;
         let is_file = fs::metadata(target_file.path())?.is_file();
 
@@ -74,7 +77,7 @@ pub fn find_all_music(
             .expect("Could not find file extension");
 
         if format.kind() == Kind::Audio {
-            add_to_db(target_file.path(), &mut db_connection)
+            add_to_db(target_file.path(), &mut db_connection, i)
         } else if extension == "cue" {
             /* if let Ok(ret) = fs::read_to_string(target_file.path()) {
                 let contents = ret.to_string();
@@ -88,14 +91,19 @@ pub fn find_all_music(
     Ok(())
 }
 
-pub fn add_to_db(target_file: &Path, connection: &mut Connection) {
+pub fn add_to_db(target_file: &Path, connection: &mut Connection, counter: i32) {
     // TODO: Fix error handling here
-    let tagged_file = Probe::open(target_file)
-        .unwrap()
-        .guess_file_type()
-        .unwrap()
-        .read()
-        .unwrap();
+    let tagged_file = match lofty::read_from_path(target_file) {
+        Ok(tagged_file) => tagged_file,
+
+        Error => match Probe::open(target_file)
+            .expect("ERROR: Bad path provided!")
+            .read() {
+                Ok(tagged_file) => tagged_file,
+
+                Error => return
+            }
+    };
 
     let tag = match tagged_file.primary_tag() {
         Some(primary_tag) => primary_tag,
@@ -103,7 +111,7 @@ pub fn add_to_db(target_file: &Path, connection: &mut Connection) {
         None => tagged_file.first_tag().expect("No tags!~"),
     };
 
-    let song_uuid = Uuid::new_v4().to_string();
+    let song_uuid = Uuid::new_v3(&Uuid::NAMESPACE_DNS, counter.to_le_bytes().as_slice()).to_string();
     
     let format = FileFormat::from_file(target_file).unwrap().to_string();
     
@@ -114,7 +122,47 @@ pub fn add_to_db(target_file: &Path, connection: &mut Connection) {
     let abs_path = binding.to_str().unwrap();
 
     connection.execute(
-        "INSERT INTO music_collection (uuid, path, title, album, tracknum, artist, date, genre, plays, favorited, format, duration) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-        params![song_uuid, abs_path, tag.title(), tag.album(), tag.track(), tag.artist(), tag.year(), tag.genre(), 0, false, format, duration],
+        "INSERT INTO music_collection (
+            uuid,
+            path,
+            title,
+            album,
+            tracknum,
+            artist,
+            date,
+            genre,
+            plays,
+            favorited,
+            format,
+            duration
+        ) VALUES (
+            ?1,
+            ?2,
+            ?3,
+            ?4,
+            ?5,
+            ?6,
+            ?7,
+            ?8,
+            ?9,
+            ?10,
+            ?11,
+            ?12
+        )",
+
+        params![
+            song_uuid,
+            abs_path,
+            tag.title(),
+            tag.album(),
+            tag.track(),
+            tag.artist(),
+            tag.year(),
+            tag.genre(),
+            0,
+            false,
+            format,
+            duration
+        ],
     ).unwrap();
 }
