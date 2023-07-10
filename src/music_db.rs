@@ -77,21 +77,20 @@ pub fn find_all_music(
             .expect("Could not find file extension");
 
         if format.kind() == Kind::Audio {
-            add_to_db(target_file.path(), &mut db_connection, i)
-        } else if extension == "cue" {
-            /* if let Ok(ret) = fs::read_to_string(target_file.path()) {
+            add_to_db(target_file.path(), &mut db_connection)
+        }/* else if extension == "cue" {
+            if let Ok(ret) = fs::read_to_string(target_file.path()) {
                 let contents = ret.to_string();
                 let cuesheet = CD::parse(contents)?;
                 println!("{}", cuesheet.get_track_count());
-                i += cuesheet.get_track_count();
-            } */
-        }
+            }
+        }*/
     }
 
     Ok(())
 }
 
-pub fn add_to_db(target_file: &Path, connection: &mut Connection, counter: i32) {
+pub fn add_to_db(target_file: &Path, connection: &mut Connection) {
     // TODO: Fix error handling here
     let tagged_file = match lofty::read_from_path(target_file) {
         Ok(tagged_file) => tagged_file,
@@ -111,7 +110,7 @@ pub fn add_to_db(target_file: &Path, connection: &mut Connection, counter: i32) 
         None => tagged_file.first_tag().expect("No tags!~"),
     };
 
-    let song_uuid = Uuid::new_v3(&Uuid::NAMESPACE_DNS, counter.to_le_bytes().as_slice()).to_string();
+    let song_uuid = Uuid::new_v3(&Uuid::NAMESPACE_DNS, target_file.to_string_lossy().as_bytes()).to_string();
     
     let format = FileFormat::from_file(target_file).unwrap().to_string();
     
