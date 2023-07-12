@@ -32,7 +32,7 @@ pub fn create_db() -> Result<(), rusqlite::Error> {
 
     db.execute(
         "CREATE TABLE music_collection (
-            path    TEXT PRIMARY KEY,
+            song_path TEXT PRIMARY KEY,
             title   TEXT,
             album   TEXT,
             tracknum INTEGER,
@@ -43,6 +43,12 @@ pub fn create_db() -> Result<(), rusqlite::Error> {
             favorited BLOB,
             format  TEXT,
             duration INTEGER
+        );
+
+        CREATE TABLE playlists (
+            playlist_name TEXT NOT NULL,
+            song_path   TEXT NOT NULL,
+            FOREIGN KEY(song_path) REFERENCES music_collection(song_path)
         )",
         (), // empty list of parameters.
     )?;
@@ -54,7 +60,7 @@ pub fn find_all_music(
     config: &Config,
     target_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut db_connection = Connection::open(&*config.db_path).unwrap();
+    let db_connection = Connection::open(&*config.db_path).unwrap();
 
     for entry in WalkDir::new(target_path).follow_links(true) {
         let target_file = entry?;
@@ -72,7 +78,7 @@ pub fn find_all_music(
             .expect("Could not find file extension");
 
         if format.kind() == Kind::Audio {
-            add_to_db(target_file.path(), &mut db_connection)
+            add_to_db(target_file.path(), &db_connection)
         } /*else if extension == "cue" {
             if let Ok(ret) = fs::read_to_string(target_file.path()) {
                 let contents = ret.to_string();
@@ -85,7 +91,7 @@ pub fn find_all_music(
     Ok(())
 }
 
-pub fn add_to_db(target_file: &Path, connection: &mut Connection) {
+pub fn add_to_db(target_file: &Path, connection: &Connection) {
     // TODO: Fix error handling here
     let tagged_file = match lofty::read_from_path(target_file) {
         Ok(tagged_file) => tagged_file,
@@ -115,7 +121,7 @@ pub fn add_to_db(target_file: &Path, connection: &mut Connection) {
 
     connection.execute(
         "INSERT INTO music_collection (
-            path,
+            song_path,
             title,
             album,
             tracknum,

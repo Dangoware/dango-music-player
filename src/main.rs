@@ -1,11 +1,9 @@
 use std::path::PathBuf;
-use std::path::Path;
 use music_controller::music_controller::MusicController;
-use music_db::find_all_music;
-use music_db::{create_db, add_to_db};
-use rusqlite::Connection;
+use music_storage::music_db::find_all_music;
+use music_storage::music_db::create_db;
 
-mod music_db;
+mod music_storage;
 mod music_controller;
 
 fn main() {
