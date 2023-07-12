@@ -4,8 +4,7 @@ use file_format::{FileFormat, Kind};
 use lofty::{Accessor, AudioFile, Probe, TaggedFileExt};
 use rusqlite::{params, Connection};
 use std::fs;
-use std::io::Error;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 use time::Date;
 /// SQLite Database handler for the music player
@@ -33,8 +32,7 @@ pub fn create_db() -> Result<(), rusqlite::Error> {
 
     db.execute(
         "CREATE TABLE music_collection (
-            uuid    TEXT PRIMARY KEY,
-            path    TEXT NOT NULL,
+            path    TEXT PRIMARY KEY,
             title   TEXT,
             album   TEXT,
             tracknum INTEGER,
@@ -58,10 +56,7 @@ pub fn find_all_music(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut db_connection = Connection::open(&*config.db_path).unwrap();
 
-    let mut i = 0;
-
     for entry in WalkDir::new(target_path).follow_links(true) {
-        i += 1;
         let target_file = entry?;
         let is_file = fs::metadata(target_file.path())?.is_file();
 
@@ -78,13 +73,13 @@ pub fn find_all_music(
 
         if format.kind() == Kind::Audio {
             add_to_db(target_file.path(), &mut db_connection)
-        }/* else if extension == "cue" {
+        } else if extension == "cue" {
             if let Ok(ret) = fs::read_to_string(target_file.path()) {
                 let contents = ret.to_string();
                 let cuesheet = CD::parse(contents)?;
                 println!("{}", cuesheet.get_track_count());
             }
-        }*/
+        }
     }
 
     Ok(())
@@ -109,8 +104,6 @@ pub fn add_to_db(target_file: &Path, connection: &mut Connection) {
 
         None => tagged_file.first_tag().expect("No tags!~"),
     };
-
-    let song_uuid = Uuid::new_v3(&Uuid::NAMESPACE_DNS, target_file.to_string_lossy().as_bytes()).to_string();
     
     let format = FileFormat::from_file(target_file).unwrap().to_string();
     
@@ -122,7 +115,6 @@ pub fn add_to_db(target_file: &Path, connection: &mut Connection) {
 
     connection.execute(
         "INSERT INTO music_collection (
-            uuid,
             path,
             title,
             album,
@@ -146,11 +138,9 @@ pub fn add_to_db(target_file: &Path, connection: &mut Connection) {
             ?9,
             ?10,
             ?11,
-            ?12
         )",
 
         params![
-            song_uuid,
             abs_path,
             tag.title(),
             tag.album(),
