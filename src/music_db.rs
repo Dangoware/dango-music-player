@@ -73,13 +73,13 @@ pub fn find_all_music(
 
         if format.kind() == Kind::Audio {
             add_to_db(target_file.path(), &mut db_connection)
-        } else if extension == "cue" {
+        } /*else if extension == "cue" {
             if let Ok(ret) = fs::read_to_string(target_file.path()) {
                 let contents = ret.to_string();
                 let cuesheet = CD::parse(contents)?;
                 println!("{}", cuesheet.get_track_count());
             }
-        }
+        }*/
     }
 
     Ok(())
@@ -137,7 +137,7 @@ pub fn add_to_db(target_file: &Path, connection: &mut Connection) {
             ?8,
             ?9,
             ?10,
-            ?11,
+            ?11
         )",
 
         params![

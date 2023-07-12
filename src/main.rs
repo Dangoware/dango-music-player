@@ -13,5 +13,5 @@ fn main() {
     let config_path = PathBuf::from("config.toml");
     let controller = MusicController::new(&config_path).unwrap();
     
-    find_all_music(&controller.config, "/media/g2/Storage4/Media-Files/Music/Albums/").unwrap();
+    find_all_music(&controller.config, "/media/g2/Storage1/Backups/music/").unwrap();
 }
