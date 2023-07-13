@@ -6,8 +6,6 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 use time::Date;
-/// SQLite Database handler for the music player
-use uuid::Uuid;
 use walkdir::WalkDir;
 
 struct Song {
@@ -75,6 +73,12 @@ pub fn find_all_music(
         None,
         "synchronous",
         "0",
+    ).unwrap();
+
+    db_connection.pragma_update(
+        None,
+        "journal_mode",
+        "WAL",
     ).unwrap();
 
     for entry in WalkDir::new(target_path).follow_links(true).into_iter().filter_map(|e| e.ok()) {
