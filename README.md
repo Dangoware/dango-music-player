@@ -15,6 +15,6 @@ Features:
 - [ ] Native UI
 - [ ] TUI
 - [ ] CLI
-- [ ] Playlists
+- [x] Playlists
 - [ ] Discord RPC
 - [x] 100% Safe Rust
