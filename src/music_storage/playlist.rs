@@ -11,17 +11,17 @@ pub fn playlist_add(
 
     for song_path in song_paths {
         db_connection.execute(
-        "INSERT INTO music_collection (
-            playlist_name,
-            song_path
-        ) VALUES (
-            ?1,
-            ?2
-        )",
-        params![
-            playlist_name,
-            song_path.to_str().unwrap()
-        ],
-    ).unwrap();
+            "INSERT INTO playlists (
+                playlist_name,
+                song_path
+            ) VALUES (
+                ?1,
+                ?2
+            )",
+            params![
+                playlist_name,
+                song_path.to_str().unwrap()
+            ],
+        ).unwrap();
     }
 }

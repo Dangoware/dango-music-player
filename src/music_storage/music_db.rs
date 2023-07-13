@@ -30,6 +30,16 @@ pub fn create_db() -> Result<(), rusqlite::Error> {
     let path = "./music_database.db3";
     let db = Connection::open(path)?;
 
+    // Set the synchronous mode to off, to
+    // improve performance. This also makes
+    // the db less resilant, however.
+    db.pragma_update(
+        None,
+        "synchronous",
+        "0",
+    ).unwrap();
+
+    // Create the important tables
     db.execute(
         "CREATE TABLE music_collection (
             song_path TEXT PRIMARY KEY,
@@ -43,9 +53,12 @@ pub fn create_db() -> Result<(), rusqlite::Error> {
             favorited BLOB,
             format  TEXT,
             duration INTEGER
-        );
+        )",
+        (), // empty list of parameters.
+    )?;
 
-        CREATE TABLE playlists (
+    db.execute(
+        "CREATE TABLE playlists (
             playlist_name TEXT NOT NULL,
             song_path   TEXT NOT NULL,
             FOREIGN KEY(song_path) REFERENCES music_collection(song_path)
@@ -62,8 +75,14 @@ pub fn find_all_music(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let db_connection = Connection::open(&*config.db_path).unwrap();
 
-    for entry in WalkDir::new(target_path).follow_links(true) {
-        let target_file = entry?;
+    db_connection.pragma_update(
+        None,
+        "journal_mode",
+        "WAL",
+    ).unwrap();
+
+    for entry in WalkDir::new(target_path).follow_links(true).into_iter().filter_map(|e| e.ok()) {
+        let target_file = entry;
         let is_file = fs::metadata(target_file.path())?.is_file();
 
         // Ensure the target is a file and not a directory, if it isn't, skip this loop
