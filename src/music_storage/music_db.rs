@@ -9,7 +9,6 @@ use time::Date;
 use walkdir::WalkDir;
 
 struct Song {
-    uuid: Uuid,
     path: Box<Path>,
     title: String,
     album: String,
