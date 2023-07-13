@@ -17,4 +17,4 @@ Features:
 - [ ] CLI
 - [x] Playlists
 - [ ] Discord RPC
-- [x] 100% Safe Rust
+- [ ] 100% Safe Rust
