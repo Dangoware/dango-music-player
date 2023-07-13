@@ -1,5 +1,4 @@
 use crate::music_controller::config::Config;
-use cue::cd::CD;
 use file_format::{FileFormat, Kind};
 use lofty::{Accessor, AudioFile, Probe, TaggedFileExt};
 use rusqlite::{params, Connection};
@@ -30,13 +29,10 @@ pub fn create_db() -> Result<(), rusqlite::Error> {
     let path = "./music_database.db3";
     let db = Connection::open(path)?;
 
-    // Set the synchronous mode to off, to
-    // improve performance. This also makes
-    // the db less resilant, however.
     db.pragma_update(
         None,
-        "synchronous",
-        "0",
+        "journal_mode",
+        "WAL",
     ).unwrap();
 
     // Create the important tables
@@ -77,8 +73,8 @@ pub fn find_all_music(
 
     db_connection.pragma_update(
         None,
-        "journal_mode",
-        "WAL",
+        "synchronous",
+        "0",
     ).unwrap();
 
     for entry in WalkDir::new(target_path).follow_links(true).into_iter().filter_map(|e| e.ok()) {
@@ -98,7 +94,9 @@ pub fn find_all_music(
 
         if format.kind() == Kind::Audio {
             add_to_db(target_file.path(), &db_connection)
-        } /*else if extension == "cue" {
+        }
+        // TODO: implement cuesheet support
+        /*else if extension == "cue" {
             if let Ok(ret) = fs::read_to_string(target_file.path()) {
                 let contents = ret.to_string();
                 let cuesheet = CD::parse(contents)?;

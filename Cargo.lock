@@ -104,29 +104,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "cue"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bef13de72bdc65acbb69b1b6333902f60d546ef065d45283308097bb60f32d6"
-dependencies = [
- "cue-sys",
- "libc",
-]
-
-[[package]]
-name = "cue-sys"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7eb6bf9ed3f73d97b215e5d9c76293095b1fccb1ffd68a8926a8103d11f11440"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "dango-backend"
 version = "0.1.0"
 dependencies = [
- "cue",
  "file-format",
  "lofty",
  "rusqlite",
