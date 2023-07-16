@@ -181,3 +181,13 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
         ],
     ).unwrap();
 }
+
+pub fn query(
+    config: &Config,
+    text_input: &String,
+    queried_tags: Vec<&String>,
+    sort_by: Vec<&String>,
+    result_type: Vec<&String>
+) {
+
+}
