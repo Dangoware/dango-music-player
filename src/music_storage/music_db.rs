@@ -182,12 +182,25 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
     ).unwrap();
 }
 
+pub enum Tag {
+    Title,
+    Album,
+    TrackNum,
+    Artist,
+    Date,
+    Genre,
+    Plays,
+    Favorited,
+    Format,
+    Duration,
+}
+
 pub fn query(
     config: &Config,
     text_input: &String,
-    queried_tags: Vec<&String>,
-    sort_by: Vec<&String>,
+    queried_tags: Vec<&Tag>,
+    sort_by: Vec<&Tag>,
     result_type: Vec<&String>
 ) {
-
+    
 }
