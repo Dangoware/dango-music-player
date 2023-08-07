@@ -8,20 +8,23 @@ use std::time::Duration;
 use time::Date;
 use walkdir::WalkDir;
 
+#[derive(Debug)]
 pub struct Song {
-    path: Box<Path>,
-    title: String,
-    album: String,
-    tracknum: usize,
-    artist: String,
-    date: Date,
-    genre: String,
-    plays: usize,
-    favorited: bool,
-    format: FileFormat,
-    duration: Duration,
+    path:   Box<Path>,
+    title:  Option<String>,
+    album:  Option<String>,
+    tracknum: Option<usize>,
+    artist: Option<String>,
+    date:   Option<Date>,
+    genre:  Option<String>,
+    plays:  Option<usize>,
+    favorited: Option<bool>,
+    format: Option<FileFormat>,
+    duration: Option<Duration>,
+    custom_tags: Option<Vec<crate::Tag>>,
 }
 
+#[derive(Debug)]
 pub struct Playlist {
     title: String,
     cover_art: Box<Path>,
@@ -29,16 +32,13 @@ pub struct Playlist {
 
 pub fn create_db() -> Result<(), rusqlite::Error> {
     let path = "./music_database.db3";
-    let db = Connection::open(path)?;
+    let db_connection = Connection::open(path)?;
 
-    db.pragma_update(
-        None,
-        "journal_mode",
-        "WAL",
-    ).unwrap();
+    db_connection.pragma_update(None, "synchronous", "0")?;
+    db_connection.pragma_update(None, "journal_mode", "WAL")?;
 
     // Create the important tables
-    db.execute(
+    db_connection.execute(
         "CREATE TABLE music_collection (
             song_path TEXT PRIMARY KEY,
             title   TEXT,
@@ -55,7 +55,7 @@ pub fn create_db() -> Result<(), rusqlite::Error> {
         (), // empty list of parameters.
     )?;
 
-    db.execute(
+    db_connection.execute(
         "CREATE TABLE playlists (
             playlist_name TEXT NOT NULL,
             song_path   TEXT NOT NULL,
@@ -64,7 +64,7 @@ pub fn create_db() -> Result<(), rusqlite::Error> {
         (), // empty list of parameters.
     )?;
 
-    db.execute(
+    db_connection.execute(
         "CREATE TABLE custom_tags (
             song_path TEXT NOT NULL,
             tag TEXT NOT NULL,
@@ -83,17 +83,8 @@ pub fn find_all_music(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let db_connection = Connection::open(&*config.db_path).unwrap();
 
-    db_connection.pragma_update(
-        None,
-        "synchronous",
-        "0",
-    ).unwrap();
-
-    db_connection.pragma_update(
-        None,
-        "journal_mode",
-        "WAL",
-    ).unwrap();
+    db_connection.pragma_update(None, "synchronous", "0").unwrap();
+    db_connection.pragma_update(None, "journal_mode", "WAL").unwrap();
 
     for entry in WalkDir::new(target_path).follow_links(true).into_iter().filter_map(|e| e.ok()) {
         let target_file = entry;
@@ -131,12 +122,12 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
     let tagged_file = match lofty::read_from_path(target_file) {
         Ok(tagged_file) => tagged_file,
 
-        Error => match Probe::open(target_file)
+        Err(_) => match Probe::open(target_file)
             .expect("ERROR: Bad path provided!")
             .read() {
                 Ok(tagged_file) => tagged_file,
 
-                Error => return
+                Err(_) => return
             }
     };
 
@@ -150,7 +141,7 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
     
     let duration = tagged_file.properties().duration().as_secs().to_string();
     
-    // TODO: fix
+    // TODO: Fix error handling
     let binding = fs::canonicalize(target_file).unwrap();
     let abs_path = binding.to_str().unwrap();
 
@@ -198,6 +189,7 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
     ).unwrap();
 }
 
+#[derive(Debug)]
 pub enum Tag {
     Title,
     Album,
@@ -215,13 +207,13 @@ pub enum Tag {
 impl Tag {
     fn as_str(&self) -> &str {
         match self {
-            Tag::Title => "title",
-            Tag::Album => "album",
+            Tag::Title  => "title",
+            Tag::Album  => "album",
             Tag::TrackNum => "tracknum",
             Tag::Artist => "artist",
-            Tag::Date => "date",
-            Tag::Genre => "genre",
-            Tag::Plays => "plays",
+            Tag::Date   => "date",
+            Tag::Genre  => "genre",
+            Tag::Plays  => "plays",
             Tag::Favorited => "favorited",
             Tag::Format => "format",
             Tag::Duration => "duration",
@@ -230,7 +222,7 @@ impl Tag {
     }
 }
 
-
+#[derive(Debug)]
 pub enum MusicObject {
     Song(Song),
     Album(Playlist),
@@ -243,7 +235,7 @@ pub fn query(
     text_input: &String,
     queried_tags: Vec<&Tag>,
     order_by_tags: Vec<&Tag>,
-) {
+) -> Vec<MusicObject> {
     let db_connection = Connection::open(&*config.db_path).unwrap();
 
     // Set up some database settings
@@ -263,7 +255,7 @@ pub fn query(
             where_string.push_str("OR ");
         }
 
-        where_string.push_str(&format!("{} LIKE ?1 ", tag.as_str()));
+        where_string.push_str(&format!("{} LIKE '{text_input}' ", tag.as_str()));
 
         loops += 1;
     }
@@ -286,20 +278,37 @@ pub fn query(
         loops += 1;
     }
 
-    let query_string = format!("SELECT *
+    // Build the final query string
+    let query_string = format!("
+        SELECT *
         FROM music_collection
         WHERE {where_string}
-        ORDER BY favorited, tracknum, album, plays");
+        ORDER BY {order_by_string}
+    ");
     
     let mut query_statement = db_connection.prepare(&query_string).unwrap();
+    let mut rows = query_statement.query([]).unwrap();
 
-    let mut rows = query_statement.query([text_input]).unwrap();
+    let mut final_result:Vec<MusicObject> = vec![];
 
-    let mut count = 0;
     while let Some(row) = rows.next().unwrap() {
-        println!("{}", row.get_unwrap::<usize, String>(1));
-        count += 1;
-    }
+        let new_song = Song {
+            path:   Path::new(&row.get::<usize, String>(0).unwrap()).into(),
+            title:  row.get::<usize, String>(1).ok(),
+            album:  row.get::<usize, String>(2).ok(),
+            tracknum: row.get::<usize, usize>(3).ok(),
+            artist: row.get::<usize, String>(4).ok(),
+            date:   Date::from_calendar_date(row.get::<usize, i32>(5).unwrap_or(0), time::Month::January, 1).ok(),
+            genre:  row.get::<usize, String>(6).ok(),
+            plays:  row.get::<usize, usize>(7).ok(),
+            favorited: row.get::<usize, bool>(8).ok(),
+            format: Some(FileFormat::OggFlac),
+            duration: Some(Duration::from_secs(row.get::<usize, u64>(10).unwrap_or(0))),
+            custom_tags: Some(vec![Tag::Custom("test".to_owned())]),
+        };
 
-    println!("{}", count);
+        final_result.push(MusicObject::Song(new_song));
+    };
+
+    return final_result
 }
