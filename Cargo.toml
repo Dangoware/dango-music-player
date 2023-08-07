@@ -11,3 +11,8 @@ serde = { version = "1.0.164", features = ["derive"] }
 time = "0.3.22"
 toml = "0.7.5"
 walkdir = "2.3.3"
+cpal = "0.15.2"
+dasp = "0.11.0"
+heapless = "0.7.16"
+rb = "0.4.1"
+symphonia = { version = "0.5.3", features = ["all-codecs"] }
