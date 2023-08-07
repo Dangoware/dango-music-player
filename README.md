@@ -5,7 +5,7 @@ This repository is subject to change at any time and no feature has yet been sta
 
 
 Features:
-- [x] Song Playback (Soon)
+- [x] Song Playback
 - [ ] Customizable UI
 - [x] Cross-Platform
 - [ ] Themes
