@@ -1,5 +1,6 @@
 use crate::music_controller::config::Config;
 use file_format::{FileFormat, Kind};
+use serde_json::Value;
 use lofty::{Accessor, AudioFile, Probe, TaggedFileExt};
 use rusqlite::{params, Connection};
 use std::any::TypeId;
@@ -297,18 +298,28 @@ pub fn query(
         GROUP BY music_collection.song_path
         ORDER BY {order_by_string}
     ");
-
-    println!("{}", query_string);
     
     let mut query_statement = db_connection.prepare(&query_string).unwrap();
     let mut rows = query_statement.query([]).unwrap();
 
     let mut final_result:Vec<MusicObject> = vec![];
 
-    println!("woo");
-
     while let Some(row) = rows.next().unwrap() {
-        println!("woo");
+        let custom_tag: Value = match row.get::<usize, String>(11) {
+            Ok(result) => serde_json::from_str(&result).unwrap(),
+            Err(_) => ().into()
+        };
+
+        let mut custom_tags: Vec<Tag> = vec![];
+
+        for tag in custom_tag.as_array().unwrap() {
+            println!("{}", tag);
+            custom_tags.push(Tag::Custom{
+                name: tag["name"].to_string(),
+                value:  tag["value"].to_string(),
+            });
+        }
+
         let new_song = Song {
             // TODO: Implement proper errors here
             path:   Path::new(&row.get::<usize, String>(0).unwrap_or("".to_owned())).into(),
@@ -322,7 +333,7 @@ pub fn query(
             favorited: row.get::<usize, bool>(8).ok(),
             format: Some(FileFormat::OggOpus),
             duration: Some(Duration::from_secs(row.get::<usize, u64>(10).unwrap_or(0))),
-            custom_tags: Some(vec![Tag::Custom{name: "test".to_owned(), value: "".to_owned()}]),
+            custom_tags: Some(custom_tags),
         };
 
         final_result.push(MusicObject::Song(new_song));
