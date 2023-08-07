@@ -2,6 +2,7 @@ use crate::music_controller::config::Config;
 use file_format::{FileFormat, Kind};
 use lofty::{Accessor, AudioFile, Probe, TaggedFileExt};
 use rusqlite::{params, Connection};
+use std::any::TypeId;
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
@@ -10,7 +11,7 @@ use walkdir::WalkDir;
 
 #[derive(Debug)]
 pub struct Song {
-    path:   Box<Path>,
+    pub path: Box<Path>,
     title:  Option<String>,
     album:  Option<String>,
     tracknum: Option<usize>,
@@ -21,7 +22,7 @@ pub struct Song {
     favorited: Option<bool>,
     format: Option<FileFormat>,
     duration: Option<Duration>,
-    custom_tags: Option<Vec<crate::Tag>>,
+    pub custom_tags: Option<Vec<crate::Tag>>,
 }
 
 #[derive(Debug)]
@@ -201,7 +202,7 @@ pub enum Tag {
     Favorited,
     Format,
     Duration,
-    Custom(String),
+    Custom{name: String, value: String},
 }
 
 impl Tag {
@@ -217,7 +218,7 @@ impl Tag {
             Tag::Favorited => "favorited",
             Tag::Format => "format",
             Tag::Duration => "duration",
-            Tag::Custom(custom_tag) => custom_tag,
+            Tag::Custom{name, ..} => name,
         }
     }
 }
@@ -235,7 +236,7 @@ pub fn query(
     text_input: &String,
     queried_tags: Vec<&Tag>,
     order_by_tags: Vec<&Tag>,
-) -> Vec<MusicObject> {
+) -> Option<Vec<MusicObject>> {
     let db_connection = Connection::open(&*config.db_path).unwrap();
 
     // Set up some database settings
@@ -246,26 +247,35 @@ pub fn query(
     let mut where_string = "".to_owned();
     let mut loops = 0;
     for tag in queried_tags {
-        match tag {
-            Tag::Custom(_) => continue,
-            _ => ()
-        }
-
         if loops > 0 {
             where_string.push_str("OR ");
         }
 
-        where_string.push_str(&format!("{} LIKE '{text_input}' ", tag.as_str()));
+        match tag {
+            Tag::Custom{name, ..} => {
+                // If the input tag name is blank, search without matching custom tag name
+                if name == "" {
+                    where_string.push_str(&format!("custom_tags.tag_value LIKE '{text_input}' "))
+                } else {
+                    where_string.push_str(&format!("custom_tags.tag = '{name}' AND custom_tags.tag_value LIKE '{text_input}' "))
+                }
+            },
+            _ => {
+                where_string.push_str(&format!("{} LIKE '{text_input}' ", tag.as_str()))
+            }
+        }
 
         loops += 1;
     }
+
+    println!("{}", where_string);
 
     // Build the "ORDER BY" part of the SQLite query
     let mut order_by_string = "".to_owned();
     let mut loops = 0;
     for tag in order_by_tags {
         match tag {
-            Tag::Custom(_) => continue,
+            Tag::Custom{..} => continue,
             _ => ()
         }
 
@@ -280,20 +290,28 @@ pub fn query(
 
     // Build the final query string
     let query_string = format!("
-        SELECT *
+        SELECT music_collection.*, JSON_GROUP_ARRAY(JSON_OBJECT('tag', custom_tags.tag, 'tag_value', custom_tags.tag_value)) AS custom_tags
         FROM music_collection
+        LEFT JOIN custom_tags ON music_collection.song_path = custom_tags.song_path
         WHERE {where_string}
+        GROUP BY music_collection.song_path
         ORDER BY {order_by_string}
     ");
+
+    println!("{}", query_string);
     
     let mut query_statement = db_connection.prepare(&query_string).unwrap();
     let mut rows = query_statement.query([]).unwrap();
 
     let mut final_result:Vec<MusicObject> = vec![];
 
+    println!("woo");
+
     while let Some(row) = rows.next().unwrap() {
+        println!("woo");
         let new_song = Song {
-            path:   Path::new(&row.get::<usize, String>(0).unwrap()).into(),
+            // TODO: Implement proper errors here
+            path:   Path::new(&row.get::<usize, String>(0).unwrap_or("".to_owned())).into(),
             title:  row.get::<usize, String>(1).ok(),
             album:  row.get::<usize, String>(2).ok(),
             tracknum: row.get::<usize, usize>(3).ok(),
@@ -302,13 +320,13 @@ pub fn query(
             genre:  row.get::<usize, String>(6).ok(),
             plays:  row.get::<usize, usize>(7).ok(),
             favorited: row.get::<usize, bool>(8).ok(),
-            format: Some(FileFormat::OggFlac),
+            format: Some(FileFormat::OggOpus),
             duration: Some(Duration::from_secs(row.get::<usize, u64>(10).unwrap_or(0))),
-            custom_tags: Some(vec![Tag::Custom("test".to_owned())]),
+            custom_tags: Some(vec![Tag::Custom{name: "test".to_owned(), value: "".to_owned()}]),
         };
 
         final_result.push(MusicObject::Song(new_song));
     };
 
-    return final_result
+    Some(final_result)
 }
