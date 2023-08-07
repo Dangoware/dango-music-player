@@ -8,7 +8,7 @@ use std::time::Duration;
 use time::Date;
 use walkdir::WalkDir;
 
-struct Song {
+pub struct Song {
     path: Box<Path>,
     title: String,
     album: String,
@@ -20,6 +20,11 @@ struct Song {
     favorited: bool,
     format: FileFormat,
     duration: Duration,
+}
+
+pub struct Playlist {
+    title: String,
+    cover_art: Box<Path>,
 }
 
 pub fn create_db() -> Result<(), rusqlite::Error> {
@@ -54,6 +59,16 @@ pub fn create_db() -> Result<(), rusqlite::Error> {
         "CREATE TABLE playlists (
             playlist_name TEXT NOT NULL,
             song_path   TEXT NOT NULL,
+            FOREIGN KEY(song_path) REFERENCES music_collection(song_path)
+        )",
+        (), // empty list of parameters.
+    )?;
+
+    db.execute(
+        "CREATE TABLE custom_tags (
+            song_path TEXT NOT NULL,
+            tag TEXT NOT NULL,
+            tag_value TEXT,
             FOREIGN KEY(song_path) REFERENCES music_collection(song_path)
         )",
         (), // empty list of parameters.
@@ -139,6 +154,7 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
     let binding = fs::canonicalize(target_file).unwrap();
     let abs_path = binding.to_str().unwrap();
 
+    // TODO: Ensure we can make custom tags
     connection.execute(
         "INSERT INTO music_collection (
             song_path,
@@ -193,14 +209,97 @@ pub enum Tag {
     Favorited,
     Format,
     Duration,
+    Custom(String),
 }
 
+impl Tag {
+    fn as_str(&self) -> &str {
+        match self {
+            Tag::Title => "title",
+            Tag::Album => "album",
+            Tag::TrackNum => "tracknum",
+            Tag::Artist => "artist",
+            Tag::Date => "date",
+            Tag::Genre => "genre",
+            Tag::Plays => "plays",
+            Tag::Favorited => "favorited",
+            Tag::Format => "format",
+            Tag::Duration => "duration",
+            Tag::Custom(custom_tag) => custom_tag,
+        }
+    }
+}
+
+
+pub enum MusicObject {
+    Song(Song),
+    Album(Playlist),
+    Playlist(Playlist),
+}
+
+/// Query the database, returning a list of items
 pub fn query(
     config: &Config,
     text_input: &String,
     queried_tags: Vec<&Tag>,
-    sort_by: Vec<&Tag>,
-    result_type: Vec<&String>
+    order_by_tags: Vec<&Tag>,
 ) {
+    let db_connection = Connection::open(&*config.db_path).unwrap();
+
+    // Set up some database settings
+    db_connection.pragma_update(None, "synchronous", "0").unwrap();
+    db_connection.pragma_update(None, "journal_mode", "WAL").unwrap();
+
+    // Build the "WHERE" part of the SQLite query
+    let mut where_string = "".to_owned();
+    let mut loops = 0;
+    for tag in queried_tags {
+        match tag {
+            Tag::Custom(_) => continue,
+            _ => ()
+        }
+
+        if loops > 0 {
+            where_string.push_str("OR ");
+        }
+
+        where_string.push_str(&format!("{} LIKE ?1 ", tag.as_str()));
+
+        loops += 1;
+    }
+
+    // Build the "ORDER BY" part of the SQLite query
+    let mut order_by_string = "".to_owned();
+    let mut loops = 0;
+    for tag in order_by_tags {
+        match tag {
+            Tag::Custom(_) => continue,
+            _ => ()
+        }
+
+        if loops > 0 {
+            order_by_string.push_str(", ");
+        }
+
+        order_by_string.push_str(tag.as_str());
+
+        loops += 1;
+    }
+
+    let query_string = format!("SELECT *
+        FROM music_collection
+        WHERE {where_string}
+        ORDER BY favorited, tracknum, album, plays");
     
+    let mut query_statement = db_connection.prepare(&query_string).unwrap();
+
+    let mut rows = query_statement.query([text_input]).unwrap();
+
+    let mut count = 0;
+    while let Some(row) = rows.next().unwrap() {
+        println!("{}", row.get_unwrap::<usize, String>(1));
+        count += 1;
+    }
+
+    println!("{}", count);
 }
