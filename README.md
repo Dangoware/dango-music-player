@@ -5,9 +5,9 @@ This repository is subject to change at any time and no feature has yet been sta
 
 
 Features:
-- [ ] Song Playback (Soon)
+- [x] Song Playback (Soon)
 - [ ] Customizable UI
-- [ ] Cross-Platform
+- [x] Cross-Platform
 - [ ] Themes
 - [ ] Remote Song Playback
 - [ ] Scrobbling
