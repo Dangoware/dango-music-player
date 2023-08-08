@@ -21,7 +21,7 @@ fn main() {
         find_all_music(&controller.config, "/media/g2/Storage1/Backups/music/").unwrap();
     }
 
-    let custom_tag = &Tag::Custom{name: "".to_owned(), value: "".to_owned()};
+    let custom_tag = &Tag::Custom{tag: "".to_owned(), tag_value: "".to_owned()};
 
     let search_tags = vec![
         &Tag::Title,
@@ -38,7 +38,7 @@ fn main() {
 
     let query_result = query(
         &controller.config,
-        &"%Daydream caf%".to_owned(),
+        &"%daydream%".to_owned(),
         search_tags,
         sort_by
     );

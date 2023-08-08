@@ -1,7 +1,8 @@
 use crate::music_controller::config::Config;
 use file_format::{FileFormat, Kind};
 use serde_json::Value;
-use lofty::{Accessor, AudioFile, Probe, TaggedFileExt};
+use serde::Deserialize;
+use lofty::{Accessor, AudioFile, Probe, TaggedFileExt, ItemKey, ItemValue};
 use rusqlite::{params, Connection};
 use std::any::TypeId;
 use std::fs;
@@ -83,10 +84,10 @@ pub fn find_all_music(
     config: &Config,
     target_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let db_connection = Connection::open(&*config.db_path).unwrap();
+    let db_connection = Connection::open(&*config.db_path)?;
 
-    db_connection.pragma_update(None, "synchronous", "0").unwrap();
-    db_connection.pragma_update(None, "journal_mode", "WAL").unwrap();
+    db_connection.pragma_update(None, "synchronous", "0")?;
+    db_connection.pragma_update(None, "journal_mode", "WAL")?;
 
     for entry in WalkDir::new(target_path).follow_links(true).into_iter().filter_map(|e| e.ok()) {
         let target_file = entry;
@@ -136,8 +137,44 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
     let tag = match tagged_file.primary_tag() {
         Some(primary_tag) => primary_tag,
 
-        None => tagged_file.first_tag().expect("No tags!~"),
+        None => match tagged_file.first_tag() {
+            Some(first_tag) => first_tag,
+
+            None => return
+        },
     };
+
+    let mut custom_insert = String::new();
+    let mut loops = 0;
+    for item in tag.items() {
+        let mut custom_key = String::new();
+        match item.key() {
+            ItemKey::TrackArtist    => continue,
+            ItemKey::TrackTitle     => continue,
+            ItemKey::AlbumTitle     => continue,
+            ItemKey::Genre          => continue,
+            ItemKey::TrackNumber    => continue,
+            ItemKey::Year           => continue,
+            ItemKey::RecordingDate  => continue,
+            ItemKey::Unknown(unknown) => custom_key.push_str(&unknown),
+            custom => custom_key.push_str(&format!("{:?}", custom))
+            // TODO: This is kind of cursed, maybe fix?
+        };
+
+        let custom_value = match item.value() {
+            ItemValue::Text(value) => value,
+            ItemValue::Locator(value) => value,
+            _ => ""
+        };
+
+        if loops > 0 {
+            custom_insert.push_str(", ");
+        }
+
+        custom_insert.push_str(&format!(" (?1, '{}', '{}')", custom_key.replace("\'", "''"), custom_value.replace("\'", "''")));
+
+        loops += 1;
+    }
     
     let format = FileFormat::from_file(target_file).unwrap().to_string();
     
@@ -147,7 +184,6 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
     let binding = fs::canonicalize(target_file).unwrap();
     let abs_path = binding.to_str().unwrap();
 
-    // TODO: Ensure we can make custom tags
     connection.execute(
         "INSERT INTO music_collection (
             song_path,
@@ -189,9 +225,18 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
             duration
         ],
     ).unwrap();
+
+    if custom_insert != "" {
+        connection.execute(
+            &format!("INSERT INTO custom_tags ('song_path', 'tag', 'tag_value') VALUES {}", &custom_insert),
+            params![
+                abs_path,
+            ]
+        ).unwrap();
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub enum Tag {
     Title,
     Album,
@@ -203,7 +248,7 @@ pub enum Tag {
     Favorited,
     Format,
     Duration,
-    Custom{name: String, value: String},
+    Custom{tag: String, tag_value: String},
 }
 
 impl Tag {
@@ -219,7 +264,7 @@ impl Tag {
             Tag::Favorited => "favorited",
             Tag::Format => "format",
             Tag::Duration => "duration",
-            Tag::Custom{name, ..} => name,
+            Tag::Custom{tag, ..} => tag,
         }
     }
 }
@@ -253,12 +298,12 @@ pub fn query(
         }
 
         match tag {
-            Tag::Custom{name, ..} => {
+            Tag::Custom{tag, ..} => {
                 // If the input tag name is blank, search without matching custom tag name
-                if name == "" {
+                if tag == "" {
                     where_string.push_str(&format!("custom_tags.tag_value LIKE '{text_input}' "))
                 } else {
-                    where_string.push_str(&format!("custom_tags.tag = '{name}' AND custom_tags.tag_value LIKE '{text_input}' "))
+                    where_string.push_str(&format!("custom_tags.tag = '{tag}' AND custom_tags.tag_value LIKE '{text_input}' "))
                 }
             },
             _ => {
@@ -291,7 +336,7 @@ pub fn query(
 
     // Build the final query string
     let query_string = format!("
-        SELECT music_collection.*, JSON_GROUP_ARRAY(JSON_OBJECT('tag', custom_tags.tag, 'tag_value', custom_tags.tag_value)) AS custom_tags
+        SELECT music_collection.*, JSON_GROUP_ARRAY(JSON_OBJECT('Custom',JSON_OBJECT('tag', custom_tags.tag, 'tag_value', custom_tags.tag_value))) AS custom_tags
         FROM music_collection
         LEFT JOIN custom_tags ON music_collection.song_path = custom_tags.song_path
         WHERE {where_string}
@@ -305,20 +350,10 @@ pub fn query(
     let mut final_result:Vec<MusicObject> = vec![];
 
     while let Some(row) = rows.next().unwrap() {
-        let custom_tag: Value = match row.get::<usize, String>(11) {
-            Ok(result) => serde_json::from_str(&result).unwrap(),
-            Err(_) => ().into()
+        let custom_tags: Vec<Tag> = match row.get::<usize, String>(11) {
+            Ok(result) => serde_json::from_str(&result).unwrap_or(vec![]),
+            Err(_) => vec![]
         };
-
-        let mut custom_tags: Vec<Tag> = vec![];
-
-        for tag in custom_tag.as_array().unwrap() {
-            println!("{}", tag);
-            custom_tags.push(Tag::Custom{
-                name: tag["name"].to_string(),
-                value:  tag["value"].to_string(),
-            });
-        }
 
         let new_song = Song {
             // TODO: Implement proper errors here
@@ -327,7 +362,7 @@ pub fn query(
             album:  row.get::<usize, String>(2).ok(),
             tracknum: row.get::<usize, usize>(3).ok(),
             artist: row.get::<usize, String>(4).ok(),
-            date:   Date::from_calendar_date(row.get::<usize, i32>(5).unwrap_or(0), time::Month::January, 1).ok(),
+            date:   Date::from_calendar_date(row.get::<usize, i32>(5).unwrap_or(0), time::Month::January, 1).ok(), // TODO: Fix this to get the actual date
             genre:  row.get::<usize, String>(6).ok(),
             plays:  row.get::<usize, usize>(7).ok(),
             favorited: row.get::<usize, bool>(8).ok(),
@@ -335,6 +370,8 @@ pub fn query(
             duration: Some(Duration::from_secs(row.get::<usize, u64>(10).unwrap_or(0))),
             custom_tags: Some(custom_tags),
         };
+
+        println!("{:#?}", new_song.custom_tags);
 
         final_result.push(MusicObject::Song(new_song));
     };
