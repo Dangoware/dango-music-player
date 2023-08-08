@@ -245,7 +245,7 @@ pub fn query(
     db_connection.pragma_update(None, "journal_mode", "WAL").unwrap();
 
     // Build the "WHERE" part of the SQLite query
-    let mut where_string = "".to_owned();
+    let mut where_string = String::new();
     let mut loops = 0;
     for tag in queried_tags {
         if loops > 0 {
@@ -272,7 +272,7 @@ pub fn query(
     println!("{}", where_string);
 
     // Build the "ORDER BY" part of the SQLite query
-    let mut order_by_string = "".to_owned();
+    let mut order_by_string = String::new();
     let mut loops = 0;
     for tag in order_by_tags {
         match tag {
