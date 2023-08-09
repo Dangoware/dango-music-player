@@ -14,10 +14,10 @@ use walkdir::WalkDir;
 #[derive(Debug)]
 pub struct Song {
     pub path: Box<Path>,
-    title:  Option<String>,
-    album:  Option<String>,
+    pub title:  Option<String>,
+    pub album:  Option<String>,
     tracknum: Option<usize>,
-    artist: Option<String>,
+    pub artist: Option<String>,
     date:   Option<Date>,
     genre:  Option<String>,
     plays:  Option<usize>,
@@ -238,6 +238,7 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
 
 #[derive(Debug, Deserialize)]
 pub enum Tag {
+    SongPath,
     Title,
     Album,
     TrackNum,
@@ -254,6 +255,7 @@ pub enum Tag {
 impl Tag {
     fn as_str(&self) -> &str {
         match self {
+            Tag::SongPath => "song_path",
             Tag::Title  => "title",
             Tag::Album  => "album",
             Tag::TrackNum => "tracknum",
@@ -276,12 +278,21 @@ pub enum MusicObject {
     Playlist(Playlist),
 }
 
+impl MusicObject {
+    pub fn as_song(&self) -> Option<&Song> {
+        match self {
+            MusicObject::Song(data) => Some(data),
+            _ => None
+        }
+    }
+}
+
 /// Query the database, returning a list of items
 pub fn query(
     config: &Config,
     text_input: &String,
-    queried_tags: Vec<&Tag>,
-    order_by_tags: Vec<&Tag>,
+    queried_tags: &Vec<&Tag>,
+    order_by_tags: &Vec<&Tag>,
 ) -> Option<Vec<MusicObject>> {
     let db_connection = Connection::open(&*config.db_path).unwrap();
 
@@ -306,15 +317,12 @@ pub fn query(
                     where_string.push_str(&format!("custom_tags.tag = '{tag}' AND custom_tags.tag_value LIKE '{text_input}' "))
                 }
             },
-            _ => {
-                where_string.push_str(&format!("{} LIKE '{text_input}' ", tag.as_str()))
-            }
+            Tag::SongPath => where_string.push_str(&format!("music_collection.{} LIKE '{text_input}' ", tag.as_str())),
+            _ => where_string.push_str(&format!("{} LIKE '{text_input}' ", tag.as_str()))
         }
 
         loops += 1;
     }
-
-    println!("{}", where_string);
 
     // Build the "ORDER BY" part of the SQLite query
     let mut order_by_string = String::new();
@@ -370,8 +378,6 @@ pub fn query(
             duration: Some(Duration::from_secs(row.get::<usize, u64>(10).unwrap_or(0))),
             custom_tags: Some(custom_tags),
         };
-
-        println!("{:#?}", new_song.custom_tags);
 
         final_result.push(MusicObject::Song(new_song));
     };

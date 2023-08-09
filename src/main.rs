@@ -36,17 +36,16 @@ fn main() {
         &Tag::Title
     ];
 
-    let query_result = query(
+    let query_result = &query(
         &controller.config,
         &"%daydream%".to_owned(),
-        search_tags,
-        sort_by
-    );
+        &search_tags,
+        &sort_by
+    ).unwrap()[0];
 
-    match &query_result.unwrap()[0] {
-        MusicObject::Song(song) => controller.open_song(&PathBuf::from(song.path.clone()).into()),
-        _ => return
-    }
+    let song = query_result.as_song().unwrap();
+
+    controller.open_song(&PathBuf::from(song.path.clone()).into());
 
     thread::sleep(Duration::from_secs(2000));
 }
