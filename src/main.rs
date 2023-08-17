@@ -10,7 +10,7 @@ use std::time::Duration;
 mod music_storage;
 mod music_controller;
 mod music_player;
-
+mod music_processor;
 
 fn main() {
     let config_path = PathBuf::from("config.toml");
@@ -21,31 +21,16 @@ fn main() {
         find_all_music(&controller.config, "/media/g2/Storage1/Backups/music/").unwrap();
     }
 
-    let custom_tag = &Tag::Custom{tag: "".to_owned(), tag_value: "".to_owned()};
+  
+    let song = String::from("choc.mp3");
 
-    let search_tags = vec![
-        &Tag::Title,
-        &Tag::Album
-    ];
-
-    let sort_by = vec![
-        &Tag::Favorited,
-        &Tag::Plays,
-        &Tag::Album,
-        &Tag::TrackNum,
-        &Tag::Title
-    ];
-
-    let query_result = &query(
-        &controller.config,
-        &"%daydream%".to_owned(),
-        &search_tags,
-        &sort_by
-    ).unwrap()[0];
-
-    let song = query_result.as_song().unwrap();
-
-    controller.open_song(&PathBuf::from(song.path.clone()).into());
+    controller.open_song(song);
+    
+    controller.set_vol(0.10);
+    
+    thread::sleep(Duration::from_secs(5));
+    
+    controller.set_vol(3.0);
 
     thread::sleep(Duration::from_secs(2000));
 }

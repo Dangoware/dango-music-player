@@ -1,7 +1,11 @@
+use std::ops::Deref;
+use std::sync::RwLock;
+use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::thread;
 
+use symphonia::core::audio::AudioBuffer;
 use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions, Decoder};
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
 use symphonia::core::io::MediaSourceStream;
@@ -11,9 +15,11 @@ use symphonia::core::errors::Error;
 use symphonia::core::units::Time;
 
 use crate::music_player::music_output::AudioStream;
+use crate::music_processor::music_processor::MusicProcessor;
 
 // Struct that controls playback of music
 pub struct MusicPlayer {
+    pub music_processor: MusicProcessor,
     player_status: PlayerStatus,
     message_sender: Option<Sender<PlayerMessage>>,
     status_receiver: Option<Receiver<PlayerStatus>>,
@@ -27,17 +33,22 @@ pub enum PlayerStatus {
     Error,
 }
 
-#[derive(Debug)]
 pub enum PlayerMessage {
     Play,
     Pause,
     Stop,
     SeekTo(u64),
+    DSP(DSPMessage)
+}
+
+pub enum DSPMessage {
+    UpdateProcessor(Box<MusicProcessor>)
 }
 
 impl MusicPlayer {
     pub fn new() -> Self {
         MusicPlayer {
+            music_processor: MusicProcessor::new(),
             player_status: PlayerStatus::Stopped,
             message_sender: None,
             status_receiver: None,
@@ -45,57 +56,60 @@ impl MusicPlayer {
     }
     
     // Opens and plays song with given path in separate thread
-    pub fn open_song(&mut self, path: &Box<PathBuf>) {
-        // Creates mspc channels to communicate with thread
+    pub fn open_song<T: AsRef<str>>(&mut self, path: T) {
+        // Creates mpsc channels to communicate with thread
         let (message_sender, message_receiver) = mpsc::channel();
         let (status_sender, status_receiver) = mpsc::channel();
         self.message_sender = Some(message_sender);
         self.status_receiver = Some(status_receiver);
-        
-        let cloned = path.clone();
+
+        let owned_path = String::from(path.as_ref());
         
         // Creates thread that audio is decoded in
         thread::spawn(move || {
-            
-            let (mut reader, mut decoder) = MusicPlayer::get_reader_and_dec(cloned);
+            let (mut reader, mut decoder) = MusicPlayer::get_reader_and_dec(owned_path);
             
             let mut seek_time: Option<u64> = None;
             
             let mut audio_output: Option<Box<dyn AudioStream>> = None;
             
-            'main_decode: loop {
-                // Handles message received from the MusicPlayer if there is one
+            let mut music_processor = MusicProcessor::new();
+            
+            'main_decode: loop {    
+                // Handles message received from the MusicPlayer if there is one // TODO: Refactor
                 let received_message = message_receiver.try_recv();
-                if received_message.is_ok() {
-                match received_message.unwrap() {
-                    PlayerMessage::Pause => { 
+                match received_message {
+                    Ok(PlayerMessage::Pause) => { 
                         status_sender.send(PlayerStatus::Paused).unwrap();
                         // Loops on a blocking message receiver to wait for a play/stop message
                         'inner_pause: loop {
                             let message = message_receiver.try_recv();
-                            if message.is_ok() {
-                                match message.unwrap() {
-                                    PlayerMessage::Play => {
-                                        status_sender.send(PlayerStatus::Playing).unwrap();
-                                        break 'inner_pause
-                                    },
-                                    PlayerMessage::Stop => {
-                                        status_sender.send(PlayerStatus::Stopped).unwrap();
-                                        break 'main_decode
-                                    },
-                                    _ => {},
-                                }
+                            match message {
+                                Ok(PlayerMessage::Play) => {
+                                    status_sender.send(PlayerStatus::Playing).unwrap();
+                                    break 'inner_pause
+                                },
+                                Ok(PlayerMessage::Stop) => {
+                                    status_sender.send(PlayerStatus::Stopped).unwrap();
+                                    break 'main_decode
+                                },
+                                _ => {},
                             }
                         }
                     },
                     // Exits main decode loop and subsequently ends thread (?)
-                    PlayerMessage::Stop => {
+                    Ok(PlayerMessage::Stop) => {
                         status_sender.send(PlayerStatus::Stopped).unwrap();
                         break 'main_decode
                     },
-                    PlayerMessage::SeekTo(time) => seek_time = Some(time),
+                    Ok(PlayerMessage::SeekTo(time)) => seek_time = Some(time),
+                    Ok(PlayerMessage::DSP(dsp_message)) => {
+                        match dsp_message {
+                            DSPMessage::UpdateProcessor(new_processor) => music_processor = *new_processor,
+                        }
+                    }
                     _ => {},
-                } }
+                } 
                 
                 match seek_time {
                     Some(time) => {
@@ -120,16 +134,25 @@ impl MusicPlayer {
                         // Opens audio stream if there is not one
                         if audio_output.is_none() {
                             let spec = *decoded.spec();
-                            
                             let duration = decoded.capacity() as u64;
                             
                             audio_output.replace(crate::music_player::music_output::open_stream(spec, duration).unwrap());
                         }
                         
+                        // Handles audio normally provided there is an audio stream
                         if let Some(ref mut audio_output) = audio_output {
-                            // Writes decoded packet to audio out
+                            // Changes buffer of the MusicProcessor if the packet has a differing capacity or spec
+                            if music_processor.audio_buffer.capacity() != decoded.capacity() ||music_processor.audio_buffer.spec() != decoded.spec() {
+                                let spec = *decoded.spec();
+                                let duration = decoded.capacity() as u64;
+                                
+                                music_processor.set_buffer(duration, spec);
+                            }
                             
-                            audio_output.write(decoded).unwrap()
+                            let transformed_audio = music_processor.process(&decoded);
+                            
+                            // Writes transformed packet to audio out
+                            audio_output.write(transformed_audio).unwrap()
                         }
                     },
                     Err(Error::IoError(_)) => {
@@ -150,9 +173,9 @@ impl MusicPlayer {
         
     }
     
-    fn get_reader_and_dec(path: Box<PathBuf>) -> (Box<dyn FormatReader>, Box<dyn Decoder>) {
+    fn get_reader_and_dec<T: AsRef<str>>(path: T) -> (Box<dyn FormatReader>, Box<dyn Decoder>) {
         // Opens file and creates media source steram
-        let src = std::fs::File::open(*path).expect("Failed to open file");
+        let src = std::fs::File::open(path.as_ref()).expect("Failed to open file");
         let mss = MediaSourceStream::new(Box::new(src), Default::default());
         
         // Use default metadata and format options
