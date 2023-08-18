@@ -11,6 +11,7 @@ mod music_storage;
 mod music_controller;
 mod music_player;
 mod music_processor;
+mod music_tracker;
 
 fn main() {
     let config_path = PathBuf::from("config.toml");
