@@ -2,11 +2,12 @@ use crate::music_controller::config::Config;
 use file_format::{FileFormat, Kind};
 use serde_json::Value;
 use serde::Deserialize;
-use lofty::{Accessor, AudioFile, Probe, TaggedFileExt, ItemKey, ItemValue};
+use lofty::{Accessor, AudioFile, Probe, TaggedFileExt, ItemKey, ItemValue, TagType};
 use rusqlite::{params, Connection};
 use std::any::TypeId;
+use cue::{cd_text::PTI, cd::CD};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use time::Date;
 use walkdir::WalkDir;
@@ -22,7 +23,7 @@ pub struct Song {
     genre:  Option<String>,
     plays:  Option<usize>,
     favorited: Option<bool>,
-    format: Option<FileFormat>,
+    format: Option<String>, // TODO: Make this a proper FileFormat eventually
     duration: Option<Duration>,
     pub custom_tags: Option<Vec<crate::Tag>>,
 }
@@ -80,6 +81,81 @@ pub fn create_db() -> Result<(), rusqlite::Error> {
     Ok(())
 }
 
+fn path_in_db(query_path: &Path, connection: &Connection) -> bool {
+    let query_string = format!("SELECT EXISTS(SELECT 1 FROM music_collection WHERE song_path='{}')", query_path.to_string_lossy());
+
+    let mut query_statement = connection.prepare(&query_string).unwrap();
+    let mut rows = query_statement.query([]).unwrap();
+
+    match rows.next().unwrap() {
+        Some(value) => value.get::<usize, bool>(0).unwrap(),
+        None => false
+    }
+}
+
+/// Parse a cuesheet given a path and a directory it is located in,
+/// returning a Vec of Song objects
+fn parse_cuesheet(
+    cuesheet_path: &Path,
+    current_dir: &PathBuf
+) -> Result<Vec<Song>, Box<dyn std::error::Error>>{
+    let cuesheet = CD::parse_file(cuesheet_path.to_path_buf())?;
+
+    let album = cuesheet.get_cdtext().read(PTI::Title);
+
+    let mut song_list:Vec<Song> = vec![];
+
+    for (index, track) in cuesheet.tracks().iter().enumerate() {
+        let track_string_path = format!("{}/{}", current_dir.to_string_lossy(), track.get_filename());
+        let track_path = Path::new(&track_string_path);
+
+        if !track_path.exists() {continue};
+
+        // Get the format as a string
+        let short_format = match FileFormat::from_file(track_path) {
+            Ok(fmt) => Some(
+                String::from(
+                    fmt.short_name().unwrap_or("")
+                )
+            ),
+            Err(_) => None
+        };
+
+        let duration = Duration::from_secs(track.get_length().unwrap_or(-1) as u64);
+
+        let custom_index_start = Tag::Custom{
+            tag: String::from("dango_cue_index_start"),
+            tag_value: track.get_index(0).unwrap_or(-1).to_string()
+        };
+        let custom_index_end = Tag::Custom{
+            tag: String::from("dango_cue_index_end"),
+            tag_value: track.get_index(0).unwrap_or(-1).to_string()
+        };
+
+        let custom_tags: Vec<Tag> = vec![custom_index_start, custom_index_end];
+
+        let tags = track.get_cdtext();
+        let cue_song = Song {
+            path: track_path.into(),
+            title: tags.read(PTI::Title),
+            album: album.clone(),
+            tracknum: Some(index + 1),
+            artist: tags.read(PTI::Performer),
+            date: None,
+            genre: tags.read(PTI::Genre),
+            plays: Some(0),
+            favorited: Some(false),
+            format: short_format,
+            duration: Some(duration),
+            custom_tags: Some(custom_tags)
+        };
+
+        song_list.push(cue_song);
+    }
+
+    Ok(song_list)
+}
+
 pub fn find_all_music(
     config: &Config,
     target_path: &str,
@@ -89,12 +165,14 @@ pub fn find_all_music(
     db_connection.pragma_update(None, "synchronous", "0")?;
     db_connection.pragma_update(None, "journal_mode", "WAL")?;
 
+    let mut current_dir = PathBuf::new();
     for entry in WalkDir::new(target_path).follow_links(true).into_iter().filter_map(|e| e.ok()) {
         let target_file = entry;
         let is_file = fs::metadata(target_file.path())?.is_file();
 
         // Ensure the target is a file and not a directory, if it isn't, skip this loop
         if !is_file {
+            current_dir = target_file.into_path();
             continue;
         }
 
@@ -104,23 +182,29 @@ pub fn find_all_music(
             .extension()
             .expect("Could not find file extension");
 
+        // If it's a normal file, add it to the database
+        // if it's a cuesheet, do a bunch of fancy stuff
         if format.kind() == Kind::Audio {
-            add_to_db(target_file.path(), &db_connection)
+            add_file_to_db(target_file.path(), &db_connection)
+        } else if extension.to_ascii_lowercase() == "cue" {
+            // TODO: implement cuesheet support
+            parse_cuesheet(target_file.path(), &current_dir);
         }
-        // TODO: implement cuesheet support
-        /*else if extension == "cue" {
-            if let Ok(ret) = fs::read_to_string(target_file.path()) {
-                let contents = ret.to_string();
-                let cuesheet = CD::parse(contents)?;
-                println!("{}", cuesheet.get_track_count());
-            }
-        }*/
     }
+
+    // create the indexes after all the data is inserted
+    db_connection.execute(
+        "CREATE INDEX path_index ON music_collection (song_path)", ()
+    )?;
+
+    db_connection.execute(
+        "CREATE INDEX custom_tags_index ON custom_tags (song_path)", ()
+    )?;
 
     Ok(())
 }
 
-pub fn add_to_db(target_file: &Path, connection: &Connection) {
+pub fn add_file_to_db(target_file: &Path, connection: &Connection) {
     // TODO: Fix error handling here
     let tagged_file = match lofty::read_from_path(target_file) {
         Ok(tagged_file) => tagged_file,
@@ -134,13 +218,13 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
             }
     };
 
+    let blank_tag = &lofty::Tag::new(TagType::Id3v2);
     let tag = match tagged_file.primary_tag() {
         Some(primary_tag) => primary_tag,
 
         None => match tagged_file.first_tag() {
             Some(first_tag) => first_tag,
-
-            None => return
+            None => blank_tag
         },
     };
 
@@ -149,12 +233,12 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
     for item in tag.items() {
         let mut custom_key = String::new();
         match item.key() {
-            ItemKey::TrackArtist    => continue,
-            ItemKey::TrackTitle     => continue,
-            ItemKey::AlbumTitle     => continue,
-            ItemKey::Genre          => continue,
-            ItemKey::TrackNumber    => continue,
-            ItemKey::Year           => continue,
+            ItemKey::TrackArtist |
+            ItemKey::TrackTitle  |
+            ItemKey::AlbumTitle  |
+            ItemKey::Genre       |
+            ItemKey::TrackNumber |
+            ItemKey::Year        |
             ItemKey::RecordingDate  => continue,
             ItemKey::Unknown(unknown) => custom_key.push_str(&unknown),
             custom => custom_key.push_str(&format!("{:?}", custom))
@@ -164,7 +248,7 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
         let custom_value = match item.value() {
             ItemValue::Text(value) => value,
             ItemValue::Locator(value) => value,
-            _ => ""
+            ItemValue::Binary(_) => ""
         };
 
         if loops > 0 {
@@ -176,7 +260,10 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
         loops += 1;
     }
     
-    let format = FileFormat::from_file(target_file).unwrap().to_string();
+    let short_format = match FileFormat::from_file(target_file) {
+        Ok(fmt) => fmt.short_name(),
+        Err(_) => None
+    };
     
     let duration = tagged_file.properties().duration().as_secs().to_string();
     
@@ -221,7 +308,7 @@ pub fn add_to_db(target_file: &Path, connection: &Connection) {
             tag.genre(),
             0,
             false,
-            format,
+            short_format,
             duration
         ],
     ).unwrap();
@@ -309,14 +396,7 @@ pub fn query(
         }
 
         match tag {
-            Tag::Custom{tag, ..} => {
-                // If the input tag name is blank, search without matching custom tag name
-                if tag == "" {
-                    where_string.push_str(&format!("custom_tags.tag_value LIKE '{text_input}' "))
-                } else {
-                    where_string.push_str(&format!("custom_tags.tag = '{tag}' AND custom_tags.tag_value LIKE '{text_input}' "))
-                }
-            },
+            Tag::Custom{tag, ..} => where_string.push_str(&format!("custom_tags.tag = '{tag}' AND custom_tags.tag_value LIKE '{text_input}' ")),
             Tag::SongPath => where_string.push_str(&format!("music_collection.{} LIKE '{text_input}' ", tag.as_str())),
             _ => where_string.push_str(&format!("{} LIKE '{text_input}' ", tag.as_str()))
         }
@@ -374,7 +454,7 @@ pub fn query(
             genre:  row.get::<usize, String>(6).ok(),
             plays:  row.get::<usize, usize>(7).ok(),
             favorited: row.get::<usize, bool>(8).ok(),
-            format: Some(FileFormat::OggOpus),
+            format: Some(String::from("flac")),
             duration: Some(Duration::from_secs(row.get::<usize, u64>(10).unwrap_or(0))),
             custom_tags: Some(custom_tags),
         };

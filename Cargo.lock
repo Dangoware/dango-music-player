@@ -283,10 +283,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "cue"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa8bcf4c6736cccc4eaeb108973e6457cb5c4d6393e29cdf61158cee51c0d4af"
+dependencies = [
+ "cue-sys",
+ "libc",
+]
+
+[[package]]
+name = "cue-sys"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7eb6bf9ed3f73d97b215e5d9c76293095b1fccb1ffd68a8926a8103d11f11440"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "dango-backend"
 version = "0.1.0"
 dependencies = [
  "cpal",
+ "cue",
  "dasp",
  "file-format",
  "heapless",
