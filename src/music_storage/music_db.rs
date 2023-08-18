@@ -260,8 +260,13 @@ pub fn add_file_to_db(target_file: &Path, connection: &Connection) {
         loops += 1;
     }
     
+    // Get the format as a string
     let short_format = match FileFormat::from_file(target_file) {
-        Ok(fmt) => fmt.short_name(),
+        Ok(fmt) => Some(
+            String::from(
+                fmt.short_name().unwrap_or("")
+            )
+        ),
         Err(_) => None
     };
     
