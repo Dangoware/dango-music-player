@@ -695,6 +695,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "805eab5eeca901cbdfabf3f54adb2f27464073617279fd4e14eedb2a0757222e"
 dependencies = [
  "cfb",
+ "serde",
  "zip",
 ]
 

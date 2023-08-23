@@ -1,7 +1,8 @@
 use crate::music_controller::config::Config;
 use file_format::{FileFormat, Kind};
+use serde::de::IntoDeserializer;
 use serde_json::Value;
-use serde::Deserialize;
+use serde::{Serialize,Deserialize};
 use lofty::{Accessor, AudioFile, Probe, TaggedFileExt, ItemKey, ItemValue, TagType};
 use rusqlite::{params, Connection};
 use std::any::TypeId;
@@ -23,7 +24,7 @@ pub struct Song {
     genre:  Option<String>,
     plays:  Option<usize>,
     favorited: Option<bool>,
-    format: Option<String>, // TODO: Make this a proper FileFormat eventually
+    format: Option<FileFormat>, // TODO: Make this a proper FileFormat eventually
     duration: Option<Duration>,
     pub custom_tags: Option<Vec<crate::Tag>>,
 }
@@ -113,11 +114,7 @@ fn parse_cuesheet(
 
         // Get the format as a string
         let short_format = match FileFormat::from_file(track_path) {
-            Ok(fmt) => Some(
-                String::from(
-                    fmt.short_name().unwrap_or("")
-                )
-            ),
+            Ok(fmt) => Some(fmt),
             Err(_) => None
         };
 
@@ -218,6 +215,7 @@ pub fn add_file_to_db(target_file: &Path, connection: &Connection) {
             }
     };
 
+    // Ensure the tags exist, if not, insert blank data
     let blank_tag = &lofty::Tag::new(TagType::Id3v2);
     let tag = match tagged_file.primary_tag() {
         Some(primary_tag) => primary_tag,
@@ -261,14 +259,12 @@ pub fn add_file_to_db(target_file: &Path, connection: &Connection) {
     }
     
     // Get the format as a string
-    let short_format = match FileFormat::from_file(target_file) {
-        Ok(fmt) => Some(
-            String::from(
-                fmt.short_name().unwrap_or("")
-            )
-        ),
+    let short_format: Option<String> = match FileFormat::from_file(target_file) {
+        Ok(fmt) => Some(fmt.to_string()),
         Err(_) => None
     };
+
+    println!("{}", short_format.as_ref().unwrap());
     
     let duration = tagged_file.properties().duration().as_secs().to_string();
     
@@ -276,6 +272,7 @@ pub fn add_file_to_db(target_file: &Path, connection: &Connection) {
     let binding = fs::canonicalize(target_file).unwrap();
     let abs_path = binding.to_str().unwrap();
 
+    // Add all the info into the music_collection table
     connection.execute(
         "INSERT INTO music_collection (
             song_path,
@@ -289,35 +286,11 @@ pub fn add_file_to_db(target_file: &Path, connection: &Connection) {
             favorited,
             format,
             duration
-        ) VALUES (
-            ?1,
-            ?2,
-            ?3,
-            ?4,
-            ?5,
-            ?6,
-            ?7,
-            ?8,
-            ?9,
-            ?10,
-            ?11
-        )",
-
-        params![
-            abs_path,
-            tag.title(),
-            tag.album(),
-            tag.track(),
-            tag.artist(),
-            tag.year(),
-            tag.genre(),
-            0,
-            false,
-            short_format,
-            duration
-        ],
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![abs_path, tag.title(), tag.album(), tag.track(), tag.artist(), tag.year(), tag.genre(), 0, false, short_format, duration],
     ).unwrap();
 
+    //TODO: Fix this, it's horrible
     if custom_insert != "" {
         connection.execute(
             &format!("INSERT INTO custom_tags ('song_path', 'tag', 'tag_value') VALUES {}", &custom_insert),
@@ -448,6 +421,8 @@ pub fn query(
             Err(_) => vec![]
         };
 
+        let file_format: FileFormat = FileFormat::from(row.get::<usize, String>(9).unwrap().as_bytes());
+
         let new_song = Song {
             // TODO: Implement proper errors here
             path:   Path::new(&row.get::<usize, String>(0).unwrap_or("".to_owned())).into(),
@@ -459,7 +434,7 @@ pub fn query(
             genre:  row.get::<usize, String>(6).ok(),
             plays:  row.get::<usize, usize>(7).ok(),
             favorited: row.get::<usize, bool>(8).ok(),
-            format: Some(String::from("flac")),
+            format: Some(file_format),
             duration: Some(Duration::from_secs(row.get::<usize, u64>(10).unwrap_or(0))),
             custom_tags: Some(custom_tags),
         };

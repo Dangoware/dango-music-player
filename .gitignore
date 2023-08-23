@@ -1,3 +1,4 @@
 target/
 
-*.db3
+*.db3*
+config.toml
