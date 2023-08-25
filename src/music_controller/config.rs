@@ -4,9 +4,12 @@ use std::fs::{File, read_to_string};
 use std::io::{Read, Write, Result};
 use std::fs;
 
+use crate::music_tracker::music_tracker::LastFM;
+
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     pub db_path: Box<PathBuf>,
+    pub lastfm: Option<LastFM>,
 }
 
 impl Config {
@@ -16,6 +19,7 @@ impl Config {
         
         let config = Config {
             db_path: Box::new(path),
+            lastfm: None,
         };
         config.save(config_file)?;
         

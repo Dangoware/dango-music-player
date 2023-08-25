@@ -170,7 +170,6 @@ impl MusicPlayer {
                 }
             }
         });
-        
     }
     
     fn get_reader_and_dec<T: AsRef<str>>(path: T) -> (Box<dyn FormatReader>, Box<dyn Decoder>) {

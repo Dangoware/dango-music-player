@@ -21,6 +21,8 @@ cue = "2.0.0"
 reqwest = "0.11.18"
 async-std = "1.12.0"
 async-trait = "0.1.73"
+md-5 = "0.10.5"
+surf = "2.3.2"
 
 [profile.release]
 strip = true
