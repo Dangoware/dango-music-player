@@ -5,12 +5,12 @@ This repository is subject to change at any time and no feature has yet been sta
 
 
 Features:
-- [x] Song Playback
+- [x] Song Playback (WIP)
 - [ ] Customizable UI
 - [x] Cross-Platform
 - [ ] Themes
 - [ ] Remote Song Playback
-- [ ] Scrobbling
+- [X] Scrobbling (WIP)
 - [ ] Imports From Other Players
 - [ ] Native UI
 - [ ] TUI
