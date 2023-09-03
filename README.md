@@ -16,7 +16,7 @@ Features:
 - [ ] Customizable UI
 - [x] Cross-Platform
 - [ ] Themes
-- [ ] Remote Song Playback
+- [X] Remote Song Playback (WIP)
 - [X] Scrobbling (WIP)
 - [ ] Imports From Other Players
 - [ ] Native UI
