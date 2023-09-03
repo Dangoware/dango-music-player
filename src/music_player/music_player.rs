@@ -3,19 +3,29 @@ use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender, Receiver};
-use std::thread;
+use std::{thread, any};
+use std::io::{Cursor, SeekFrom};
+use async_std::io::ReadExt;
+use async_std::task;
 
 use symphonia::core::audio::AudioBuffer;
 use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions, Decoder};
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
-use symphonia::core::io::MediaSourceStream;
+use symphonia::core::io::{MediaSourceStream, MediaSource, ReadOnlySource};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::core::errors::Error;
 use symphonia::core::units::Time;
+use stream_download::{
+    http::HttpStream, reqwest::client::Client, source::SourceStream, Settings, StreamDownload,
+};
+use symphonia::default;
+
+use futures::AsyncBufRead;
 
 use crate::music_player::music_output::AudioStream;
 use crate::music_processor::music_processor::MusicProcessor;
+use crate::music_storage::music_db::{URI, Service};
 
 // Struct that controls playback of music
 pub struct MusicPlayer {
@@ -56,18 +66,18 @@ impl MusicPlayer {
     }
     
     // Opens and plays song with given path in separate thread
-    pub fn open_song<T: AsRef<str>>(&mut self, path: T) {
+    pub fn open_song(&mut self, uri: &URI) {
         // Creates mpsc channels to communicate with thread
         let (message_sender, message_receiver) = mpsc::channel();
         let (status_sender, status_receiver) = mpsc::channel();
         self.message_sender = Some(message_sender);
         self.status_receiver = Some(status_receiver);
-
-        let owned_path = String::from(path.as_ref());
         
+        let owned_uri = uri.clone();
+
         // Creates thread that audio is decoded in
         thread::spawn(move || {
-            let (mut reader, mut decoder) = MusicPlayer::get_reader_and_dec(owned_path);
+            let (mut reader, mut decoder) = MusicPlayer::get_reader_and_dec(&owned_uri);
             
             let mut seek_time: Option<u64> = None;
             
@@ -172,15 +182,20 @@ impl MusicPlayer {
         });
     }
     
-    fn get_reader_and_dec<T: AsRef<str>>(path: T) -> (Box<dyn FormatReader>, Box<dyn Decoder>) {
-        // Opens file and creates media source steram
-        let src = std::fs::File::open(path.as_ref()).expect("Failed to open file");
-        let mss = MediaSourceStream::new(Box::new(src), Default::default());
+    fn get_reader_and_dec(uri: &URI) -> (Box<dyn FormatReader>, Box<dyn Decoder>) {
+        // Opens remote/local source and creates MediaSource for symphonia
+        let config = RemoteOptions { media_buffer_len: 10000, forward_buffer_len: 10000};
+        let src: Box<dyn MediaSource> = match uri {
+            URI::Local(path) => Box::new(std::fs::File::open(path).expect("Failed to open file")),
+            URI::Remote(_, location) => Box::new(RemoteSource::new(location.as_ref(), &config).unwrap()),
+        };
+        
+        let mss = MediaSourceStream::new(src, Default::default());
         
         // Use default metadata and format options
         let meta_opts: MetadataOptions = Default::default();
         let fmt_opts: FormatOptions = Default::default();
-        
+
         let mut hint = Hint::new();
         
         let probed = symphonia::default::get_probe().format(&hint, mss, &fmt_opts, &meta_opts).expect("Unsupported format");
@@ -228,5 +243,130 @@ impl MusicPlayer {
     pub fn get_status(&mut self) -> PlayerStatus {
         self.update_status();
         return self.player_status;
+    }
+}
+
+// TODO: Make the buffer length do anything
+/// Options for remote sources
+///
+/// media_buffer_len is how many bytes are to be buffered in totala
+///
+/// forward_buffer is how many bytes can ahead of the seek position without the remote source being read from
+pub struct RemoteOptions {
+    media_buffer_len: u64,
+    forward_buffer_len: u64,
+}
+
+impl Default for RemoteOptions {
+    fn default() -> Self {
+        RemoteOptions {
+            media_buffer_len: 100000,
+            forward_buffer_len: 1024,
+        }
+    }   
+}
+
+/// A remote source of media
+struct RemoteSource {
+    reader: Box<dyn AsyncBufRead + Send + Sync + Unpin>,
+    media_buffer: Vec<u8>,
+    forward_buffer_len: u64,
+    offset: u64,
+}
+
+impl RemoteSource {
+    /// Creates a new RemoteSource with given uri and configuration
+    pub fn new(uri: &str, config: &RemoteOptions) -> Result<Self, surf::Error> {
+        let mut response = task::block_on(async { 
+            return surf::get(uri).await;
+        })?;
+        
+        let reader = response.take_body().into_reader();
+        
+        Ok(RemoteSource {
+            reader,
+            media_buffer: Vec::new(),
+            forward_buffer_len: config.forward_buffer_len,
+            offset: 0,
+        })
+    }
+}
+// TODO: refactor this + buffer into the buffer passed into the function, not a newly allocated one
+impl std::io::Read for RemoteSource {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        // Reads bytes into the media buffer if the offset is within the specified distance from the end of the buffer
+        if self.media_buffer.len() as u64 - self.offset < self.forward_buffer_len {
+            let mut buffer = [0; 1024];
+            let read_bytes = task::block_on(async {
+                match self.reader.read_exact(&mut buffer).await {
+                    Ok(_) => {
+                        self.media_buffer.extend_from_slice(&buffer);
+                        return Ok(());
+                    },
+                    Err(err) => return Err(err),
+                }
+            });
+            match read_bytes {
+                Err(err) => return Err(err),
+                _ => {},
+            }
+        }
+        // Reads bytes from the media buffer into the buffer given by 
+        let mut bytes_read = 0;
+        for location in 0..1024 {
+            if (location + self.offset as usize) < self.media_buffer.len() {
+                buf[location] = self.media_buffer[location + self.offset as usize];
+                bytes_read += 1;
+            }
+        }
+        
+        self.offset += bytes_read;
+        return Ok(bytes_read as usize);
+    }
+}
+
+impl std::io::Seek for RemoteSource {
+    // Seeks to a given position
+    // Seeking past the internal buffer's length results in the seeking to the end of content
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        match pos {
+            // Offset is set to given position
+            SeekFrom::Start(pos) => {
+                if pos > self.media_buffer.len() as u64{
+                    self.offset = self.media_buffer.len() as u64;
+                } else {
+                    self.offset = pos;
+                }
+                return Ok(self.offset);
+            },
+            // Offset is set to length of buffer + given position
+            SeekFrom::End(pos) => {
+                if self.media_buffer.len() as u64 + pos as u64 > self.media_buffer.len() as u64 {
+                    self.offset = self.media_buffer.len() as u64;
+                } else {
+                    self.offset = self.media_buffer.len() as u64 + pos as u64;
+                }
+                return Ok(self.offset);
+            },
+            // Offset is set to current offset + given position
+            SeekFrom::Current(pos) => {
+                if self.offset + pos as u64 > self.media_buffer.len() as u64{
+                    self.offset = self.media_buffer.len() as u64;
+                } else {
+                    self.offset += pos as u64
+                }
+                return Ok(self.offset);
+            },
+        }
+    }
+}
+
+impl MediaSource for RemoteSource {
+    fn is_seekable(&self) -> bool {
+        return true;
+    }
+    
+    fn byte_len(&self) -> Option<u64> {
+        return None;
     }
 }

@@ -28,6 +28,18 @@ pub struct Song {
     duration: Option<Duration>,
     pub custom_tags: Option<Vec<crate::Tag>>,
 }
+#[derive(Clone)]
+pub enum URI{
+    Local(String),
+    Remote(Service, String),
+}
+
+#[derive(Clone, Copy)]
+pub enum Service {
+    InternetRadio,
+    Spotify,
+    Youtube,
+}
 
 #[derive(Debug)]
 pub struct Playlist {

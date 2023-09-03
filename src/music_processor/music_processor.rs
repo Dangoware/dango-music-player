@@ -7,6 +7,7 @@ pub struct MusicProcessor {
 }
 
 impl MusicProcessor {
+    /// Returns new MusicProcessor with blank buffer and 100% volume
     pub fn new() -> Self {
         MusicProcessor {
             audio_buffer: AudioBuffer::unused(),
@@ -14,6 +15,9 @@ impl MusicProcessor {
         }
     }
     
+    /// Processes audio samples
+    /// 
+    /// Currently only supports transformations of volume
     pub fn process(&mut self, audio_buffer_ref: &AudioBufferRef) -> AudioBufferRef {
         audio_buffer_ref.convert(&mut self.audio_buffer);
         
@@ -24,6 +28,7 @@ impl MusicProcessor {
         return self.audio_buffer.as_audio_buffer_ref();
     }
     
+    /// Sets buffer of the MusicProcessor
     pub fn set_buffer(&mut self, duration: u64, spec: SignalSpec) {
         self.audio_buffer = AudioBuffer::new(duration, spec);
     }

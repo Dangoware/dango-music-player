@@ -1,5 +1,5 @@
 use rusqlite::{Connection, Result};
-use crate::{music_controller::config::Config, music_player::{music_player::{MusicPlayer, PlayerStatus, PlayerMessage, DSPMessage}, self}, music_processor::{music_processor::MusicProcessor, self}};
+use crate::{music_controller::config::Config, music_player::{music_player::{MusicPlayer, PlayerStatus, PlayerMessage, DSPMessage}, self}, music_processor::{music_processor::MusicProcessor, self}, music_storage::music_db::URI};
 use std::{path::PathBuf, task::Context};
 
 pub struct MusicController {
@@ -36,8 +36,8 @@ impl MusicController {
     }
     
     // Opens and plays song at given path
-    pub fn open_song<T: AsRef<str>>(&mut self, path: T) {
-        self.music_player.open_song(path);
+    pub fn open_song(&mut self, uri: &URI) {
+        self.music_player.open_song(uri);
     }
     
     // Sends message to music player to play, pause, stop and seek

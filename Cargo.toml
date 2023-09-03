@@ -21,7 +21,10 @@ async-std = "1.12.0"
 async-trait = "0.1.73"
 md-5 = "0.10.5"
 surf = "2.3.2"
+rodio = "0.17.1"
+stream-download = "0.2.0"
+futures = "0.3.28"
 
 [profile.release]
-strip = true
-lto = true
+strip = false
+lto = false
