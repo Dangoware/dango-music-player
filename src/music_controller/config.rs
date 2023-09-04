@@ -1,8 +1,8 @@
-use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
-use std::fs::{File, read_to_string};
-use std::io::{Read, Write, Result};
+use std::path::PathBuf;
+use std::fs::read_to_string;
 use std::fs;
+
+use serde::{Deserialize, Serialize};
 
 use crate::music_tracker::music_tracker::LastFM;
 

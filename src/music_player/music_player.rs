@@ -1,31 +1,23 @@
-use std::ops::Deref;
-use std::sync::RwLock;
-use std::sync::{Arc, Mutex};
-use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender, Receiver};
-use std::{thread, any};
-use std::io::{Cursor, SeekFrom};
+use std::thread;
+use std::io::SeekFrom;
+
 use async_std::io::ReadExt;
 use async_std::task;
 
-use symphonia::core::audio::AudioBuffer;
 use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions, Decoder};
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
-use symphonia::core::io::{MediaSourceStream, MediaSource, ReadOnlySource};
+use symphonia::core::io::{MediaSourceStream, MediaSource};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::core::errors::Error;
 use symphonia::core::units::Time;
-use stream_download::{
-    http::HttpStream, reqwest::client::Client, source::SourceStream, Settings, StreamDownload,
-};
-use symphonia::default;
 
 use futures::AsyncBufRead;
 
 use crate::music_player::music_output::AudioStream;
 use crate::music_processor::music_processor::MusicProcessor;
-use crate::music_storage::music_db::{URI, Service};
+use crate::music_storage::music_db::URI;
 
 // Struct that controls playback of music
 pub struct MusicPlayer {

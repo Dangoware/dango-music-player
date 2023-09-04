@@ -1,18 +1,10 @@
 use std::path::{PathBuf, Path};
-use music_controller::music_controller::MusicController;
-use music_storage::music_db::{find_all_music, create_db, query, Tag, MusicObject, URI, Service};
-
-use music_player::music_player::{PlayerStatus, PlayerMessage};
-use music_tracker::music_tracker::LastFM;
-use async_std::task;
 use std::thread;
 use std::time::Duration;
 
-mod music_storage;
-mod music_controller;
-mod music_player;
-mod music_processor;
-mod music_tracker;
+use dango_backend::music_controller::music_controller::MusicController;
+use dango_backend::music_storage::music_db::{find_all_music, create_db, URI, Service};
+use dango_backend::music_player::music_player::PlayerMessage;
 
 fn main() {
     let config_path = PathBuf::from("config.toml");
@@ -31,7 +23,7 @@ fn main() {
     
     let song_remote = URI::Remote(Service::InternetRadio, String::from("https://stream.gensokyoradio.net/3"));
     controller.open_song(&song_remote);
-    controller.set_vol(1.0);
+    controller.set_vol(0.1);
     thread::sleep(Duration::from_secs(10));
     controller.song_control(PlayerMessage::SeekTo(3));
     println!("seeked!");

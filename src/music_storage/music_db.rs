@@ -1,17 +1,15 @@
-use crate::music_controller::config::Config;
 use file_format::{FileFormat, Kind};
-use serde::de::IntoDeserializer;
-use serde_json::Value;
-use serde::{Serialize,Deserialize};
+use serde::Deserialize;
 use lofty::{Accessor, AudioFile, Probe, TaggedFileExt, ItemKey, ItemValue, TagType};
 use rusqlite::{params, Connection};
-use std::any::TypeId;
 use cue::{cd_text::PTI, cd::CD};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use time::Date;
 use walkdir::WalkDir;
+
+use crate::music_controller::config::Config;
 
 #[derive(Debug)]
 pub struct Song {
@@ -26,7 +24,7 @@ pub struct Song {
     favorited: Option<bool>,
     format: Option<FileFormat>, // TODO: Make this a proper FileFormat eventually
     duration: Option<Duration>,
-    pub custom_tags: Option<Vec<crate::Tag>>,
+    pub custom_tags: Option<Vec<Tag>>,
 }
 #[derive(Clone)]
 pub enum URI{
