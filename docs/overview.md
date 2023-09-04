@@ -2,7 +2,7 @@
 
 Dango music player operates with a standalone cross-platform backend that can function with multiple frontends
 
-This is to be implemented such that the `dango-backend` crate controls all music-related functions, and provides an api for frontends to use.
+This is to be implemented such that the `dango-core` crate controls all music-related functions, and provides an api for frontends to use.
 
 `dango-gui` is intended to be a fully featured cross-platform native modular frontend
 
@@ -11,7 +11,7 @@ This is to be implemented such that the `dango-backend` crate controls all music
 ---
 ###### note: all structure is subject to change during development
 
-## dango-backend:
+## dango-core:
 
 Core functionality is provided by the `MusicController` struct, which provides an interface to interact with playback. All configuration is stored within a .toml file which it must be loaded from. 
 

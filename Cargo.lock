@@ -647,8 +647,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "dango-backend"
-version = "0.1.0"
+name = "dango-core"
+version = "0.1.1"
 dependencies = [
  "async-std",
  "async-trait",

@@ -2,9 +2,9 @@ use std::path::{PathBuf, Path};
 use std::thread;
 use std::time::Duration;
 
-use dango_backend::music_controller::music_controller::MusicController;
-use dango_backend::music_storage::music_db::{find_all_music, create_db, URI, Service};
-use dango_backend::music_player::music_player::PlayerMessage;
+use dango_core::music_controller::music_controller::MusicController;
+use dango_core::music_storage::music_db::{find_all_music, create_db, URI, Service};
+use dango_core::music_player::music_player::PlayerMessage;
 
 fn main() {
     let config_path = PathBuf::from("config.toml");

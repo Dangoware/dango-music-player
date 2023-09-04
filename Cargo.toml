@@ -1,6 +1,6 @@
 [package]
-name = "dango-backend"
-version = "0.1.0"
+name = "dango-core"
+version = "0.1.1"
 edition = "2021"
 
 [dependencies]
