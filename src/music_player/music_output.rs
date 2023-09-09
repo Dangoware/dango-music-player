@@ -1,13 +1,15 @@
-use std::result;
+use std::{result, thread};
 
 use symphonia::core::audio::{AudioBufferRef, SignalSpec, RawSample, SampleBuffer};
-use symphonia::core::conv::{ConvertibleSample, IntoSample};
+use symphonia::core::conv::{ConvertibleSample, IntoSample, FromSample};
 use symphonia::core::units::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{self, SizedSample};
 
 use rb::*;
+
+use crate::music_player::music_resampler::Resampler;
 
 pub trait AudioStream {
     fn write(&mut self, decoded: AudioBufferRef<'_>) -> Result<()>;
@@ -23,7 +25,7 @@ pub enum AudioOutputError {
 
 pub type Result<T> = result::Result<T, AudioOutputError>;
 
-pub trait OutputSample: SizedSample + IntoSample<f64> +cpal::Sample + ConvertibleSample + RawSample + std::marker::Send + 'static {}
+pub trait OutputSample: SizedSample + FromSample<f32> + IntoSample<f32> +cpal::Sample + ConvertibleSample + RawSample + std::marker::Send + 'static {}
 
 pub struct AudioOutput<T>
 where T: OutputSample,
@@ -31,7 +33,7 @@ where T: OutputSample,
     ring_buf_producer: rb::Producer<T>,
     sample_buf: SampleBuffer<T>,
     stream: cpal::Stream,
-    resampler: Option<T>,
+    resampler: Option<Resampler<T>>,
 }
 impl OutputSample for i8 {}
 impl OutputSample for i16 {}
@@ -114,7 +116,11 @@ impl<T: OutputSample> AudioOutput<T> {
         
         let sample_buf = SampleBuffer::<T>::new(duration, spec);
         
-        let resampler: Option<T> = None;
+        let mut resampler = None;
+        if spec.rate != config.sample_rate.0 {
+            println!("Resampling enabled");
+            resampler = Some(Resampler::new(spec, config.sample_rate.0 as usize, duration))
+        }
         
         Ok(Box::new(AudioOutput { ring_buf_producer, sample_buf, stream, resampler}))
     }
@@ -128,9 +134,11 @@ impl<T: OutputSample> AudioStream for AudioOutput<T> {
         }
         
         let mut samples: &[T] = if let Some(resampler) = &mut self.resampler {
-            // TODO: implement resampler
-            println!("this should not print");
-            return Ok(())
+            // Resamples if required
+            match resampler.resample(decoded) {
+                Some(resampled) => resampled,
+                None => return Ok(()),
+            }
         } else {
             self.sample_buf.copy_interleaved_ref(decoded);
             self.sample_buf.samples()
@@ -147,7 +155,11 @@ impl<T: OutputSample> AudioStream for AudioOutput<T> {
     // Flushes resampler if needed
     fn flush(&mut self) {
         if let Some(resampler) = &mut self.resampler {
-            // TODO: implement resampler
+            let mut stale_samples  = resampler.flush().unwrap_or_default();
+            
+            while let Some(written) = self.ring_buf_producer.write_blocking(stale_samples) {
+                stale_samples = &stale_samples[written..];
+            }
         }
         
         let _ = self.stream.pause();
