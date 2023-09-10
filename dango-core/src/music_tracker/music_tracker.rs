@@ -2,35 +2,72 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, Serializer};
 use md5::{Md5, Digest};
+use discord_presence::{ Event, DiscordError};
+use surf::StatusCode;
 
 #[async_trait]
 pub trait MusicTracker {
     /// Adds one listen to a song halfway through playback
-    async fn track_song(&self, song: &String) -> Result<(), surf::Error>;
+    async fn track_song(&mut self, song: &String) -> Result<(), TrackerError>;
     
     /// Adds a 'listening' status to the music tracker service of choice
-    async fn track_now(&self, song: &String) -> Result<(), surf::Error>;
+    async fn track_now(&mut self, song: &String) -> Result<(), TrackerError>;
     
     /// Reads config files, and attempts authentication with service
-    async fn test_tracker(&self) -> Result<(), surf::Error>;
+    async fn test_tracker(&mut self) -> Result<(), TrackerError>;
     
     /// Returns plays for a given song according to tracker service
-    async fn get_times_tracked(&self, song: &String) -> Result<u32, surf::Error>;
+    async fn get_times_tracked(&mut self, song: &String) -> Result<u32, TrackerError>;
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug)]
+pub enum TrackerError {
+    /// Tracker does not accept the song's format/content
+    InvalidSong,
+    /// Tracker requires authentication
+    InvalidAuth,
+    /// Tracker request was malformed
+    InvalidRequest,
+    /// Tracker is unavailable
+    ServiceUnavailable,
+    /// Unknown tracker error
+    Unknown,
+}
+
+
+impl TrackerError {
+    pub fn from_surf_error(error: surf::Error) -> TrackerError {
+        return match error.status() {
+            StatusCode::Forbidden => TrackerError::InvalidAuth,
+            StatusCode::Unauthorized => TrackerError::InvalidAuth,
+            StatusCode::NetworkAuthenticationRequired => TrackerError::InvalidAuth,
+            StatusCode::BadRequest => TrackerError::InvalidRequest,
+            StatusCode::BadGateway => TrackerError::ServiceUnavailable,
+            StatusCode::ServiceUnavailable => TrackerError::ServiceUnavailable,
+            StatusCode::NotFound => TrackerError::ServiceUnavailable,
+            _ => TrackerError::Unknown,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct LastFMConfig {
+    pub enabled: bool,
+    pub dango_api_key: String,
+    pub auth_token: Option<String>,
+    pub shared_secret: Option<String>,
+    pub session_key: Option<String>,
+}
+
 pub struct LastFM {
-    dango_api_key: String,
-    auth_token: Option<String>,
-    shared_secret: Option<String>,
-    session_key: Option<String>,
+    config: LastFMConfig
 }
 
 #[async_trait]
 impl MusicTracker for LastFM {
-    async fn track_song(&self, song: &String) -> Result<(), surf::Error> {
+    async fn track_song(&mut self, song: &String) -> Result<(), TrackerError> {
         let mut params: BTreeMap<&str, &str> = BTreeMap::new();
         
         // Sets timestamp of song beginning play time
@@ -41,27 +78,35 @@ impl MusicTracker for LastFM {
         params.insert("track", "A Happy Death - Again");
         params.insert("timestamp", &string_timestamp);
         
-        self.api_request(params).await?;
-        Ok(())
+        return match self.api_request(params).await {
+            Ok(_) => Ok(()),
+            Err(err) => Err(TrackerError::from_surf_error(err)),
+        }
     }
     
-    async fn track_now(&self, song: &String) -> Result<(), surf::Error> {
+    async fn track_now(&mut self, song: &String) -> Result<(), TrackerError> {
         let mut params: BTreeMap<&str, &str> = BTreeMap::new();
         params.insert("method", "track.updateNowPlaying");
         params.insert("artist", "Kikuo");
         params.insert("track", "A Happy Death - Again");
-        self.api_request(params).await?;
-        Ok(())
+        
+        return match self.api_request(params).await {
+            Ok(_) => Ok(()),
+            Err(err) => Err(TrackerError::from_surf_error(err)),
+        }
     }
     
-    async fn test_tracker(&self) -> Result<(), surf::Error> {
+    async fn test_tracker(&mut self) -> Result<(), TrackerError> {
         let mut params: BTreeMap<&str, &str> = BTreeMap::new();
         params.insert("method", "chart.getTopArtists");
-        self.api_request(params).await?;
-        Ok(())
+        
+        return match self.api_request(params).await {
+            Ok(_) => Ok(()),
+            Err(err) => Err(TrackerError::from_surf_error(err)),
+        }
     }
     
-    async fn get_times_tracked(&self, song: &String) -> Result<u32, surf::Error> {
+    async fn get_times_tracked(&mut self, song: &String) -> Result<u32, TrackerError> {
         todo!();
     }
 }
@@ -87,11 +132,11 @@ impl LastFM {
     // Returns a url to be accessed by the user
     pub async fn get_auth_url(&mut self) -> Result<String, surf::Error> {
         let method = String::from("auth.gettoken");
-        let api_key = self.dango_api_key.clone();
+        let api_key = self.config.dango_api_key.clone();
         let api_request_url = format!("http://ws.audioscrobbler.com/2.0/?method={method}&api_key={api_key}&format=json");
         
         let auth_token: AuthToken = surf::get(api_request_url).await?.body_json().await?;
-        self.auth_token = Some(auth_token.token.clone());
+        self.config.auth_token = Some(auth_token.token.clone());
         
         let auth_url = format!("http://www.last.fm/api/auth/?api_key={api_key}&token={}", auth_token.token);
         
@@ -100,9 +145,9 @@ impl LastFM {
     
     pub async fn set_session(&mut self) {
         let method = String::from("auth.getSession");
-        let api_key = self.dango_api_key.clone();
-        let auth_token = self.auth_token.clone().unwrap();
-        let shared_secret = self.shared_secret.clone().unwrap();
+        let api_key = self.config.dango_api_key.clone();
+        let auth_token = self.config.auth_token.clone().unwrap();
+        let shared_secret = self.config.shared_secret.clone().unwrap();
         
         // Creates api_sig as defined in last.fm documentation
         let api_sig = format!("api_key{api_key}methodauth.getSessiontoken{auth_token}{shared_secret}");
@@ -119,33 +164,29 @@ impl LastFM {
         
         // Sets session key from received response
         let session_response: Session = serde_json::from_str(&response).unwrap();
-        self.session_key = Some(session_response.session.key.clone());
+        self.config.session_key = Some(session_response.session.key.clone());
     }
     
     // Creates a new LastFM struct
-    pub fn new() -> LastFM {
+    pub fn new(config: &LastFMConfig) -> LastFM {
         let last_fm = LastFM {
-            // Grab this from config in future
-            dango_api_key: String::from("29a071e3113ab8ed36f069a2d3e20593"),
-            auth_token: None,
-            // Also grab from config in future
-            shared_secret: Some(String::from("5400c554430de5c5002d5e4bcc295b3d")),
-            session_key: None,
+            config: config.clone()
         };
         return last_fm;
     }
     
     // Creates an api request with the given parameters
     pub async fn api_request(&self, mut params: BTreeMap<&str, &str>) -> Result<surf::Response, surf::Error> {
-        params.insert("api_key", &self.dango_api_key);
-        params.insert("sk", &self.session_key.as_ref().unwrap());
+        params.insert("api_key", &self.config.dango_api_key);
+        params.insert("sk", &self.config.session_key.as_ref().unwrap());
         
         // Creates and sets api call signature
-        let api_sig = LastFM::request_sig(&params, &self.shared_secret.as_ref().unwrap());
+        let api_sig = LastFM::request_sig(&params, &self.config.shared_secret.as_ref().unwrap());
         params.insert("api_sig", &api_sig);
         let mut string_params = String::from("");
         
         // Creates method call string
+        // Just iterate over values???
         for key in params.keys() {
             let param_value = params.get(key).unwrap();
             string_params.push_str(&format!("{key}={param_value}&"));
@@ -182,5 +223,66 @@ impl LastFM {
     // Removes last.fm account from dango-music-player
     pub fn reset_account() {
         todo!();
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct DiscordRPCConfig {
+    pub enabled: bool,
+    pub dango_client_id: u64, 
+    pub dango_icon: String,
+}
+
+pub struct DiscordRPC {
+    config: DiscordRPCConfig,
+    pub client: discord_presence::client::Client
+}
+
+impl DiscordRPC {
+    pub fn new(config: &DiscordRPCConfig) -> Self {
+        let rpc = DiscordRPC {
+            client: discord_presence::client::Client::new(config.dango_client_id),
+            config: config.clone(),
+        };
+        return rpc;
+    }
+}
+
+#[async_trait]
+impl MusicTracker for DiscordRPC {
+    async fn track_now(&mut self, song: &String) -> Result<(), TrackerError> {
+        let _client_thread = self.client.start();
+        
+        // Blocks thread execution until it has connected to local discord client
+        let ready = self.client.block_until_event(Event::Ready);
+        if ready.is_err() {
+            return Err(TrackerError::ServiceUnavailable);
+        }
+        
+        let start_time = std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+        // Sets discord account activity to current playing song
+        let send_activity = self.client.set_activity(|activity| {
+            activity
+                .state(song)
+                .assets(|assets| assets.large_image(&self.config.dango_icon))
+                .timestamps(|time| time.start(start_time))
+        });
+        
+        match send_activity {
+            Ok(_) => return Ok(()),
+            Err(_) => return Err(TrackerError::ServiceUnavailable),
+        }
+    }
+    
+    async fn track_song(&mut self, song: &String) -> Result<(), TrackerError> {
+        return Ok(())
+    }
+    
+    async fn test_tracker(&mut self) -> Result<(), TrackerError> {
+        return Ok(())
+    }
+    
+    async fn get_times_tracked(&mut self, song: &String) -> Result<u32, TrackerError> {
+        return Ok(0);
     }
 }
