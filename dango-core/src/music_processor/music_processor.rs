@@ -1,9 +1,17 @@
+use std::fmt::Debug;
+
 use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal, AsAudioBufferRef, SignalSpec};
 
 #[derive(Clone)]
 pub struct MusicProcessor {
     pub audio_buffer: AudioBuffer<f32>,
     pub audio_volume: f32,
+}
+
+impl Debug for MusicProcessor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MusicProcessor").field("audio_volume", &self.audio_volume).finish()
+    }
 }
 
 impl MusicProcessor {

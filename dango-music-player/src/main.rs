@@ -1,49 +1,107 @@
-use std::{thread, path::PathBuf};
+use std::{thread, path::{PathBuf, Path}};
 
-use dango_core::{music_tracker::music_tracker::{DiscordRPC, DiscordRPCConfig, MusicTracker, LastFMConfig, LastFM}, music_controller::music_controller::MusicController};
+use dango_core::{music_tracker::music_tracker::{DiscordRPC, DiscordRPCConfig, MusicTracker, LastFMConfig, LastFM}, music_controller::music_controller::MusicController, music_storage::music_db::{URI, Song}, music_player::music_player::{DecoderMessage, PlayerStatus}};
 use async_std::{fs::File, io, prelude::*, task};
 
-fn main() {
-    let ctl = MusicController::new(&PathBuf::from("config.toml")).unwrap();
+use iced::executor;
+use iced::widget::{button, column, container, progress_bar, text, Column, text_input, slider, ProgressBar};
+use iced::{
+    Alignment, Application, Command, Element, Length, Settings, Subscription,
+    Theme,
+};
+use once_cell::sync::Lazy;
 
-    let conf = DiscordRPCConfig {
-        enabled: true,
-        dango_client_id: 1144475145864499240,
-        dango_icon: String::from("flat"),
-    };
-    let mut disc: Box<dyn MusicTracker> = Box::new(DiscordRPC::new(&conf));
-    let song = String::from("Listening to ASM");
-    let good = task::block_on(async {
-        return disc.track_now(&song).await
-    });
-    println!("good: {:?}", good);
+static INPUT_ID: Lazy<text_input::Id> = Lazy::new(text_input::Id::unique);
+
+fn main() {
+    DMP::run(Settings::default());
     
-    let fm = LastFMConfig {
-        enabled: true,
-                dango_api_key: String::from("29a071e3113ab8ed36f069a2d3e20593"),
-                auth_token: None,
-                shared_secret: Some(String::from("5400c554430de5c5002d5e4bcc295b3d")),
-                session_key: None,
-    };
+}
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    PlayerMessage(DecoderMessage),
+    SetVol(f32),
+    Open(String),
+    InputChanged(String),
+}
+
+struct DMP {
+    controller: MusicController,
+    inputval: String,
+}
+
+impl Application for DMP {
+    type Message = Message;
+    type Theme = Theme;
+    type Executor = executor::Default;
+    type Flags = ();
     
-    let mut last = LastFM::new(&fm);
+    fn new(_flags: ()) -> (DMP, Command<Message>) {
+        (
+            DMP {
+                controller: MusicController::new(&PathBuf::from("config.toml")).unwrap(),
+                inputval: String::from("Song"),
+            },
+            Command::none(),
+        )
+    }
     
-    let url = task::block_on(async {
-        last.get_auth_url().await.unwrap()
-    });
+    fn title(&self) -> String {
+        String::from("Dango Music Player")
+    }
     
-    println!("URL: {url}");
+    fn update(&mut self, message: Message) -> Command<Message> {
+        match message {
+            Message::Open(song) => {
+                let song = Song {
+                    path: URI::Local(song),
+                    title:  Some(String::from("Real String Derived From User Input")),
+                    album:  None,
+                    tracknum: None,
+                    artist: None,
+                    date: None,
+                    genre: None,
+                    plays: None,
+                    favorited: None,
+                    format: None, // TODO: Make this a proper FileFormat eventually
+                    duration: None,
+                    custom_tags: None,
+                };
+                self.controller.song_control(DecoderMessage::OpenSong(song));
+            }
+            Message::InputChanged(song) => {
+                self.inputval = song;
+            }
+            Message::PlayerMessage(message) => {
+                self.controller.song_control(message)
+            }
+            Message::SetVol(vol) => {
+                self.controller.set_vol(vol);
+            }
+            _ => {}
+        };
+        Command::none()
+    }
     
-    thread::sleep_ms(10000); 
-    
-    let sk = task::block_on(async {
-        last.set_session().await
-    });
-    
-    let song = String::from("song");
-    let track = task::block_on(async {
-        last.track_now(&song).await
-    });
-    
-    thread::sleep_ms(5000000);
+    fn view(&self) -> Element<Message> {
+        column![
+            text_input("Song goes here!", &self.inputval)
+                    .id(INPUT_ID.clone())
+                    .on_input(Message::InputChanged)
+                    .padding(15)
+                    .size(30),
+            button("Open Song!").on_press(Message::Open(self.inputval.clone())),
+            text(format!("Song volume: {}", self.controller.get_vol())).size(60),
+            button("Play").on_press(Message::PlayerMessage(DecoderMessage::Play)),
+            button("Pause").on_press(Message::PlayerMessage(DecoderMessage::Pause)),
+            button("VOL+").on_press(Message::SetVol(self.controller.get_vol() + 0.1)),
+            button("VOL-").on_press(Message::SetVol(self.controller.get_vol() - 0.1)),
+            text(format!("Status: {:?}", self.controller.get_current_song())),
+            progress_bar(0.0..=1.0, self.controller.get_vol())
+        ]
+        .padding(12)
+        .align_items(Alignment::Center)
+        .into()
+    }
 }

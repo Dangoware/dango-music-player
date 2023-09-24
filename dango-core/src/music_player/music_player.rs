@@ -1,41 +1,50 @@
 use std::sync::mpsc::{self, Sender, Receiver};
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::io::SeekFrom;
 
 use async_std::io::ReadExt;
 use async_std::task;
 
+use futures::future::join_all;
 use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions, Decoder};
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
 use symphonia::core::io::{MediaSourceStream, MediaSource};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::core::errors::Error;
-use symphonia::core::units::Time;
+use symphonia::core::units::{Time, TimeBase};
 
 use futures::AsyncBufRead;
 
+use crate::music_controller::config::Config;
 use crate::music_player::music_output::AudioStream;
 use crate::music_processor::music_processor::MusicProcessor;
-use crate::music_storage::music_db::URI;
+use crate::music_storage::music_db::{URI, Song};
+use crate::music_tracker::music_tracker::{MusicTracker, LastFM, DiscordRPCConfig, DiscordRPC, TrackerError};
 
 // Struct that controls playback of music
 pub struct MusicPlayer {
     pub music_processor: MusicProcessor,
     player_status: PlayerStatus,
-    message_sender: Option<Sender<PlayerMessage>>,
-    status_receiver: Option<Receiver<PlayerStatus>>,
+    music_trackers: Vec<Box<dyn MusicTracker + Send>>,
+    current_song: Arc<RwLock<Option<Song>>>,
+    message_sender: Sender<DecoderMessage>,
+    status_receiver: Receiver<PlayerStatus>,
+    config: Arc<RwLock<Config>>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum PlayerStatus {
-    Playing,
+    Playing(f64),
     Paused,
     Stopped,
     Error,
 }
 
-pub enum PlayerMessage {
+#[derive(Debug, Clone)]
+pub enum DecoderMessage {
+    OpenSong(Song),
     Play,
     Pause,
     Stop,
@@ -43,143 +52,43 @@ pub enum PlayerMessage {
     DSP(DSPMessage)
 }
 
+#[derive(Clone)]
+pub enum TrackerMessage {
+    Track(Song),
+    TrackNow(Song)
+}
+
+#[derive(Debug, Clone)]
 pub enum DSPMessage {
     UpdateProcessor(Box<MusicProcessor>)
 }
 
-impl MusicPlayer {
-    pub fn new() -> Self {
-        MusicPlayer {
-            music_processor: MusicProcessor::new(),
-            player_status: PlayerStatus::Stopped,
-            message_sender: None,
-            status_receiver: None,
-        }
-    }
-    
-    // Opens and plays song with given path in separate thread
-    pub fn open_song(&mut self, uri: &URI) {
-        // Creates mpsc channels to communicate with thread
-        let (message_sender, message_receiver) = mpsc::channel();
-        let (status_sender, status_receiver) = mpsc::channel();
-        self.message_sender = Some(message_sender);
-        self.status_receiver = Some(status_receiver);
-        
-        let owned_uri = uri.clone();
+// Holds a song decoder reader, etc
+struct SongHandler {
+    pub reader: Box<dyn FormatReader>,
+    pub decoder: Box<dyn Decoder>,
+    pub time_base: Option<TimeBase>,
+    pub duration: Option<u64>,
+}
 
-        // Creates thread that audio is decoded in
-        thread::spawn(move || {
-            let (mut reader, mut decoder) = MusicPlayer::get_reader_and_dec(&owned_uri);
-            
-            let mut seek_time: Option<u64> = None;
-            
-            let mut audio_output: Option<Box<dyn AudioStream>> = None;
-            
-            let mut music_processor = MusicProcessor::new();
-            
-            'main_decode: loop {    
-                // Handles message received from the MusicPlayer if there is one // TODO: Refactor
-                let received_message = message_receiver.try_recv();
-                match received_message {
-                    Ok(PlayerMessage::Pause) => { 
-                        status_sender.send(PlayerStatus::Paused).unwrap();
-                        // Loops on a blocking message receiver to wait for a play/stop message
-                        'inner_pause: loop {
-                            let message = message_receiver.try_recv();
-                            match message {
-                                Ok(PlayerMessage::Play) => {
-                                    status_sender.send(PlayerStatus::Playing).unwrap();
-                                    break 'inner_pause
-                                },
-                                Ok(PlayerMessage::Stop) => {
-                                    status_sender.send(PlayerStatus::Stopped).unwrap();
-                                    break 'main_decode
-                                },
-                                _ => {},
-                            }
-                        }
-                    },
-                    // Exits main decode loop and subsequently ends thread (?)
-                    Ok(PlayerMessage::Stop) => {
-                        status_sender.send(PlayerStatus::Stopped).unwrap();
-                        break 'main_decode
-                    },
-                    Ok(PlayerMessage::SeekTo(time)) => seek_time = Some(time),
-                    Ok(PlayerMessage::DSP(dsp_message)) => {
-                        match dsp_message {
-                            DSPMessage::UpdateProcessor(new_processor) => music_processor = *new_processor,
-                        }
-                    }
-                    _ => {},
-                } 
-                
-                match seek_time {
-                    Some(time) => {
-                        let seek_to = SeekTo::Time { time: Time::from(time), track_id: Some(0) };
-                        reader.seek(SeekMode::Accurate, seek_to).unwrap();
-                        seek_time = None;
-                    }
-                    None => {} //Nothing to do!
-                }
-                
-                let packet = match reader.next_packet() {
-                    Ok(packet) => packet,
-                    Err(Error::ResetRequired) => panic!(), //TODO,
-                    Err(err) => {
-                        //Unrecoverable?
-                        panic!("{}", err);
-                    }
-                };
-                
-                match decoder.decode(&packet) {
-                    Ok(decoded) => {
-                        // Opens audio stream if there is not one
-                        if audio_output.is_none() {
-                            let spec = *decoded.spec();
-                            let duration = decoded.capacity() as u64;
-                            
-                            audio_output.replace(crate::music_player::music_output::open_stream(spec, duration).unwrap());
-                        }
-                        
-                        // Handles audio normally provided there is an audio stream
-                        if let Some(ref mut audio_output) = audio_output {
-                            // Changes buffer of the MusicProcessor if the packet has a differing capacity or spec
-                            if music_processor.audio_buffer.capacity() != decoded.capacity() ||music_processor.audio_buffer.spec() != decoded.spec() {
-                                let spec = *decoded.spec();
-                                let duration = decoded.capacity() as u64;
-                                
-                                music_processor.set_buffer(duration, spec);
-                            }
-                            
-                            let transformed_audio = music_processor.process(&decoded);
-                            
-                            // Writes transformed packet to audio out
-                            audio_output.write(transformed_audio).unwrap()
-                        }
-                    },
-                    Err(Error::IoError(_)) => {
-                        // rest in peace packet
-                        continue;
-                    },
-                    Err(Error::DecodeError(_)) => {
-                        // may you one day be decoded
-                        continue;
-                    },
-                    Err(err) => {
-                        // Unrecoverable, though shouldn't panic here
-                        panic!("{}", err);
-                    }
-                }
-            }
-        });
-    }
-    
-    fn get_reader_and_dec(uri: &URI) -> (Box<dyn FormatReader>, Box<dyn Decoder>) {
+// TODO: actual error handling here
+impl SongHandler {
+    pub fn new(uri: &URI) -> Result<Self, ()> {
         // Opens remote/local source and creates MediaSource for symphonia
-        let config = RemoteOptions { media_buffer_len: 10000, forward_buffer_len: 10000};
+        let config = RemoteOptions {media_buffer_len: 10000, forward_buffer_len: 10000};
         let src: Box<dyn MediaSource> = match uri {
-            URI::Local(path) => Box::new(std::fs::File::open(path).expect("Failed to open file")),
-            URI::Remote(_, location) => Box::new(RemoteSource::new(location.as_ref(), &config).unwrap()),
+            URI::Local(path) => {
+                match std::fs::File::open(path) {
+                    Ok(file) => Box::new(file),
+                    Err(_) => return Err(()),
+                }
+            },
+            URI::Remote(_, location) => {
+                match RemoteSource::new(location.as_ref(), &config) {
+                    Ok(remote_source) => Box::new(remote_source),
+                    Err(_) => return Err(()),
+                }
+            },
         };
         
         let mss = MediaSourceStream::new(src, Default::default());
@@ -198,42 +107,262 @@ impl MusicPlayer {
                     .iter()
                     .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
                     .expect("no supported audio tracks");
+        
+        let time_base = track.codec_params.time_base;
+        let duration = track.codec_params.n_frames;
                     
         let dec_opts: DecoderOptions = Default::default();
         
         let mut decoder = symphonia::default::get_codecs().make(&track.codec_params, &dec_opts)
                                                     .expect("unsupported codec");
         
-        return (reader, decoder);
+        return Ok(SongHandler {reader, decoder, time_base, duration});
+    }
+}
+
+impl MusicPlayer {
+    pub fn new(config: Arc<RwLock<Config>>) -> Self {
+        // Creates mpsc channels to communicate with music player threads
+        let (message_sender, message_receiver) = mpsc::channel();
+        let (status_sender, status_receiver) = mpsc::channel();
+        let current_song = Arc::new(RwLock::new(None));
+        
+        MusicPlayer::start_player(message_receiver, status_sender, config.clone(), current_song.clone());
+        
+        MusicPlayer {
+            music_processor: MusicProcessor::new(),
+            music_trackers: Vec::new(),
+            player_status: PlayerStatus::Stopped,
+            current_song,
+            message_sender,
+            status_receiver,
+            config,
+        }
+    }
+    
+    fn start_tracker(status_sender: Sender<Result<(), TrackerError>>, tracker_receiver: Receiver<TrackerMessage>, config: Arc<RwLock<Config>>) {
+        thread::spawn(move || {
+            let global_config = &*config.read().unwrap();
+            // Sets local config for trackers to detect changes
+            let local_config = global_config.clone();
+            let mut trackers: Vec<Box<dyn MusicTracker>> = Vec::new();
+            // Updates local trackers to the music controller config
+            let update_trackers = |trackers: &mut Vec<Box<dyn MusicTracker>>|{
+                if let Some(lastfm_config) = global_config.lastfm.clone() {
+                    trackers.push(Box::new(LastFM::new(&lastfm_config)));
+                }
+                if let Some(discord_config) = global_config.discord.clone() {
+                    trackers.push(Box::new(DiscordRPC::new(&discord_config)));
+                }
+            };
+            update_trackers(&mut trackers);
+            loop {
+                if let message = tracker_receiver.recv() {
+                    if local_config != global_config {
+                        update_trackers(&mut trackers);
+                    }
+    
+                    let mut results = Vec::new();
+                    task::block_on(async {
+                        let mut futures = Vec::new();
+                        for tracker in trackers.iter_mut() {
+                            match message.clone() {
+                                Ok(TrackerMessage::Track(song)) => futures.push(tracker.track_song(song)),
+                                Ok(TrackerMessage::TrackNow(song)) => futures.push(tracker.track_now(song)),
+                                Err(_) => {},
+                            }
+                        }
+                        results = join_all(futures).await;
+                    });
+                    
+                    for result in results {
+                        status_sender.send(result).unwrap_or_default()
+                    }
+                }
+            }
+        });
+    }
+    
+    // Opens and plays song with given path in separate thread
+    fn start_player(message_receiver: Receiver<DecoderMessage>, status_sender: Sender<PlayerStatus>, config: Arc<RwLock<Config>>, current_song: Arc<RwLock<Option<Song>>>) {
+        // Creates thread that audio is decoded in
+        thread::spawn(move || {
+            let current_song = current_song;
+            
+            let mut song_handler = None;
+            
+            let mut seek_time: Option<u64> = None;
+            
+            let mut audio_output: Option<Box<dyn AudioStream>> = None;
+            
+            let mut music_processor = MusicProcessor::new();
+            
+            let (tracker_sender, tracker_receiver): (Sender<TrackerMessage>, Receiver<TrackerMessage>) = mpsc::channel();
+            let (tracker_status_sender, tracker_status_receiver): (Sender<Result<(), TrackerError>>, Receiver<Result<(), TrackerError>>) = mpsc::channel();
+            
+            MusicPlayer::start_tracker(tracker_status_sender, tracker_receiver, config);
+            
+            let mut song_tracked = false;
+            let mut song_time = 0.0;
+            let mut paused = true;
+            'main_decode: loop {              
+                'handle_message: loop {
+                    let message = if paused {
+                        // Pauses playback by blocking on waiting for new player messages
+                        match message_receiver.recv() {
+                            Ok(message) => Some(message),
+                            Err(_) => None,
+                        }
+                    } else {
+                        // Resumes playback by not blocking
+                        match message_receiver.try_recv() {
+                            Ok(message) => Some(message),
+                            Err(_) => break 'handle_message,
+                        }
+                    };
+                    // Handles message received from MusicPlayer struct
+                    match message {
+                        Some(DecoderMessage::OpenSong(song)) => {
+                            let song_uri = song.path.clone();
+                            match SongHandler::new(&song_uri) {
+                                Ok(new_handler) => {
+                                    song_handler = Some(new_handler);
+                                    *current_song.write().unwrap() = Some(song);
+                                    paused = false;
+                                    song_tracked = false;
+                                }
+                                Err(_) => status_sender.send(PlayerStatus::Error).unwrap(),
+                            }
+                        }
+                        Some(DecoderMessage::Play) => {
+                            if song_handler.is_some() {
+                                paused = false;
+                            }
+                        }
+                        Some(DecoderMessage::Pause) => {
+                            paused = true;
+                            status_sender.send(PlayerStatus::Paused).unwrap();
+                        }
+                        Some(DecoderMessage::SeekTo(time)) => seek_time = Some(time),
+                        Some(DecoderMessage::DSP(dsp_message)) => {
+                            match dsp_message {
+                                DSPMessage::UpdateProcessor(new_processor) => music_processor = *new_processor,
+                            }
+                        }
+                        // Exits main decode loop and subsequently ends thread
+                        Some(DecoderMessage::Stop) => {
+                            status_sender.send(PlayerStatus::Stopped).unwrap();
+                            break 'main_decode
+                        }
+                        None => {},
+                    }
+                    status_sender.send(PlayerStatus::Error).unwrap();
+                }                
+                // In theory this check should not need to occur?
+                if let (Some(song_handler), current_song) = (&mut song_handler, &*current_song.read().unwrap()) {
+                    match seek_time {
+                        Some(time) => {
+                            let seek_to = SeekTo::Time { time: Time::from(time), track_id: Some(0) };
+                            song_handler.reader.seek(SeekMode::Accurate, seek_to).unwrap();
+                            seek_time = None;
+                        }
+                        None => {} //Nothing to do!
+                    }
+                    let packet = match song_handler.reader.next_packet() {
+                        Ok(packet) => packet,
+                        Err(Error::ResetRequired) => panic!(), //TODO,
+                        Err(err) => {
+                            // Unrecoverable?
+                            panic!("{}", err);
+                        }
+                    };
+                    
+                    if let (Some(time_base), Some(song)) = (song_handler.time_base, current_song) {
+                        let time_units = time_base.calc_time(packet.ts);
+                        song_time = time_units.seconds as f64 + time_units.frac;
+                        // Tracks song now if song has just started
+                        if song_time == 0.0 {
+                            tracker_sender.send(TrackerMessage::TrackNow(song.clone())).unwrap();
+                        }
+                        
+                        if let Some(duration) = song_handler.duration {
+                            let song_duration = time_base.calc_time(duration);
+                            let song_duration_secs = song_duration.seconds as f64 + song_duration.frac;
+                            // Tracks song if current time is past half of total song duration or past 4 minutes
+                            if (song_duration_secs / 2.0 < song_time || song_time > 240.0) && !song_tracked {
+                                song_tracked = true;
+                                tracker_sender.send(TrackerMessage::Track(song.clone())).unwrap();
+                            }
+                        }
+                    }
+                    
+                    status_sender.send(PlayerStatus::Playing(song_time)).unwrap();
+                    
+                    match song_handler.decoder.decode(&packet) {
+                        Ok(decoded) => {
+                            // Opens audio stream if there is not one
+                            if audio_output.is_none() {
+                                let spec = *decoded.spec();
+                                let duration = decoded.capacity() as u64;
+                                
+                                audio_output.replace(crate::music_player::music_output::open_stream(spec, duration).unwrap());
+                            }
+                            // Handles audio normally provided there is an audio stream
+                            if let Some(ref mut audio_output) = audio_output {
+                                // Changes buffer of the MusicProcessor if the packet has a differing capacity or spec
+                                if music_processor.audio_buffer.capacity() != decoded.capacity() ||music_processor.audio_buffer.spec() != decoded.spec() {
+                                    let spec = *decoded.spec();
+                                    let duration = decoded.capacity() as u64;
+                                    
+                                    music_processor.set_buffer(duration, spec);
+                                }
+                                let transformed_audio = music_processor.process(&decoded);
+                                
+                                // Writes transformed packet to audio out
+                                audio_output.write(transformed_audio).unwrap()
+                            }
+                        },
+                        Err(Error::IoError(_)) => {
+                            // rest in peace packet
+                            continue;
+                        },
+                        Err(Error::DecodeError(_)) => {
+                            // may you one day be decoded
+                            continue;
+                        },
+                        Err(err) => {
+                            // Unrecoverable, though shouldn't panic here
+                            panic!("{}", err);
+                        }
+                    }
+                }
+            }
+        });
     }
     
     // Updates status by checking on messages from spawned thread
-    fn update_status(&mut self) {
-        let status = self.status_receiver.as_mut().unwrap().try_recv();
-        if status.is_ok() {
-            self.player_status = status.unwrap();
-            match status.unwrap() {
-                // Removes receiver and sender since spawned thread no longer exists
-                PlayerStatus::Stopped => {
-                    self.status_receiver = None;
-                    self.message_sender = None;
-                }
-                _ => {}
-            }
+    fn update_player(&mut self) {
+        for message in self.status_receiver.try_recv() {
+            self.player_status = message;
+        }
+    }
+    
+    pub fn get_current_song(&self) -> Option<Song>{
+        match self.current_song.try_read() {
+            Ok(song) => return (*song).clone(),
+            Err(_) => return None,
         }
     }
     
     // Sends message to spawned thread
-    pub fn send_message(&mut self, message: PlayerMessage) {
-        self.update_status();
+    pub fn send_message(&mut self, message: DecoderMessage) {
+        self.update_player();
         // Checks that message sender exists before sending a message off
-        if self.message_sender.is_some() {
-            self.message_sender.as_mut().unwrap().send(message).unwrap();
-        }
+        self.message_sender.send(message).unwrap();
     }
     
     pub fn get_status(&mut self) -> PlayerStatus {
-        self.update_status();
+        self.update_player();
         return self.player_status;
     }
 }

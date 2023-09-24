@@ -11,28 +11,29 @@ use walkdir::WalkDir;
 
 use crate::music_controller::config::Config;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Song {
-    pub path: Box<Path>,
+    pub path: URI,
     pub title:  Option<String>,
     pub album:  Option<String>,
-    tracknum: Option<usize>,
+    pub tracknum: Option<usize>,
     pub artist: Option<String>,
-    date:   Option<Date>,
-    genre:  Option<String>,
-    plays:  Option<usize>,
-    favorited: Option<bool>,
-    format: Option<FileFormat>, // TODO: Make this a proper FileFormat eventually
-    duration: Option<Duration>,
+    pub date:   Option<Date>,
+    pub genre:  Option<String>,
+    pub plays:  Option<usize>,
+    pub favorited: Option<bool>,
+    pub format: Option<FileFormat>, // TODO: Make this a proper FileFormat eventually
+    pub duration: Option<Duration>,
     pub custom_tags: Option<Vec<Tag>>,
 }
-#[derive(Clone)]
+
+#[derive(Clone, Debug)]
 pub enum URI{
     Local(String),
     Remote(Service, String),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Service {
     InternetRadio,
     Spotify,
@@ -143,7 +144,7 @@ fn parse_cuesheet(
 
         let tags = track.get_cdtext();
         let cue_song = Song {
-            path: track_path.into(),
+            path: URI::Local(String::from("URI")),
             title: tags.read(PTI::Title),
             album: album.clone(),
             tracknum: Some(index + 1),
@@ -311,7 +312,7 @@ pub fn add_file_to_db(target_file: &Path, connection: &Connection) {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub enum Tag {
     SongPath,
     Title,
@@ -363,7 +364,7 @@ impl MusicObject {
 }
 
 /// Query the database, returning a list of items
-pub fn query(
+pub fn query (
     config: &Config,
     text_input: &String,
     queried_tags: &Vec<&Tag>,
@@ -435,7 +436,7 @@ pub fn query(
 
         let new_song = Song {
             // TODO: Implement proper errors here
-            path:   Path::new(&row.get::<usize, String>(0).unwrap_or("".to_owned())).into(),
+            path:   URI::Local(String::from("URI")),
             title:  row.get::<usize, String>(1).ok(),
             album:  row.get::<usize, String>(2).ok(),
             tracknum: row.get::<usize, usize>(3).ok(),

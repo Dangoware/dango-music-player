@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::music_tracker::music_tracker::{LastFM, LastFMConfig, DiscordRPCConfig};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct Config {
     pub db_path: Box<PathBuf>,
     pub lastfm: Option<LastFMConfig>,
@@ -20,13 +20,7 @@ impl Default for Config {
         return Config {
             db_path: Box::new(path),
 
-            lastfm: Some (LastFMConfig {
-                enabled: true,
-                dango_api_key: String::from("29a071e3113ab8ed36f069a2d3e20593"),
-                auth_token: None,
-                shared_secret: Some(String::from("5400c554430de5c5002d5e4bcc295b3d")),
-                session_key: None,
-            }),
+            lastfm: None,
 
             discord: Some(DiscordRPCConfig {
                 enabled: true,
