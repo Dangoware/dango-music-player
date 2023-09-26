@@ -1,12 +1,11 @@
 use std::path::PathBuf;
-use std::sync::{RwLock, Arc, Mutex};
+use std::sync::{RwLock, Arc};
 
 use rusqlite::Result;
 
 use crate::music_controller::config::Config;
 use crate::music_player::music_player::{MusicPlayer, PlayerStatus, DecoderMessage, DSPMessage};
-use crate::music_processor::music_processor::MusicProcessor;
-use crate::music_storage::music_db::{URI, Song};
+use crate::music_storage::music_db::Song;
 
 pub struct MusicController {
     pub config: Arc<RwLock<Config>>,

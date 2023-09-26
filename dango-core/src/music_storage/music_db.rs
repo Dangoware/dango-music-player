@@ -2,7 +2,6 @@ use file_format::{FileFormat, Kind};
 use serde::Deserialize;
 use lofty::{Accessor, AudioFile, Probe, TaggedFileExt, ItemKey, ItemValue, TagType};
 use rusqlite::{params, Connection};
-use cue::{cd_text::PTI, cd::CD};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -105,64 +104,6 @@ fn path_in_db(query_path: &Path, connection: &Connection) -> bool {
     }
 }
 
-/// Parse a cuesheet given a path and a directory it is located in,
-/// returning a Vec of Song objects
-fn parse_cuesheet(
-    cuesheet_path: &Path,
-    current_dir: &PathBuf
-) -> Result<Vec<Song>, Box<dyn std::error::Error>>{
-    let cuesheet = CD::parse_file(cuesheet_path.to_path_buf())?;
-
-    let album = cuesheet.get_cdtext().read(PTI::Title);
-
-    let mut song_list:Vec<Song> = vec![];
-
-    for (index, track) in cuesheet.tracks().iter().enumerate() {
-        let track_string_path = format!("{}/{}", current_dir.to_string_lossy(), track.get_filename());
-        let track_path = Path::new(&track_string_path);
-
-        if !track_path.exists() {continue};
-
-        // Get the format as a string
-        let short_format = match FileFormat::from_file(track_path) {
-            Ok(fmt) => Some(fmt),
-            Err(_) => None
-        };
-
-        let duration = Duration::from_secs(track.get_length().unwrap_or(-1) as u64);
-
-        let custom_index_start = Tag::Custom{
-            tag: String::from("dango_cue_index_start"),
-            tag_value: track.get_index(0).unwrap_or(-1).to_string()
-        };
-        let custom_index_end = Tag::Custom{
-            tag: String::from("dango_cue_index_end"),
-            tag_value: track.get_index(0).unwrap_or(-1).to_string()
-        };
-
-        let custom_tags: Vec<Tag> = vec![custom_index_start, custom_index_end];
-
-        let tags = track.get_cdtext();
-        let cue_song = Song {
-            path: URI::Local(String::from("URI")),
-            title: tags.read(PTI::Title),
-            album: album.clone(),
-            tracknum: Some(index + 1),
-            artist: tags.read(PTI::Performer),
-            date: None,
-            genre: tags.read(PTI::Genre),
-            plays: Some(0),
-            favorited: Some(false),
-            format: short_format,
-            duration: Some(duration),
-            custom_tags: Some(custom_tags)
-        };
-
-        song_list.push(cue_song);
-    }
-
-    Ok(song_list)
-}
 
 pub fn find_all_music(
     config: &Config,
@@ -196,7 +137,6 @@ pub fn find_all_music(
             add_file_to_db(target_file.path(), &db_connection)
         } else if extension.to_ascii_lowercase() == "cue" {
             // TODO: implement cuesheet support
-            parse_cuesheet(target_file.path(), &current_dir);
         }
     }
 

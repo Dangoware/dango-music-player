@@ -3,7 +3,7 @@ use std::{thread, path::{PathBuf, Path}};
 use dango_core::{music_tracker::music_tracker::{DiscordRPC, DiscordRPCConfig, MusicTracker, LastFMConfig, LastFM}, music_controller::music_controller::MusicController, music_storage::music_db::{URI, Song}, music_player::music_player::{DecoderMessage, PlayerStatus}};
 use async_std::{fs::File, io, prelude::*, task};
 
-use iced::executor;
+use iced::{executor, widget::Button};
 use iced::widget::{button, column, container, progress_bar, text, Column, text_input, slider, ProgressBar};
 use iced::{
     Alignment, Application, Command, Element, Length, Settings, Subscription,
@@ -56,10 +56,10 @@ impl Application for DMP {
             Message::Open(song) => {
                 let song = Song {
                     path: URI::Local(song),
-                    title:  Some(String::from("Real String Derived From User Input")),
+                    title:  Some(String::from("Miku")),
                     album:  None,
                     tracknum: None,
-                    artist: None,
+                    artist: Some(String::from("Anamanaguchi")),
                     date: None,
                     genre: None,
                     plays: None,
