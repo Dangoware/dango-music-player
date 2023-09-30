@@ -1,38 +1,72 @@
 use file_format::{FileFormat, Kind};
-use serde::Deserialize;
-use lofty::{Accessor, AudioFile, Probe, TaggedFileExt, ItemKey, ItemValue, TagType};
-use rusqlite::{params, Connection};
-use std::fs;
-use std::path::{Path, PathBuf};
+use lofty::{AudioFile, Probe, TaggedFileExt, ItemKey, ItemValue, TagType};
+use std::{error::Error, io::BufReader};
+
 use std::time::Duration;
-use time::Date;
+use chrono::{DateTime, Utc, serde::ts_seconds_option};
 use walkdir::WalkDir;
+
+use std::io::BufWriter;
+use std::fs;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use bincode::{serialize_into, deserialize_from};
 
 use crate::music_controller::config::Config;
 
-#[derive(Debug, Clone)]
-pub struct Song {
-    pub path: URI,
-    pub title:  Option<String>,
-    pub album:  Option<String>,
-    pub tracknum: Option<usize>,
-    pub artist: Option<String>,
-    pub date:   Option<Date>,
-    pub genre:  Option<String>,
-    pub plays:  Option<usize>,
-    pub favorited: Option<bool>,
-    pub format: Option<FileFormat>, // TODO: Make this a proper FileFormat eventually
-    pub duration: Option<Duration>,
-    pub custom_tags: Option<Vec<Tag>>,
+pub struct AlbumArt {
+    pub path: Option<URI>;
 }
 
-#[derive(Clone, Debug)]
+/// Stores information about a single song
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Song {
+    pub path: URI,
+    pub plays: i32,
+    pub skips: i32,
+    pub favorited: bool,
+    pub rating: u8,
+    pub format: Option<FileFormat>,
+    pub duration: Duration,
+    pub play_time: Duration,
+    #[serde(with = "ts_seconds_option")]
+    pub last_played: Option<DateTime<Utc>>,
+    #[serde(with = "ts_seconds_option")]
+    pub date_added: Option<DateTime<Utc>>,
+    pub tags: Vec<(String, String)>,
+}
+
+impl Song {
+    pub fn get_tag(&self, target_key: String) -> Option<String> {
+        for tag in self.tags {
+            if tag.0 == target_key {
+                return Some(tag.1)
+            }
+        }
+        None
+    }
+
+    pub fn get_tags(&self, target_keys: Vec<String>) -> Vec<Option<String>> {
+        let mut results = Vec::new();
+        for tag in self.tags {
+            for key in target_keys {
+                if tag.0 == key {
+                    results.push(Some(tag.1))
+                }
+            }
+            results.push(None);
+        }
+        results
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum URI{
     Local(String),
     Remote(Service, String),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum Service {
     InternetRadio,
     Spotify,
@@ -45,74 +79,40 @@ pub struct Playlist {
     cover_art: Box<Path>,
 }
 
-pub fn create_db() -> Result<(), rusqlite::Error> {
-    let path = "./music_database.db3";
-    let db_connection = Connection::open(path)?;
+/// Initialize the database
+///
+/// If the database file already exists, return the database, otherwise create it first
+/// This needs to be run before anything else to retrieve the library vec
+pub fn init_db(config: &Config) -> Result<Vec<Song>, Box<dyn Error>> {
+    let mut library: Vec<Song> = Vec::new();
 
-    db_connection.pragma_update(None, "synchronous", "0")?;
-    db_connection.pragma_update(None, "journal_mode", "WAL")?;
+    match config.db_path.try_exists() {
+        Ok(_) => {
+            // The database exists, so get it from the file
+            let database = fs::File::open(config.db_path.into_boxed_path())?;
+            let reader = BufReader::new(database);
+            library = deserialize_from(reader)?;
+        },
+        Err(_) => {
+            // Create the database if it does not exist
+            let mut writer = BufWriter::new(
+                fs::File::create(config.db_path.into_boxed_path())?
+            );
+            serialize_into(&mut writer, &library)?;
+        }
+    };
 
-    // Create the important tables
-    db_connection.execute(
-        "CREATE TABLE music_collection (
-            song_path TEXT PRIMARY KEY,
-            title   TEXT,
-            album   TEXT,
-            tracknum INTEGER,
-            artist  TEXT,
-            date    INTEGER,
-            genre   TEXT,
-            plays   INTEGER,
-            favorited BLOB,
-            format  TEXT,
-            duration INTEGER
-        )",
-        (), // empty list of parameters.
-    )?;
-
-    db_connection.execute(
-        "CREATE TABLE playlists (
-            playlist_name TEXT NOT NULL,
-            song_path   TEXT NOT NULL,
-            FOREIGN KEY(song_path) REFERENCES music_collection(song_path)
-        )",
-        (), // empty list of parameters.
-    )?;
-
-    db_connection.execute(
-        "CREATE TABLE custom_tags (
-            song_path TEXT NOT NULL,
-            tag TEXT NOT NULL,
-            tag_value TEXT,
-            FOREIGN KEY(song_path) REFERENCES music_collection(song_path)
-        )",
-        (), // empty list of parameters.
-    )?;
-
-    Ok(())
+    Ok(library)
 }
 
-fn path_in_db(query_path: &Path, connection: &Connection) -> bool {
-    let query_string = format!("SELECT EXISTS(SELECT 1 FROM music_collection WHERE song_path='{}')", query_path.to_string_lossy());
-
-    let mut query_statement = connection.prepare(&query_string).unwrap();
-    let mut rows = query_statement.query([]).unwrap();
-
-    match rows.next().unwrap() {
-        Some(value) => value.get::<usize, bool>(0).unwrap(),
-        None => false
-    }
+fn path_in_db(query_path: &Path, library: &Vec<Song>) -> bool {
+    unimplemented!()
 }
-
 
 pub fn find_all_music(
     config: &Config,
     target_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let db_connection = Connection::open(&*config.db_path)?;
-
-    db_connection.pragma_update(None, "synchronous", "0")?;
-    db_connection.pragma_update(None, "journal_mode", "WAL")?;
 
     let mut current_dir = PathBuf::new();
     for entry in WalkDir::new(target_path).follow_links(true).into_iter().filter_map(|e| e.ok()) {
@@ -134,25 +134,16 @@ pub fn find_all_music(
         // If it's a normal file, add it to the database
         // if it's a cuesheet, do a bunch of fancy stuff
         if format.kind() == Kind::Audio {
-            add_file_to_db(target_file.path(), &db_connection)
+            add_file_to_db(target_file.path())
         } else if extension.to_ascii_lowercase() == "cue" {
             // TODO: implement cuesheet support
         }
     }
 
-    // create the indexes after all the data is inserted
-    db_connection.execute(
-        "CREATE INDEX path_index ON music_collection (song_path)", ()
-    )?;
-
-    db_connection.execute(
-        "CREATE INDEX custom_tags_index ON custom_tags (song_path)", ()
-    )?;
-
     Ok(())
 }
 
-pub fn add_file_to_db(target_file: &Path, connection: &Connection) {
+pub fn add_file_to_db(target_file: &Path) {
     // TODO: Fix error handling here
     let tagged_file = match lofty::read_from_path(target_file) {
         Ok(tagged_file) => tagged_file,
@@ -179,7 +170,7 @@ pub fn add_file_to_db(target_file: &Path, connection: &Connection) {
 
     let mut custom_insert = String::new();
     let mut loops = 0;
-    for item in tag.items() {
+    for (loops, item) in tag.items().enumerate() {
         let mut custom_key = String::new();
         match item.key() {
             ItemKey::TrackArtist |
@@ -203,10 +194,6 @@ pub fn add_file_to_db(target_file: &Path, connection: &Connection) {
         if loops > 0 {
             custom_insert.push_str(", ");
         }
-
-        custom_insert.push_str(&format!(" (?1, '{}', '{}')", custom_key.replace("\'", "''"), custom_value.replace("\'", "''")));
-
-        loops += 1;
     }
     
     // Get the format as a string
@@ -222,69 +209,10 @@ pub fn add_file_to_db(target_file: &Path, connection: &Connection) {
     // TODO: Fix error handling
     let binding = fs::canonicalize(target_file).unwrap();
     let abs_path = binding.to_str().unwrap();
-
-    // Add all the info into the music_collection table
-    connection.execute(
-        "INSERT INTO music_collection (
-            song_path,
-            title,
-            album,
-            tracknum,
-            artist,
-            date,
-            genre,
-            plays,
-            favorited,
-            format,
-            duration
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        params![abs_path, tag.title(), tag.album(), tag.track(), tag.artist(), tag.year(), tag.genre(), 0, false, short_format, duration],
-    ).unwrap();
-
-    //TODO: Fix this, it's horrible
-    if custom_insert != "" {
-        connection.execute(
-            &format!("INSERT INTO custom_tags ('song_path', 'tag', 'tag_value') VALUES {}", &custom_insert),
-            params![
-                abs_path,
-            ]
-        ).unwrap();
-    }
 }
 
-#[derive(Debug, Deserialize, Clone)]
-pub enum Tag {
-    SongPath,
-    Title,
-    Album,
-    TrackNum,
-    Artist,
-    Date,
-    Genre,
-    Plays,
-    Favorited,
-    Format,
-    Duration,
-    Custom{tag: String, tag_value: String},
-}
+pub fn add_song_to_db(new_song: Song) {
 
-impl Tag {
-    fn as_str(&self) -> &str {
-        match self {
-            Tag::SongPath => "song_path",
-            Tag::Title  => "title",
-            Tag::Album  => "album",
-            Tag::TrackNum => "tracknum",
-            Tag::Artist => "artist",
-            Tag::Date   => "date",
-            Tag::Genre  => "genre",
-            Tag::Plays  => "plays",
-            Tag::Favorited => "favorited",
-            Tag::Format => "format",
-            Tag::Duration => "duration",
-            Tag::Custom{tag, ..} => tag,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -305,93 +233,9 @@ impl MusicObject {
 
 /// Query the database, returning a list of items
 pub fn query (
-    config: &Config,
-    text_input: &String,
-    queried_tags: &Vec<&Tag>,
-    order_by_tags: &Vec<&Tag>,
+    query_string: &String,      // The query itself
+    target_tags: &Vec<String>,  // The tags to search
+    sort_by: &Vec<String>,      // Tags to sort the resulting data by
 ) -> Option<Vec<MusicObject>> {
-    let db_connection = Connection::open(&*config.db_path).unwrap();
-
-    // Set up some database settings
-    db_connection.pragma_update(None, "synchronous", "0").unwrap();
-    db_connection.pragma_update(None, "journal_mode", "WAL").unwrap();
-
-    // Build the "WHERE" part of the SQLite query
-    let mut where_string = String::new();
-    let mut loops = 0;
-    for tag in queried_tags {
-        if loops > 0 {
-            where_string.push_str("OR ");
-        }
-
-        match tag {
-            Tag::Custom{tag, ..} => where_string.push_str(&format!("custom_tags.tag = '{tag}' AND custom_tags.tag_value LIKE '{text_input}' ")),
-            Tag::SongPath => where_string.push_str(&format!("music_collection.{} LIKE '{text_input}' ", tag.as_str())),
-            _ => where_string.push_str(&format!("{} LIKE '{text_input}' ", tag.as_str()))
-        }
-
-        loops += 1;
-    }
-
-    // Build the "ORDER BY" part of the SQLite query
-    let mut order_by_string = String::new();
-    let mut loops = 0;
-    for tag in order_by_tags {
-        match tag {
-            Tag::Custom{..} => continue,
-            _ => ()
-        }
-
-        if loops > 0 {
-            order_by_string.push_str(", ");
-        }
-
-        order_by_string.push_str(tag.as_str());
-
-        loops += 1;
-    }
-
-    // Build the final query string
-    let query_string = format!("
-        SELECT music_collection.*, JSON_GROUP_ARRAY(JSON_OBJECT('Custom',JSON_OBJECT('tag', custom_tags.tag, 'tag_value', custom_tags.tag_value))) AS custom_tags
-        FROM music_collection
-        LEFT JOIN custom_tags ON music_collection.song_path = custom_tags.song_path
-        WHERE {where_string}
-        GROUP BY music_collection.song_path
-        ORDER BY {order_by_string}
-    ");
-    
-    let mut query_statement = db_connection.prepare(&query_string).unwrap();
-    let mut rows = query_statement.query([]).unwrap();
-
-    let mut final_result:Vec<MusicObject> = vec![];
-
-    while let Some(row) = rows.next().unwrap() {
-        let custom_tags: Vec<Tag> = match row.get::<usize, String>(11) {
-            Ok(result) => serde_json::from_str(&result).unwrap_or(vec![]),
-            Err(_) => vec![]
-        };
-
-        let file_format: FileFormat = FileFormat::from(row.get::<usize, String>(9).unwrap().as_bytes());
-
-        let new_song = Song {
-            // TODO: Implement proper errors here
-            path:   URI::Local(String::from("URI")),
-            title:  row.get::<usize, String>(1).ok(),
-            album:  row.get::<usize, String>(2).ok(),
-            tracknum: row.get::<usize, usize>(3).ok(),
-            artist: row.get::<usize, String>(4).ok(),
-            date:   Date::from_calendar_date(row.get::<usize, i32>(5).unwrap_or(0), time::Month::January, 1).ok(), // TODO: Fix this to get the actual date
-            genre:  row.get::<usize, String>(6).ok(),
-            plays:  row.get::<usize, usize>(7).ok(),
-            favorited: row.get::<usize, bool>(8).ok(),
-            format: Some(file_format),
-            duration: Some(Duration::from_secs(row.get::<usize, u64>(10).unwrap_or(0))),
-            custom_tags: Some(custom_tags),
-        };
-
-        final_result.push(MusicObject::Song(new_song));
-    };
-
-    Some(final_result)
+    unimplemented!()
 }
