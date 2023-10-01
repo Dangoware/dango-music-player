@@ -16,7 +16,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        let path = PathBuf::from("./music_database.db3");
+        let path = PathBuf::from("./music_database");
 
         return Config {
             db_path: Box::new(path),

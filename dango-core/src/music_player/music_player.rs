@@ -232,7 +232,7 @@ impl MusicPlayer {
                     // Handles message received from MusicPlayer struct
                     match message {
                         Some(DecoderMessage::OpenSong(song)) => {
-                            let song_uri = song.path.clone();
+                            let song_uri = song.location.clone();
                             match SongHandler::new(&song_uri) {
                                 Ok(new_handler) => {
                                     song_handler = Some(new_handler);

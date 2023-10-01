@@ -1,6 +1,6 @@
 use std::{thread, path::{PathBuf, Path}};
 
-use dango_core::{music_tracker::music_tracker::{DiscordRPC, DiscordRPCConfig, MusicTracker, LastFMConfig, LastFM}, music_controller::music_controller::MusicController, music_storage::music_db::{URI, Song}, music_player::music_player::{DecoderMessage, PlayerStatus}};
+use dango_core::{music_tracker::music_tracker::{DiscordRPC, DiscordRPCConfig, MusicTracker, LastFMConfig, LastFM}, music_controller::music_controller::MusicController, music_storage::music_db::{MusicLibrary, URI, Song}, music_player::music_player::{DecoderMessage, PlayerStatus}};
 use async_std::{fs::File, io, prelude::*, task};
 
 use iced::{executor, widget::Button};
@@ -14,8 +14,17 @@ use once_cell::sync::Lazy;
 static INPUT_ID: Lazy<text_input::Id> = Lazy::new(text_input::Id::unique);
 
 fn main() {
-    DMP::run(Settings::default());
-    
+    let config = dango_core::music_controller::config::Config::default();
+
+    let mut library = MusicLibrary::init(&config).unwrap();
+    let now = std::time::SystemTime::now();
+    library.find_all_music("/media/g2/Storage4/Media-Files/Music/Albums/").unwrap();
+    library.save(&config).unwrap();
+    println!("{:?}", now.elapsed().unwrap());
+
+    //println!("{:?}", library.library);
+
+    //DMP::run(Settings::default());
 }
 
 #[derive(Debug, Clone)]
@@ -55,18 +64,18 @@ impl Application for DMP {
         match message {
             Message::Open(song) => {
                 let song = Song {
-                    path: URI::Local(song),
-                    title:  Some(String::from("Miku")),
-                    album:  None,
-                    tracknum: None,
-                    artist: Some(String::from("Anamanaguchi")),
-                    date: None,
-                    genre: None,
-                    plays: None,
-                    favorited: None,
-                    format: None, // TODO: Make this a proper FileFormat eventually
-                    duration: None,
-                    custom_tags: None,
+                    location: URI::Local(song),
+                    plays: 0,
+                    skips: 0,
+                    rating: None,
+                    play_time: std::time::Duration::from_secs(200),
+                    favorited: false,
+                    format: None,
+                    last_played: None,
+                    date_added: None,
+                    duration: std::time::Duration::from_secs(20),
+                    album_art: Vec::new(),
+                    tags: vec![("Title".to_string(), "Miku".to_string()), ("Artist".to_string(), "Anamanaguchi".to_string())],
                 };
                 self.controller.song_control(DecoderMessage::OpenSong(song));
             }
