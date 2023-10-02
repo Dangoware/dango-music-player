@@ -28,43 +28,35 @@ fn main() {
     */
 
     let query = String::from("のんびり三人娘");
-    println!("{}", normalize(&query));
-    let samples = 1;
 
-    let mut overall = 0;
-    for _ in 0..samples {
-        let now = std::time::SystemTime::now();
-        let songs = library.query(
-            &query,
-            &vec![
-                Tag::Artist,
-                Tag::Album,
-            ],
-            &vec![
-                Tag::Artist,
-                Tag::Album,
-                Tag::Key("DiscNumber".to_string()),
-                Tag::Track
-            ]
-        );
-        let time = now.elapsed().unwrap();
-        println!("The query \"{query}\" returned {} songs in {:?}", songs.clone().unwrap_or_default().len(), time);
-        overall += time.as_micros();
-    }
-    println!("Average time: {}ms", (overall as f64 / samples as f64) / 1000.0);
     println!("Total tracks: {}", library.library.len());
+    let now = std::time::SystemTime::now();
+    let songs = library.query(
+        &query,
+        &vec![
+            Tag::Artist,
+            Tag::Album,
+            Tag::Title
+        ],
+        &vec![
+            Tag::Artist,
+            Tag::Album,
+            Tag::Key("DiscNumber".to_string()),
+            Tag::Track
+        ]
+    );
+    println!("Found {} tracks in {:?}ms", songs.clone().unwrap_or_default().len(), now.elapsed().unwrap());
 
-    /*
     for song in songs.unwrap() {
         println!(
-            "{: >3}, {: >3} | {}: {:?}",
+            "{: >3}, {: >3} | {: >10}: {}",
             song.get_tag(&Tag::Key("DiscNumber".to_string())).unwrap_or(&"".to_string()),
             song.get_tag(&Tag::Track).unwrap_or(&"".to_string()),
             song.get_tag(&Tag::Album).unwrap_or(&"".to_string()),
-            song.get_tag(&Tag::Title)
+            song.get_tag(&Tag::Title).unwrap_or(&"".to_string())
         );
     }
-    */
+
     //println!("{:?}", library.library);
 
     //DMP::run(Settings::default());
