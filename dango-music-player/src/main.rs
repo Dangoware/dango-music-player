@@ -1,6 +1,11 @@
 use std::{thread, path::{PathBuf, Path}};
 
-use dango_core::{music_tracker::music_tracker::{DiscordRPC, DiscordRPCConfig, MusicTracker, LastFMConfig, LastFM}, music_controller::music_controller::MusicController, music_storage::music_db::{MusicLibrary, URI, Song}, music_player::music_player::{DecoderMessage, PlayerStatus}};
+use dango_core::{
+    music_tracker::music_tracker::{DiscordRPC, DiscordRPCConfig, MusicTracker, LastFMConfig, LastFM},
+    music_controller::music_controller::MusicController,
+    music_storage::music_db::{MusicLibrary, URI, Song, Tag, normalize},
+    music_player::music_player::{DecoderMessage, PlayerStatus}
+};
 use async_std::{fs::File, io, prelude::*, task};
 
 use iced::{executor, widget::Button};
@@ -17,11 +22,49 @@ fn main() {
     let config = dango_core::music_controller::config::Config::default();
 
     let mut library = MusicLibrary::init(&config).unwrap();
-    let now = std::time::SystemTime::now();
+    /*
     library.find_all_music("/media/g2/Storage4/Media-Files/Music/Albums/").unwrap();
     library.save(&config).unwrap();
-    println!("{:?}", now.elapsed().unwrap());
+    */
 
+    let query = String::from("のんびり三人娘");
+    println!("{}", normalize(&query));
+    let samples = 1;
+
+    let mut overall = 0;
+    for _ in 0..samples {
+        let now = std::time::SystemTime::now();
+        let songs = library.query(
+            &query,
+            &vec![
+                Tag::Artist,
+                Tag::Album,
+            ],
+            &vec![
+                Tag::Artist,
+                Tag::Album,
+                Tag::Key("DiscNumber".to_string()),
+                Tag::Track
+            ]
+        );
+        let time = now.elapsed().unwrap();
+        println!("The query \"{query}\" returned {} songs in {:?}", songs.clone().unwrap_or_default().len(), time);
+        overall += time.as_micros();
+    }
+    println!("Average time: {}ms", (overall as f64 / samples as f64) / 1000.0);
+    println!("Total tracks: {}", library.library.len());
+
+    /*
+    for song in songs.unwrap() {
+        println!(
+            "{: >3}, {: >3} | {}: {:?}",
+            song.get_tag(&Tag::Key("DiscNumber".to_string())).unwrap_or(&"".to_string()),
+            song.get_tag(&Tag::Track).unwrap_or(&"".to_string()),
+            song.get_tag(&Tag::Album).unwrap_or(&"".to_string()),
+            song.get_tag(&Tag::Title)
+        );
+    }
+    */
     //println!("{:?}", library.library);
 
     //DMP::run(Settings::default());
@@ -74,8 +117,9 @@ impl Application for DMP {
                     last_played: None,
                     date_added: None,
                     duration: std::time::Duration::from_secs(20),
+                    date_modified: None,
                     album_art: Vec::new(),
-                    tags: vec![("Title".to_string(), "Miku".to_string()), ("Artist".to_string(), "Anamanaguchi".to_string())],
+                    tags: vec![(Tag::Title, "Miku".to_string()), (Tag::Artist, "Anamanaguchi".to_string())],
                 };
                 self.controller.song_control(DecoderMessage::OpenSong(song));
             }
@@ -88,7 +132,6 @@ impl Application for DMP {
             Message::SetVol(vol) => {
                 self.controller.set_vol(vol);
             }
-            _ => {}
         };
         Command::none()
     }
