@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
+use unidecode::unidecode;
 
 use crate::music_controller::config::Config;
 
@@ -18,6 +19,31 @@ use crate::music_controller::config::Config;
 pub struct AlbumArt {
     pub index: u16,
     pub path: Option<URI>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub enum Tag {
+    Title,
+    Album,
+    Artist,
+    Genre,
+    Comment,
+    Track,
+    Key(String)
+}
+
+impl ToString for Tag {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Title => "TrackTitle".into(),
+            Self::Album => "AlbumTitle".into(),
+            Self::Artist => "TrackArtist".into(),
+            Self::Genre => "Genre".into(),
+            Self::Comment => "Comment".into(),
+            Self::Track => "TrackNumber".into(),
+            Self::Key(key) => key.into()
+        }
+    }
 }
 
 /// Stores information about a single song
@@ -35,13 +61,15 @@ pub struct Song {
     pub last_played: Option<DateTime<Utc>>,
     #[serde(with = "ts_seconds_option")]
     pub date_added: Option<DateTime<Utc>>,
+    #[serde(with = "ts_seconds_option")]
+    pub date_modified: Option<DateTime<Utc>>,
     pub album_art: Vec<AlbumArt>,
-    pub tags: Vec<(String, String)>,
+    pub tags: Vec<(Tag, String)>,
 }
 
 impl Song {
-    pub fn get_tag(&self, target_key: &str) -> Option<&String> {
-        let index = self.tags.iter().position(|r| r.0 == target_key);
+    pub fn get_tag(&self, target_key: &Tag) -> Option<&String> {
+        let index = self.tags.iter().position(|r| r.0 == *target_key);
 
         match index {
             Some(i) => return Some(&self.tags[i].1),
@@ -53,7 +81,7 @@ impl Song {
         let mut results = Vec::new();
         for tag in &self.tags {
             for key in target_keys {
-                if &tag.0 == key {
+                if &tag.0.to_string() == key {
                     results.push(Some(tag.1.to_owned()))
                 }
             }
@@ -93,6 +121,10 @@ pub enum MusicObject {
 #[derive(Debug)]
 pub struct MusicLibrary {
     pub library: Vec<Song>,
+}
+
+pub fn normalize(input_string: &String) -> String {
+    unidecode(input_string).to_ascii_lowercase()
 }
 
 impl MusicLibrary {
@@ -225,12 +257,17 @@ impl MusicLibrary {
             },
         };
 
-        let mut tags: Vec<(String, String)> = Vec::new();
+        let mut tags: Vec<(Tag, String)> = Vec::new();
         for item in tag.items() {
-            let mut key = String::new();
-            match item.key() {
-                ItemKey::Unknown(unknown) => key.push_str(&unknown),
-                custom => key = format!("{:?}", custom),
+            let key = match item.key() {
+                ItemKey::TrackTitle =>  Tag::Title,
+                ItemKey::TrackNumber => Tag::Track,
+                ItemKey::TrackArtist => Tag::Artist,
+                ItemKey::Genre =>       Tag::Genre,
+                ItemKey::Comment =>     Tag::Comment,
+                ItemKey::AlbumTitle =>  Tag::Album,
+                ItemKey::Unknown(unknown) => Tag::Key(unknown.to_string()),
+                custom => Tag::Key(format!("{:?}", custom)),
             };
 
             let value = match item.value() {
@@ -276,6 +313,7 @@ impl MusicLibrary {
             play_time: Duration::from_secs(0),
             last_played: None,
             date_added: Some(chrono::offset::Utc::now()),
+            date_modified: Some(chrono::offset::Utc::now()),
             tags,
             album_art,
         };
@@ -311,10 +349,63 @@ impl MusicLibrary {
     /// Query the database, returning a list of items
     pub fn query(
         &self,
-        query_string: &String,     // The query itself
-        target_tags: &Vec<String>, // The tags to search
-        sort_by: &Vec<String>,     // Tags to sort the resulting data by
-    ) -> Option<Vec<MusicObject>> {
-        unimplemented!()
+        query_string: &String,  // The query itself
+        target_tags: &Vec<Tag>, // The tags to search
+        sort_by: &Vec<Tag>,     // Tags to sort the resulting data by
+    ) -> Option<Vec<Song>> {
+        let mut songs = Vec::new();
+
+        for track in &self.library {
+            for tag in &track.tags {
+                if !target_tags.contains(&tag.0) {
+                    continue;
+                }
+
+                if normalize(&tag.1).contains(&normalize(&query_string)) {
+                    songs.push(track.clone());
+                    break
+                }
+            }
+        }
+
+        songs.sort_by(|a, b| {
+            for opt in sort_by {
+                let tag_a = match a.get_tag(&opt) {
+                    Some(tag) => tag,
+                    None => continue
+                };
+
+                let tag_b = match b.get_tag(&opt) {
+                    Some(tag) => tag,
+                    None => continue
+                };
+
+                // Try to parse the tags as f64 (floating-point numbers)
+                if let (Ok(num_a), Ok(num_b)) = (tag_a.parse::<f64>(), tag_b.parse::<f64>()) {
+                    // If parsing succeeds, compare as numbers
+                    if num_a < num_b {
+                        return std::cmp::Ordering::Less;
+                    } else if num_a > num_b {
+                        return std::cmp::Ordering::Greater;
+                    }
+                } else {
+                    // If parsing fails, compare as strings
+                    if tag_a < tag_b {
+                        return std::cmp::Ordering::Less;
+                    } else if tag_a > tag_b {
+                        return std::cmp::Ordering::Greater;
+                    }
+                }
+            }
+
+            // If all tags are equal, sort by some default criteria (e.g., song title)
+            a.get_tag(&Tag::Title).cmp(&b.get_tag(&Tag::Title))
+        });
+
+        if songs.len() > 0 {
+            Some(songs)
+        } else {
+            None
+        }
     }
 }

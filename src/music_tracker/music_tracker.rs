@@ -8,7 +8,7 @@ use md5::{Md5, Digest};
 use discord_presence::{Event};
 use surf::StatusCode;
 
-use crate::music_storage::music_db::Song;
+use crate::music_storage::music_db::{Song, Tag};
 
 #[async_trait]
 pub trait MusicTracker {
@@ -75,7 +75,7 @@ impl MusicTracker for LastFM {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).expect("Your time is off.").as_secs() - 30;
         let string_timestamp = timestamp.to_string();
         
-        let (artist, track) = match (song.get_tag("Artist"), song.get_tag("Title")) {
+        let (artist, track) = match (song.get_tag(&Tag::Artist), song.get_tag(&Tag::Title)) {
             (Some(artist), Some(track)) => (artist, track),
             _ => return Err(TrackerError::InvalidSong)
         };
@@ -94,7 +94,7 @@ impl MusicTracker for LastFM {
     async fn track_now(&mut self, song: Song) -> Result<(), TrackerError> {
         let mut params: BTreeMap<&str, &str> = BTreeMap::new();
         
-        let (artist, track) = match (song.get_tag("Artist"), song.get_tag("Title")) {
+        let (artist, track) = match (song.get_tag(&Tag::Artist), song.get_tag(&Tag::Title)) {
             (Some(artist), Some(track)) => (artist, track),
             _ => return Err(TrackerError::InvalidSong)
         };
@@ -256,13 +256,14 @@ impl DiscordRPC {
     }
 }
 
+
 #[async_trait]
 impl MusicTracker for DiscordRPC {
     async fn track_now(&mut self, song: Song) -> Result<(), TrackerError> {
         let unknown = String::from("Unknown");
 
         // Sets song title
-        let song_name = if let Some(song_name) = song.get_tag("Title") {
+        let song_name = if let Some(song_name) = song.get_tag(&Tag::Title) {
             song_name
         } else {
             &unknown
@@ -318,7 +319,7 @@ pub struct ListenBrainz {
 #[async_trait]
 impl MusicTracker for ListenBrainz {
     async fn track_now(&mut self, song: Song) -> Result<(), TrackerError> {
-        let (artist, track) = match (song.get_tag("Artist"), song.get_tag("Title")) {
+        let (artist, track) = match (song.get_tag(&Tag::Artist), song.get_tag(&Tag::Title)) {
             (Some(artist), Some(track)) => (artist, track),
             _ => return Err(TrackerError::InvalidSong)
         };
@@ -344,7 +345,7 @@ impl MusicTracker for ListenBrainz {
     async fn track_song(&mut self, song: Song) -> Result<(), TrackerError> {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).expect("Your time is off.").as_secs() - 30;
         
-        let (artist, track) = match (song.get_tag("Artist"), song.get_tag("Title")) {
+        let (artist, track) = match (song.get_tag(&Tag::Artist), song.get_tag(&Tag::Title)) {
             (Some(artist), Some(track)) => (artist, track),
             _ => return Err(TrackerError::InvalidSong)
         };
