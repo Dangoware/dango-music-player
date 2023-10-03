@@ -8,58 +8,29 @@ use dango_core::{
 };
 use async_std::{fs::File, io, prelude::*, task};
 
-use iced::{executor, widget::Button};
+use iced::{executor, widget::{Button, scrollable, row}, Length};
 use iced::widget::{button, column, container, progress_bar, text, Column, text_input, slider, ProgressBar};
 use iced::{
-    Alignment, Application, Command, Element, Length, Settings, Subscription,
-    Theme,
+    Alignment, Application, Command, Element, Settings,
+    Theme, Font
 };
 use once_cell::sync::Lazy;
 
 static INPUT_ID: Lazy<text_input::Id> = Lazy::new(text_input::Id::unique);
 
 fn main() {
-    let config = dango_core::music_controller::config::Config::default();
-
-    let mut library = MusicLibrary::init(&config).unwrap();
-    /*
-    library.find_all_music("/media/g2/Storage4/Media-Files/Music/Albums/").unwrap();
-    library.save(&config).unwrap();
-    */
-
-    let query = String::from("のんびり三人娘");
-
-    println!("Total tracks: {}", library.library.len());
-    let now = std::time::SystemTime::now();
-    let songs = library.query(
-        &query,
-        &vec![
-            Tag::Artist,
-            Tag::Album,
-            Tag::Title
-        ],
-        &vec![
-            Tag::Artist,
-            Tag::Album,
-            Tag::Key("DiscNumber".to_string()),
-            Tag::Track
-        ]
+    let default_font = Font {
+        family: iced::font::Family::Name("Noto Sans CJK JP"),
+        monospaced: true,
+        ..Default::default()
+    };
+    let _ = DMP::run(
+        Settings {
+            antialiasing: true,
+            default_font,
+            ..Default::default()
+        }
     );
-    println!("Found {} tracks in {:?}ms", songs.clone().unwrap_or_default().len(), now.elapsed().unwrap());
-
-    for song in songs.unwrap() {
-        println!(
-            "{: >3}, {: >3} | {: >10}: {}",
-            song.get_tag(&Tag::Key("DiscNumber".to_string())).unwrap_or(&"".to_string()),
-            song.get_tag(&Tag::Track).unwrap_or(&"".to_string()),
-            song.get_tag(&Tag::Album).unwrap_or(&"".to_string()),
-            song.get_tag(&Tag::Title).unwrap_or(&"".to_string())
-        );
-    }
-
-    //println!("{:?}", library.library);
-
-    //DMP::run(Settings::default());
 }
 
 #[derive(Debug, Clone)]
@@ -68,11 +39,19 @@ pub enum Message {
     SetVol(f32),
     Open(String),
     InputChanged(String),
+    SliderChanged(i32),
 }
 
 struct DMP {
     controller: MusicController,
     inputval: String,
+    result: String,
+    play_time: f32,
+    slider_value: i32
+}
+
+pub struct Slider {
+    slider_value: i32,
 }
 
 impl Application for DMP {
@@ -86,6 +65,9 @@ impl Application for DMP {
             DMP {
                 controller: MusicController::new(&PathBuf::from("config.toml")).unwrap(),
                 inputval: String::from("Song"),
+                result: String::new(),
+                play_time: 0.0,
+                slider_value: 100
             },
             Command::none(),
         )
@@ -97,26 +79,48 @@ impl Application for DMP {
     
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
-            Message::Open(song) => {
-                let song = Song {
-                    location: URI::Local(song),
-                    plays: 0,
-                    skips: 0,
-                    rating: None,
-                    play_time: std::time::Duration::from_secs(200),
-                    favorited: false,
-                    format: None,
-                    last_played: None,
-                    date_added: None,
-                    duration: std::time::Duration::from_secs(20),
-                    date_modified: None,
-                    album_art: Vec::new(),
-                    tags: vec![(Tag::Title, "Miku".to_string()), (Tag::Artist, "Anamanaguchi".to_string())],
-                };
-                self.controller.song_control(DecoderMessage::OpenSong(song));
+            Message::Open(_) => {
+                let query = &self.inputval;
+                let songs = self.controller.query_library(
+                    &query,
+                    vec![
+                        Tag::Artist,
+                        Tag::Album,
+                        Tag::Title,
+                    ],
+                    vec![
+                        Tag::Artist,
+                        Tag::Album,
+                        Tag::Key("DiscNumber".to_string()),
+                        Tag::Track
+                    ]
+                );
+                let song = songs.unwrap()[0];
+                self.controller.song_control(DecoderMessage::OpenSong(song.clone()));
             }
             Message::InputChanged(song) => {
                 self.inputval = song;
+                let query = &self.inputval;
+                let songs = self.controller.query_library(
+                    &query,
+                    vec![
+                        Tag::Artist,
+                        Tag::Album,
+                        Tag::Title,
+                    ],
+                    vec![
+                        Tag::Artist,
+                        Tag::Album,
+                        Tag::Key("DiscNumber".to_string()),
+                        Tag::Track
+                    ]
+                );
+                //println!("{:0<5}ms, {query}", time.as_micros() as f64 / 1000.0);
+                self.result = songs.unwrap_or_default().into_iter().map(|x| {
+                    let mut temp = x.get_tag(&Tag::Title).unwrap_or(&"".to_string()).clone();
+                    temp.push_str("\n");
+                    temp
+                }).collect::<String>();
             }
             Message::PlayerMessage(message) => {
                 self.controller.song_control(message)
@@ -124,25 +128,36 @@ impl Application for DMP {
             Message::SetVol(vol) => {
                 self.controller.set_vol(vol);
             }
+            Message::SliderChanged(value) => {
+                self.controller.set_vol((value as f32 / 100.0));
+                self.slider_value = value;
+            }
         };
         Command::none()
     }
     
     fn view(&self) -> Element<Message> {
+        let value = self.slider_value;
+        let h_slider = slider(0..=100, value, Message::SliderChanged);
+
         column![
-            text_input("Song goes here!", &self.inputval)
+            row![
+                text_input("Song goes here!", &self.inputval)
                     .id(INPUT_ID.clone())
                     .on_input(Message::InputChanged)
                     .padding(15)
                     .size(30),
-            button("Open Song!").on_press(Message::Open(self.inputval.clone())),
-            text(format!("Song volume: {}", self.controller.get_vol())).size(60),
-            button("Play").on_press(Message::PlayerMessage(DecoderMessage::Play)),
-            button("Pause").on_press(Message::PlayerMessage(DecoderMessage::Pause)),
-            button("VOL+").on_press(Message::SetVol(self.controller.get_vol() + 0.1)),
-            button("VOL-").on_press(Message::SetVol(self.controller.get_vol() - 0.1)),
-            text(format!("Status: {:?}", self.controller.get_current_song())),
-            progress_bar(0.0..=1.0, self.controller.get_vol())
+                button("Open Song!").height(70).on_press(Message::Open(self.inputval.clone()))
+            ].padding(12),
+            scrollable(text(format!("{}", &self.result)).size(20)).height(Length::Fill).width(Length::Fill),
+            row![
+                button("Play").on_press(Message::PlayerMessage(DecoderMessage::Play)),
+                button("Pause").on_press(Message::PlayerMessage(DecoderMessage::Pause)),
+                text(format!("Volume: {}", (self.controller.get_vol() * 100.0) as i32)).size(24),
+                container(h_slider).width(200).center_x().center_y(),
+            ].spacing(12).padding(12),
+            //text(format!("Status: {:?}", self.controller.get_current_song())),
+            progress_bar(0.0..=1.0, self.play_time),
         ]
         .padding(12)
         .align_items(Alignment::Center)
