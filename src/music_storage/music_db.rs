@@ -13,6 +13,11 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use unidecode::unidecode;
 
+// Fun parallel stuff
+use std::sync::{Arc, Mutex, RwLock};
+use rayon::iter;
+use rayon::prelude::*;
+
 use crate::music_controller::config::Config;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -29,6 +34,7 @@ pub enum Tag {
     Genre,
     Comment,
     Track,
+    Disk,
     Key(String)
 }
 
@@ -41,6 +47,7 @@ impl ToString for Tag {
             Self::Genre => "Genre".into(),
             Self::Comment => "Comment".into(),
             Self::Track => "TrackNumber".into(),
+            Self::Disk => "DiscNumber".into(),
             Self::Key(key) => key.into()
         }
     }
@@ -68,6 +75,17 @@ pub struct Song {
 }
 
 impl Song {
+    /**
+     * Get a tag's value
+     *
+     * ```
+     * // Assuming an already created song:
+     *
+     * let tag = this_song.get_tag(Tag::Title);
+     *
+     * assert_eq!(tag, "Title");
+     * ```
+     **/
     pub fn get_tag(&self, target_key: &Tag) -> Option<&String> {
         let index = self.tags.iter().position(|r| r.0 == *target_key);
 
@@ -124,24 +142,25 @@ pub struct MusicLibrary {
 }
 
 pub fn normalize(input_string: &String) -> String {
-    unidecode(input_string).to_ascii_lowercase()
+    unidecode(input_string).to_ascii_lowercase().replace(|c: char| !c.is_alphanumeric() && !c.is_ascii_punctuation(), "")
 }
 
 impl MusicLibrary {
     /// Initialize the database
     ///
-    /// If the database file already exists, return the Library, otherwise create
+    /// If the database file already exists, return the [MusicLibrary], otherwise create
     /// the database first. This needs to be run before anything else to retrieve
-    /// the library vec
-    pub fn init(config: &Config) -> Result<Self, Box<dyn Error>> {
+    /// the [MusicLibrary] Vec
+    pub fn init(config: Arc<RwLock<Config>>) -> Result<Self, Box<dyn Error>> {
+        let global_config = &*config.read().unwrap();
         let mut library: Vec<Song> = Vec::new();
-        let mut backup_path = config.db_path.clone();
+        let mut backup_path = global_config.db_path.clone();
         backup_path.set_extension("bkp");
 
-        match config.db_path.try_exists() {
+        match global_config.db_path.try_exists() {
             Ok(true) => {
                 // The database exists, so get it from the file
-                let database = fs::File::open(config.db_path.to_path_buf())?;
+                let database = fs::File::open(global_config.db_path.to_path_buf())?;
                 let reader = BufReader::new(database);
                 library = deserialize_from(reader)?;
             }
@@ -149,11 +168,11 @@ impl MusicLibrary {
                 // Create the database if it does not exist
                 // possibly from the backup file
                 if backup_path.try_exists().is_ok_and(|x| x == true) {
-                    let database = fs::File::open(config.db_path.to_path_buf())?;
+                    let database = fs::File::open(global_config.db_path.to_path_buf())?;
                     let reader = BufReader::new(database);
                     library = deserialize_from(reader)?;
                 } else {
-                    let mut writer = BufWriter::new(fs::File::create(config.db_path.to_path_buf())?);
+                    let mut writer = BufWriter::new(fs::File::create(global_config.db_path.to_path_buf())?);
                     serialize_into(&mut writer, &library)?;
                 }
             },
@@ -197,15 +216,20 @@ impl MusicLibrary {
         None
     }
 
-    pub fn find_all_music(&mut self, target_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn find_all_music(&mut self, target_path: &str, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
         let mut current_dir = PathBuf::new();
-        for entry in WalkDir::new(target_path)
+        for (i, entry) in WalkDir::new(target_path)
             .follow_links(true)
             .into_iter()
-            .filter_map(|e| e.ok())
+            .filter_map(|e| e.ok()).enumerate()
         {
             let target_file = entry;
             let is_file = fs::metadata(target_file.path())?.is_file();
+
+            // Save periodically while scanning
+            if i%250 == 0 {
+                self.save(config).unwrap();
+            }
 
             // Ensure the target is a file and not a directory, if it isn't, skip this loop
             if !is_file {
@@ -225,11 +249,15 @@ impl MusicLibrary {
                 match self.add_file_to_db(target_file.path()) {
                     Ok(_) => (),
                     Err(_error) => () //println!("{}, {:?}: {}", format, target_file.file_name(), error)
+                    // TODO: Handle more of these errors
                 };
             } else if extension.to_ascii_lowercase() == "cue" {
                 // TODO: implement cuesheet support
             }
         }
+
+        // Save the database after scanning finishes
+        self.save(&config).unwrap();
 
         Ok(())
     }
@@ -346,29 +374,32 @@ impl MusicLibrary {
         todo!()
     }
 
-    /// Query the database, returning a list of items
+    /// Query the database, returning a list of [Song]s
     pub fn query(
         &self,
         query_string: &String,  // The query itself
         target_tags: &Vec<Tag>, // The tags to search
         sort_by: &Vec<Tag>,     // Tags to sort the resulting data by
-    ) -> Option<Vec<Song>> {
-        let mut songs = Vec::new();
+    ) -> Option<Vec<&Song>> {
+        let songs = Arc::new(Mutex::new(Vec::new()));
 
-        for track in &self.library {
+        self.library.par_iter().for_each(|track| {
             for tag in &track.tags {
                 if !target_tags.contains(&tag.0) {
                     continue;
                 }
 
                 if normalize(&tag.1).contains(&normalize(&query_string)) {
-                    songs.push(track.clone());
+                    songs.lock().unwrap().push(track);
                     break
                 }
             }
-        }
+        });
 
-        songs.sort_by(|a, b| {
+        let lock = Arc::try_unwrap(songs).expect("Lock still has multiple owners!");
+        let mut new_songs = lock.into_inner().expect("Mutex cannot be locked!");
+
+        new_songs.par_sort_by(|a, b| {
             for opt in sort_by {
                 let tag_a = match a.get_tag(&opt) {
                     Some(tag) => tag,
@@ -402,8 +433,8 @@ impl MusicLibrary {
             a.get_tag(&Tag::Title).cmp(&b.get_tag(&Tag::Title))
         });
 
-        if songs.len() > 0 {
-            Some(songs)
+        if new_songs.len() > 0 {
+            Some(new_songs)
         } else {
             None
         }

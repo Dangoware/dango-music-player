@@ -268,6 +268,13 @@ impl MusicTracker for DiscordRPC {
         } else {
             &unknown
         };
+
+        // Sets album
+        let album = if let Some(album) = song.get_tag(&Tag::Album) {
+            album
+        } else {
+            &unknown
+        };
         
         let _client_thread = self.client.start();
         
@@ -281,7 +288,8 @@ impl MusicTracker for DiscordRPC {
         // Sets discord account activity to current playing song
         let send_activity = self.client.set_activity(|activity| {
             activity
-                .state(format!("Listening to: {}", song_name))
+                .state(format!("{}", album))
+                .details(format!("{}", song_name))
                 .assets(|assets| assets.large_image(&self.config.dango_icon))
                 .timestamps(|time| time.start(start_time))
         });
