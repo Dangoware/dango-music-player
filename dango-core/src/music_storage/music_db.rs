@@ -1,5 +1,6 @@
 use file_format::{FileFormat, Kind};
 use lofty::{AudioFile, ItemKey, ItemValue, Probe, TagType, TaggedFileExt};
+use std::any::Any;
 use std::{error::Error, io::BufReader};
 
 use chrono::{serde::ts_seconds_option, DateTime, Utc};
@@ -15,7 +16,6 @@ use unidecode::unidecode;
 
 // Fun parallel stuff
 use std::sync::{Arc, Mutex, RwLock};
-use rayon::iter;
 use rayon::prelude::*;
 
 use crate::music_controller::config::Config;
@@ -35,20 +35,22 @@ pub enum Tag {
     Comment,
     Track,
     Disk,
-    Key(String)
+    Key(String),
+    Field(String)
 }
 
 impl ToString for Tag {
     fn to_string(&self) -> String {
         match self {
-            Self::Title => "TrackTitle".into(),
-            Self::Album => "AlbumTitle".into(),
+            Self::Title =>  "TrackTitle".into(),
+            Self::Album =>  "AlbumTitle".into(),
             Self::Artist => "TrackArtist".into(),
-            Self::Genre => "Genre".into(),
+            Self::Genre =>  "Genre".into(),
             Self::Comment => "Comment".into(),
-            Self::Track => "TrackNumber".into(),
-            Self::Disk => "DiscNumber".into(),
-            Self::Key(key) => key.into()
+            Self::Track =>  "TrackNumber".into(),
+            Self::Disk =>   "DiscNumber".into(),
+            Self::Key(key) => key.into(),
+            Self::Field(f) => f.into()
         }
     }
 }
@@ -95,17 +97,12 @@ impl Song {
         }
     }
 
-    pub fn get_tags(&self, target_keys: &Vec<String>) -> Vec<Option<String>> {
-        let mut results = Vec::new();
-        for tag in &self.tags {
-            for key in target_keys {
-                if &tag.0.to_string() == key {
-                    results.push(Some(tag.1.to_owned()))
-                }
-            }
-            results.push(None);
+    pub fn get_field(&self, target_field: &str) -> Box<dyn Any> {
+        match target_field {
+            "location" => Box::new(self.location.clone()),
+            "plays" => Box::new(self.plays.clone()),
+            _ => todo!()
         }
-        results
     }
 }
 
@@ -114,6 +111,15 @@ pub enum URI {
     Local(String),
     //Cue(String, Duration), TODO: Make cue stuff work
     Remote(Service, String),
+}
+
+impl ToString for URI {
+    fn to_string(&self) -> String {
+        match self {
+            URI::Local(location) => location.to_string(),
+            URI::Remote(_, location) => location.to_string()
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -142,7 +148,7 @@ pub struct MusicLibrary {
 }
 
 pub fn normalize(input_string: &String) -> String {
-    unidecode(input_string).to_ascii_lowercase().replace(|c: char| !c.is_alphanumeric() && !c.is_ascii_punctuation(), "")
+    unidecode(input_string).to_ascii_lowercase().replace(|c: char| !c.is_alphanumeric(), "")
 }
 
 impl MusicLibrary {
@@ -207,7 +213,9 @@ impl MusicLibrary {
         Ok(())
     }
 
-    fn find_by_uri(&self, path: &URI) -> Option<Song> {
+    /// Queries for a [Song] by its [URI], returning a single Song
+    /// with the URI that matches
+    fn query_by_uri(&self, path: &URI) -> Option<Song> {
         for track in &self.library {
             if path == &track.location {
                 return Some(track.clone());
@@ -348,14 +356,14 @@ impl MusicLibrary {
 
         match self.add_song_to_db(new_song) {
             Ok(_) => (),
-            Err(error) => ()
+            Err(_error) => ()
         };
 
         Ok(())
     }
 
     pub fn add_song_to_db(&mut self, new_song: Song) -> Result<(), Box<dyn std::error::Error>> {
-        match self.find_by_uri(&new_song.location) {
+        match self.query_by_uri(&new_song.location) {
             Some(_) => return Err(format!("URI already in database: {:?}", new_song.location).into()),
             None => ()
         }
@@ -366,7 +374,7 @@ impl MusicLibrary {
     }
 
     pub fn update_song_tags(&mut self, new_tags: Song) -> Result<(), Box<dyn std::error::Error>> {
-        match self.find_by_uri(&new_tags.location) {
+        match self.query_by_uri(&new_tags.location) {
             Some(_) => (),
             None => return Err(format!("URI not in database!").into())
         }
@@ -379,6 +387,7 @@ impl MusicLibrary {
         &self,
         query_string: &String,  // The query itself
         target_tags: &Vec<Tag>, // The tags to search
+        search_location: bool,  // Whether to search the location field or not
         sort_by: &Vec<Tag>,     // Tags to sort the resulting data by
     ) -> Option<Vec<&Song>> {
         let songs = Arc::new(Mutex::new(Vec::new()));
@@ -391,9 +400,25 @@ impl MusicLibrary {
 
                 if normalize(&tag.1).contains(&normalize(&query_string)) {
                     songs.lock().unwrap().push(track);
-                    break
+                    return
                 }
             }
+
+            if !search_location {
+                return
+            }
+
+            // Find a URL in the song
+            match &track.location {
+                URI::Local(path) if normalize(&path).contains(&normalize(&query_string)) => {
+                    songs.lock().unwrap().push(track);
+                    return
+                },
+                URI::Remote(_, path) if normalize(&path).contains(&normalize(&query_string)) => {
+                    songs.lock().unwrap().push(track);
+                    return
+                }, _ => ()
+            };
         });
 
         let lock = Arc::try_unwrap(songs).expect("Lock still has multiple owners!");

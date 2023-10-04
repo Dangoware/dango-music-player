@@ -79,8 +79,9 @@ impl MusicController {
         &self,
         query_string: &String,
         target_tags: Vec<Tag>,
+        search_location: bool,
         sort_by: Vec<Tag>
     ) -> Option<Vec<&Song>> {
-        self.library.query(query_string, &target_tags, &sort_by)
+        self.library.query(query_string, &target_tags, search_location, &sort_by)
     }
 }

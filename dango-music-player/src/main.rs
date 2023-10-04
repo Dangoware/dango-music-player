@@ -24,13 +24,11 @@ fn main() {
         monospaced: true,
         ..Default::default()
     };
-    let _ = DMP::run(
-        Settings {
+    let _ = DMP::run(Settings {
             antialiasing: true,
             default_font,
             ..Default::default()
-        }
-    );
+    });
 }
 
 #[derive(Debug, Clone)]
@@ -88,6 +86,7 @@ impl Application for DMP {
                         Tag::Album,
                         Tag::Title,
                     ],
+                    true,
                     vec![
                         Tag::Artist,
                         Tag::Album,
@@ -101,6 +100,7 @@ impl Application for DMP {
             Message::InputChanged(song) => {
                 self.inputval = song;
                 let query = &self.inputval;
+                let now = std::time::Instant::now();
                 let songs = self.controller.query_library(
                     &query,
                     vec![
@@ -108,6 +108,7 @@ impl Application for DMP {
                         Tag::Album,
                         Tag::Title,
                     ],
+                    true,
                     vec![
                         Tag::Artist,
                         Tag::Album,
@@ -115,12 +116,30 @@ impl Application for DMP {
                         Tag::Track
                     ]
                 );
-                //println!("{:0<5}ms, {query}", time.as_micros() as f64 / 1000.0);
-                self.result = songs.unwrap_or_default().into_iter().map(|x| {
-                    let mut temp = x.get_tag(&Tag::Title).unwrap_or(&"".to_string()).clone();
-                    temp.push_str("\n");
-                    temp
-                }).collect::<String>();
+                let time = now.elapsed();
+                let full_songs = songs.unwrap_or_default();
+                println!("{: >4}: {:0<5}ms, {query}", full_songs.len(), time.as_micros() as f64 / 1000.0);
+                if full_songs.len() >= 20 {
+                    self.result = full_songs[0..20].into_iter().map(|x| {
+                        let temp = String::new();
+                        let mut temp = match x.get_tag(&Tag::Title) {
+                            Some(string) => string.to_string(),
+                            None => return temp
+                        };
+                        temp.push_str("\n");
+                        temp
+                    }).collect::<String>();
+                } else {
+                    self.result = full_songs[0..full_songs.len()].into_iter().map(|x| {
+                        let temp = String::new();
+                        let mut temp = match x.get_tag(&Tag::Title) {
+                            Some(string) => string.to_string(),
+                            None => return temp
+                        };
+                        temp.push_str("\n");
+                        temp
+                    }).collect::<String>();
+                }
             }
             Message::PlayerMessage(message) => {
                 self.controller.song_control(message)
@@ -129,7 +148,7 @@ impl Application for DMP {
                 self.controller.set_vol(vol);
             }
             Message::SliderChanged(value) => {
-                self.controller.set_vol((value as f32 / 100.0));
+                self.controller.set_vol(value as f32 / 100.0);
                 self.slider_value = value;
             }
         };
@@ -148,12 +167,12 @@ impl Application for DMP {
                     .padding(15)
                     .size(30),
                 button("Open Song!").height(70).on_press(Message::Open(self.inputval.clone()))
-            ].padding(12),
+            ].spacing(12).padding(12),
             scrollable(text(format!("{}", &self.result)).size(20)).height(Length::Fill).width(Length::Fill),
             row![
                 button("Play").on_press(Message::PlayerMessage(DecoderMessage::Play)),
                 button("Pause").on_press(Message::PlayerMessage(DecoderMessage::Pause)),
-                text(format!("Volume: {}", (self.controller.get_vol() * 100.0) as i32)).size(24),
+                text(format!("Volume: {: >3}", (self.controller.get_vol() * 100.0) as i32)).size(24),
                 container(h_slider).width(200).center_x().center_y(),
             ].spacing(12).padding(12),
             //text(format!("Status: {:?}", self.controller.get_current_song())),
