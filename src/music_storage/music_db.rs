@@ -85,7 +85,7 @@ impl Song {
      *
      * let tag = this_song.get_tag(Tag::Title);
      *
-     * assert_eq!(tag, "Title");
+     * assert_eq!(tag, "Some Song Title");
      * ```
      **/
     pub fn get_tag(&self, target_key: &Tag) -> Option<&String> {
@@ -97,11 +97,11 @@ impl Song {
         }
     }
 
-    pub fn get_field(&self, target_field: &str) -> Box<dyn Any> {
+    pub fn get_field(&self, target_field: &str) -> Option<String> {
         match target_field {
-            "location" => Box::new(self.location.clone()),
-            "plays" => Box::new(self.plays.clone()),
-            _ => todo!()
+            "location" => Some(self.location.clone().to_string()),
+            "plays" => Some(self.plays.clone().to_string()),
+            _ => None   // Other field types is not yet supported
         }
     }
 }
@@ -383,6 +383,9 @@ impl MusicLibrary {
     }
 
     /// Query the database, returning a list of [Song]s
+    ///
+    /// The order in which the `sort_by` `Vec` is arranged
+    /// determines the output sorting
     pub fn query(
         &self,
         query_string: &String,  // The query itself
@@ -426,18 +429,38 @@ impl MusicLibrary {
 
         new_songs.par_sort_by(|a, b| {
             for opt in sort_by {
-                let tag_a = match a.get_tag(&opt) {
-                    Some(tag) => tag,
-                    None => continue
+                let tag_a = match opt {
+                    Tag::Field(field_selection) => {
+                        match a.get_field(field_selection) {
+                            Some(field_value) => field_value,
+                            None => continue
+                        }
+                    },
+                    _ => {
+                        match a.get_tag(&opt) {
+                            Some(tag_value) => tag_value.to_owned(),
+                            None => continue
+                        }
+                    }
                 };
 
-                let tag_b = match b.get_tag(&opt) {
-                    Some(tag) => tag,
-                    None => continue
+                let tag_b = match opt {
+                    Tag::Field(field_selection) => {
+                        match b.get_field(field_selection) {
+                            Some(field_value) => field_value,
+                            None => continue
+                        }
+                    },
+                    _ => {
+                        match b.get_tag(&opt) {
+                            Some(tag_value) => tag_value.to_owned(),
+                            None => continue
+                        }
+                    }
                 };
 
-                // Try to parse the tags as f64 (floating-point numbers)
-                if let (Ok(num_a), Ok(num_b)) = (tag_a.parse::<f64>(), tag_b.parse::<f64>()) {
+                // Try to parse the tags as f64
+                if let (Ok(num_a), Ok(num_b)) = (tag_a.parse::<i32>(), tag_b.parse::<i32>()) {
                     // If parsing succeeds, compare as numbers
                     if num_a < num_b {
                         return std::cmp::Ordering::Less;
@@ -454,7 +477,7 @@ impl MusicLibrary {
                 }
             }
 
-            // If all tags are equal, sort by some default criteria (e.g., song title)
+            // If all tags are equal, sort by title
             a.get_tag(&Tag::Title).cmp(&b.get_tag(&Tag::Title))
         });
 
