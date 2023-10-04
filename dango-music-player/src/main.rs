@@ -88,6 +88,7 @@ impl Application for DMP {
                     ],
                     true,
                     vec![
+                        Tag::Field("location".to_string()),
                         Tag::Artist,
                         Tag::Album,
                         Tag::Key("DiscNumber".to_string()),
@@ -110,6 +111,7 @@ impl Application for DMP {
                     ],
                     true,
                     vec![
+                        Tag::Field("location".to_string()),
                         Tag::Artist,
                         Tag::Album,
                         Tag::Key("DiscNumber".to_string()),
