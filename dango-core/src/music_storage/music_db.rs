@@ -420,7 +420,8 @@ impl MusicLibrary {
                 URI::Remote(_, path) if normalize(&path).contains(&normalize(&query_string)) => {
                     songs.lock().unwrap().push(track);
                     return
-                }, _ => ()
+                },
+                _ => ()
             };
         });
 
@@ -477,8 +478,8 @@ impl MusicLibrary {
                 }
             }
 
-            // If all tags are equal, sort by title
-            a.get_tag(&Tag::Title).cmp(&b.get_tag(&Tag::Title))
+            // If all tags are equal, sort by Track number
+            a.get_tag(&Tag::Track).cmp(&b.get_tag(&Tag::Track))
         });
 
         if new_songs.len() > 0 {

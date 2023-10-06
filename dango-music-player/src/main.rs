@@ -8,7 +8,7 @@ use dango_core::{
 };
 use async_std::{fs::File, io, prelude::*, task};
 
-use iced::{executor, widget::{Button, scrollable, row}, Length};
+use iced::{executor, widget::{Button, scrollable, row}, Length, window::{self, icon::from_file}};
 use iced::widget::{button, column, container, progress_bar, text, Column, text_input, slider, ProgressBar};
 use iced::{
     Alignment, Application, Command, Element, Settings,
@@ -57,7 +57,7 @@ impl Application for DMP {
     type Theme = Theme;
     type Executor = executor::Default;
     type Flags = ();
-    
+
     fn new(_flags: ()) -> (DMP, Command<Message>) {
         (
             DMP {
@@ -70,11 +70,11 @@ impl Application for DMP {
             Command::none(),
         )
     }
-    
+
     fn title(&self) -> String {
         String::from("Dango Music Player")
     }
-    
+
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::Open(_) => {
@@ -84,6 +84,7 @@ impl Application for DMP {
                     vec![
                         Tag::Artist,
                         Tag::Album,
+                        Tag::Key("AlbumArtist".to_string()),
                         Tag::Title,
                     ],
                     true,
@@ -100,6 +101,11 @@ impl Application for DMP {
             }
             Message::InputChanged(song) => {
                 self.inputval = song;
+
+                if self.inputval.len() == 0 {
+                    return Command::none()
+                }
+
                 let query = &self.inputval;
                 let now = std::time::Instant::now();
                 let songs = self.controller.query_library(
@@ -115,7 +121,6 @@ impl Application for DMP {
                         Tag::Artist,
                         Tag::Album,
                         Tag::Key("DiscNumber".to_string()),
-                        Tag::Track
                     ]
                 );
                 let time = now.elapsed();
@@ -156,7 +161,7 @@ impl Application for DMP {
         };
         Command::none()
     }
-    
+
     fn view(&self) -> Element<Message> {
         let value = self.slider_value;
         let h_slider = slider(0..=100, value, Message::SliderChanged);
