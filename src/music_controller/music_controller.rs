@@ -74,7 +74,7 @@ impl MusicController {
         self.song_control(DecoderMessage::DSP(DSPMessage::UpdateProcessor(Box::new(self.music_player.music_processor.clone()))));
     }
     
-    /// Queries the library for a `Vec<Song>`
+    /// Queries the [MusicLibrary], returning a `Vec<Song>`
     pub fn query_library(
         &self,
         query_string: &String,
