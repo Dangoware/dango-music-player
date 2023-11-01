@@ -493,9 +493,19 @@ impl MusicLibrary {
             let _ = self.remove_uri(&URI::Local(audio_location.clone()));
 
             // Get the track timing information
-            let start = Duration::from_micros((track.get_start() as f32 * 13333.333333).round() as u64);
+            let pregap = match track.get_zero_pre() {
+                Some(pregap) => Duration::from_micros((pregap as f32 * 13333.333333) as u64),
+                None => Duration::from_secs(0)
+            };
+            let postgap = match track.get_zero_post() {
+                Some(postgap) => Duration::from_micros((postgap as f32 * 13333.333333) as u64),
+                None => Duration::from_secs(0)
+            };
+            let mut start = Duration::from_micros((track.get_start() as f32 * 13333.333333) as u64);
+            start -= pregap;
+
             let duration = match track.get_length() {
-                Some(len) =>  Duration::from_micros((len as f32 * 13333.333333).round() as u64),
+                Some(len) =>  Duration::from_micros((len as f32 * 13333.333333) as u64),
                 None => {
                     let tagged_file = match lofty::read_from_path(&audio_location) {
                         Ok(tagged_file) => tagged_file,
@@ -510,7 +520,7 @@ impl MusicLibrary {
                     tagged_file.properties().duration() - start
                 }
             };
-            let end = start + duration;
+            let end = start + duration + postgap;
 
             // Get the format as a string
             let format: Option<FileFormat> = match FileFormat::from_file(&audio_location) {
@@ -563,7 +573,7 @@ impl MusicLibrary {
             match self.add_song(new_song) {
                 Ok(_) => tracks_added += 1,
                 Err(_error) => {
-                    //println!("{}", error);
+                    println!("{}", _error);
                     continue
                 },
             };
@@ -576,6 +586,17 @@ impl MusicLibrary {
         match self.query_uri(&new_song.location) {
             Some(_) => {
                 return Err(format!("URI already in database: {:?}", new_song.location).into())
+            }
+            None => (),
+        }
+        match self.query_path(&new_song.location.path()) {
+            Some(songs) => {
+                for song in songs {
+                    match &song.location {
+                        URI::Local(location) => return Err(format!("Cuesheet exists: {:?}", new_song.location).into()),
+                        _ => ()
+                    }
+                }
             }
             None => (),
         }
