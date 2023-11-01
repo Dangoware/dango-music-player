@@ -161,7 +161,7 @@ impl URI {
         }
     }
 
-    fn path_string(&self) -> String {
+    pub fn path_string(&self) -> String {
         let path_str = match self {
             URI::Local(location) => location.as_path().to_string_lossy(),
             URI::Cue {
@@ -359,7 +359,10 @@ impl MusicLibrary {
                 && extension.to_ascii_lowercase() != "vob"
             {
                 match self.add_file(&target_file.path()) {
-                    Ok(_) => total += 1,
+                    Ok(_) => {
+                        //println!("{:?}", target_file.path());
+                        total += 1
+                    },
                     Err(_error) => {
                         //println!("{}, {:?}: {}", format, target_file.file_name(), _error)
                     } // TODO: Handle more of these errors
@@ -482,7 +485,7 @@ impl MusicLibrary {
         let album_artist = &cue_data.get_cdtext().read(cue::cd_text::PTI::Performer).unwrap_or(String::new());
 
         let parent_dir = cuesheet.parent().expect("The file has no parent path??");
-        for track in cue_data.tracks() {
+        for (i, track) in cue_data.tracks().iter().enumerate() {
             let audio_location = parent_dir.join(track.get_filename());
 
             if !audio_location.exists() {
@@ -528,12 +531,21 @@ impl MusicLibrary {
                 Err(_) => None,
             };
 
+            // Get some useful tags
             let mut tags: Vec<(Tag, String)> = Vec::new();
             tags.push((Tag::Album, album_title.clone()));
             tags.push((Tag::Key("AlbumArtist".to_string()), album_artist.clone()));
             match track.get_cdtext().read(cue::cd_text::PTI::Title) {
                 Some(title) => tags.push((Tag::Title, title)),
-                None => ()
+                None => {
+                    match track.get_cdtext().read(cue::cd_text::PTI::UPC_ISRC) {
+                        Some(title) => tags.push((Tag::Title, title)),
+                        None => {
+                            let namestr = format!("{} - {}", i, track.get_filename());
+                            tags.push((Tag::Title, namestr))
+                        }
+                    }
+                }
             };
             match track.get_cdtext().read(cue::cd_text::PTI::Performer) {
                 Some(artist) => tags.push((Tag::Artist, artist)),
@@ -573,7 +585,7 @@ impl MusicLibrary {
             match self.add_song(new_song) {
                 Ok(_) => tracks_added += 1,
                 Err(_error) => {
-                    println!("{}", _error);
+                    //println!("{}", _error);
                     continue
                 },
             };
@@ -589,16 +601,11 @@ impl MusicLibrary {
             }
             None => (),
         }
-        match self.query_path(&new_song.location.path()) {
-            Some(songs) => {
-                for song in songs {
-                    match &song.location {
-                        URI::Local(location) => return Err(format!("Cuesheet exists: {:?}", new_song.location).into()),
-                        _ => ()
-                    }
-                }
-            }
-            None => (),
+        match new_song.location {
+            URI::Local(_) if self.query_path(&new_song.location.path()).is_some() => {
+                return Err(format!("Location exists for {:?}", new_song.location).into())
+            },
+            _ => ()
         }
 
         self.library.push(new_song);
@@ -642,12 +649,13 @@ impl MusicLibrary {
         let songs = Arc::new(Mutex::new(Vec::new()));
 
         self.library.par_iter().for_each(|track| {
-            for tag in &track.tags {
-                if !target_tags.contains(&tag.0) {
-                    continue;
-                }
+            for tag in target_tags {
+                let track_result = match track.get_tag(&tag) {
+                    Some(value) => value,
+                    None => continue
+                };
 
-                if normalize(&tag.1).contains(&normalize(&query_string)) {
+                if normalize(track_result).contains(&normalize(&query_string)) {
                     songs.lock().unwrap().push(track);
                     return;
                 }
