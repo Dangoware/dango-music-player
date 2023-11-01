@@ -1,11 +1,13 @@
 use file_format::{FileFormat, Kind};
 use lofty::{AudioFile, ItemKey, ItemValue, Probe, TagType, TaggedFileExt};
-use std::any::Any;
+use std::ffi::OsStr;
 use std::{error::Error, io::BufReader};
 
 use chrono::{serde::ts_seconds_option, DateTime, Utc};
 use std::time::Duration;
-use walkdir::WalkDir;
+//use walkdir::WalkDir;
+use cue::cd::CD;
+use jwalk::WalkDir;
 
 use bincode::{deserialize_from, serialize_into};
 use serde::{Deserialize, Serialize};
@@ -15,8 +17,8 @@ use std::path::{Path, PathBuf};
 use unidecode::unidecode;
 
 // Fun parallel stuff
-use std::sync::{Arc, Mutex, RwLock};
 use rayon::prelude::*;
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::music_controller::config::Config;
 
@@ -36,21 +38,21 @@ pub enum Tag {
     Track,
     Disk,
     Key(String),
-    Field(String)
+    Field(String),
 }
 
 impl ToString for Tag {
     fn to_string(&self) -> String {
         match self {
-            Self::Title =>  "TrackTitle".into(),
-            Self::Album =>  "AlbumTitle".into(),
+            Self::Title => "TrackTitle".into(),
+            Self::Album => "AlbumTitle".into(),
             Self::Artist => "TrackArtist".into(),
-            Self::Genre =>  "Genre".into(),
+            Self::Genre => "Genre".into(),
             Self::Comment => "Comment".into(),
-            Self::Track =>  "TrackNumber".into(),
-            Self::Disk =>   "DiscNumber".into(),
+            Self::Track => "TrackNumber".into(),
+            Self::Disk => "DiscNumber".into(),
             Self::Key(key) => key.into(),
-            Self::Field(f) => f.into()
+            Self::Field(f) => f.into(),
         }
     }
 }
@@ -99,26 +101,77 @@ impl Song {
 
     pub fn get_field(&self, target_field: &str) -> Option<String> {
         match target_field {
-            "location" => Some(self.location.clone().to_string()),
+            "location" => Some(self.location.clone().path_string()),
             "plays" => Some(self.plays.clone().to_string()),
-            _ => None   // Other field types is not yet supported
+            _ => None, // Other field types are not yet supported
         }
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum URI {
-    Local(String),
-    //Cue(String, Duration), TODO: Make cue stuff work
-    Remote(Service, String),
+    Local(PathBuf),
+    Cue {
+        location: PathBuf,
+        start: Duration,
+        end: Duration,
+    },
+    Remote(Service, PathBuf),
 }
 
-impl ToString for URI {
-    fn to_string(&self) -> String {
+impl URI {
+    /// Returns the start time of a CUEsheet song, or an
+    /// error if the URI is not a Cue variant
+    pub fn start(&self) -> Result<&Duration, Box<dyn Error>> {
         match self {
-            URI::Local(location) => location.to_string(),
-            URI::Remote(_, location) => location.to_string()
+            URI::Local(_) => Err("\"Local\" has no starting time".into()),
+            URI::Remote(_, _) => Err("\"Remote\" has no starting time".into()),
+            URI::Cue {
+                location: _,
+                start,
+                end: _,
+            } => Ok(start),
         }
+    }
+
+    /// Returns the end time of a CUEsheet song, or an
+    /// error if the URI is not a Cue variant
+    pub fn end(&self) -> Result<&Duration, Box<dyn Error>> {
+        match self {
+            URI::Local(_) => Err("\"Local\" has no starting time".into()),
+            URI::Remote(_, _) => Err("\"Remote\" has no starting time".into()),
+            URI::Cue {
+                location: _,
+                start: _,
+                end,
+            } => Ok(end),
+        }
+    }
+
+    /// Returns the location as a PathBuf
+    pub fn path(&self) -> &PathBuf {
+        match self {
+            URI::Local(location) => location,
+            URI::Cue {
+                location,
+                start: _,
+                end: _,
+            } => location,
+            URI::Remote(_, location) => location,
+        }
+    }
+
+    fn path_string(&self) -> String {
+        let path_str = match self {
+            URI::Local(location) => location.as_path().to_string_lossy(),
+            URI::Cue {
+                location,
+                start: _,
+                end: _,
+            } => location.as_path().to_string_lossy(),
+            URI::Remote(_, location) => location.as_path().to_string_lossy(),
+        };
+        path_str.to_string()
     }
 }
 
@@ -129,6 +182,7 @@ pub enum Service {
     Youtube,
 }
 
+/* TODO: Rework this entirely
 #[derive(Debug)]
 pub struct Playlist {
     title: String,
@@ -141,6 +195,7 @@ pub enum MusicObject {
     Album(Playlist),
     Playlist(Playlist),
 }
+*/
 
 #[derive(Debug)]
 pub struct MusicLibrary {
@@ -148,7 +203,9 @@ pub struct MusicLibrary {
 }
 
 pub fn normalize(input_string: &String) -> String {
-    unidecode(input_string).to_ascii_lowercase().replace(|c: char| !c.is_alphanumeric(), "")
+    unidecode(input_string)
+        .to_ascii_lowercase()
+        .replace(|c: char| !c.is_alphanumeric(), "")
 }
 
 impl MusicLibrary {
@@ -178,21 +235,24 @@ impl MusicLibrary {
                     let reader = BufReader::new(database);
                     library = deserialize_from(reader)?;
                 } else {
-                    let mut writer = BufWriter::new(fs::File::create(global_config.db_path.to_path_buf())?);
+                    let mut writer =
+                        BufWriter::new(fs::File::create(global_config.db_path.to_path_buf())?);
                     serialize_into(&mut writer, &library)?;
                 }
-            },
-            Err(error) => return Err(error.into())
+            }
+            Err(error) => return Err(error.into()),
         };
 
         Ok(Self { library })
     }
 
+    /// Serializes the database out to the file
+    /// specified in the config
     pub fn save(&self, config: &Config) -> Result<(), Box<dyn Error>> {
         match config.db_path.try_exists() {
             Ok(true) => {
-                // The database exists, rename it to `.bkp` and
-                // write the new database
+                // The database exists, so rename it to `.bkp` and
+                // write the new database file
                 let mut backup_name = config.db_path.clone();
                 backup_name.set_extension("bkp");
                 fs::rename(config.db_path.as_path(), backup_name.as_path())?;
@@ -206,71 +266,122 @@ impl MusicLibrary {
                 // Create the database if it does not exist
                 let mut writer = BufWriter::new(fs::File::create(config.db_path.to_path_buf())?);
                 serialize_into(&mut writer, &self.library)?;
-            },
-            Err(error) => return Err(error.into())
+            }
+            Err(error) => return Err(error.into()),
         }
 
         Ok(())
     }
 
-    /// Queries for a [Song] by its [URI], returning a single Song
-    /// with the URI that matches
-    fn query_by_uri(&self, path: &URI) -> Option<Song> {
-        for track in &self.library {
-            if path == &track.location {
-                return Some(track.clone());
-            }
-        }
-        None
+    pub fn size(&self) -> usize {
+        self.library.len()
     }
 
-    pub fn find_all_music(&mut self, target_path: &str, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
-        let mut current_dir = PathBuf::new();
-        for (i, entry) in WalkDir::new(target_path)
+    /// Queries for a [Song] by its [URI], returning a single `Song`
+    /// with the `URI` that matches
+    fn query_uri(&self, path: &URI) -> Option<(&Song, usize)> {
+        let result = Arc::new(Mutex::new(None));
+        let index = Arc::new(Mutex::new(0));
+        let _ = &self.library.par_iter().enumerate().for_each(|(i, track)| {
+            if path == &track.location {
+                *result.clone().lock().unwrap() = Some(track);
+                *index.clone().lock().unwrap() = i;
+                return;
+            }
+        });
+        let song = Arc::try_unwrap(result).unwrap().into_inner().unwrap();
+        match song {
+            Some(song) => Some((song, Arc::try_unwrap(index).unwrap().into_inner().unwrap())),
+            None => None,
+        }
+    }
+
+    /// Queries for a [Song] by its [PathBuf], returning a `Vec<Song>`
+    /// with matching `PathBuf`s
+    fn query_path(&self, path: &PathBuf) -> Option<Vec<&Song>> {
+        let result: Arc<Mutex<Vec<&Song>>> = Arc::new(Mutex::new(Vec::new()));
+        let _ = &self.library.par_iter().for_each(|track| {
+            if path == track.location.path() {
+                result.clone().lock().unwrap().push(&track);
+                return;
+            }
+        });
+        if result.lock().unwrap().len() > 0 {
+            Some(Arc::try_unwrap(result).unwrap().into_inner().unwrap())
+        } else {
+            None
+        }
+    }
+
+    /// Finds all the music files within a specified folder
+    pub fn find_all_music(
+        &mut self,
+        target_path: &str,
+        config: &Config,
+    ) -> Result<usize, Box<dyn std::error::Error>> {
+        let mut total = 0;
+        let mut i = 0;
+        for entry in WalkDir::new(target_path)
             .follow_links(true)
             .into_iter()
-            .filter_map(|e| e.ok()).enumerate()
+            .filter_map(|e| e.ok())
         {
             let target_file = entry;
-            let is_file = fs::metadata(target_file.path())?.is_file();
+            let path = target_file.path();
 
-            // Save periodically while scanning
-            if i%250 == 0 {
-                self.save(config).unwrap();
-            }
-
-            // Ensure the target is a file and not a directory, if it isn't, skip this loop
-            if !is_file {
-                current_dir = target_file.into_path();
+            // Ensure the target is a file and not a directory,
+            // if it isn't a file, skip this loop
+            if !path.is_file() {
                 continue;
             }
 
-            let format = FileFormat::from_file(target_file.path())?;
-            let extension = target_file
-                .path()
-                .extension()
-                .expect("Could not find file extension");
+            // Check if the file path is already in the db
+            if self.query_uri(&URI::Local(path.to_path_buf())).is_some() {
+                continue;
+            }
+
+            // Save periodically while scanning
+            i += 1;
+            if i % 250 == 0 {
+                self.save(config).unwrap();
+            }
+
+            let format = FileFormat::from_file(&path)?;
+            let extension: &OsStr = match path.extension() {
+                Some(ext) => ext,
+                None => OsStr::new(""),
+            };
 
             // If it's a normal file, add it to the database
             // if it's a cuesheet, do a bunch of fancy stuff
-            if format.kind() == Kind::Audio {
-                match self.add_file_to_db(target_file.path()) {
-                    Ok(_) => (),
-                    Err(_error) => () //println!("{}, {:?}: {}", format, target_file.file_name(), error)
-                    // TODO: Handle more of these errors
+            if (format.kind() == Kind::Audio || format.kind() == Kind::Video)
+                && extension.to_ascii_lowercase() != "log"
+                && extension.to_ascii_lowercase() != "vob"
+            {
+                match self.add_file(&target_file.path()) {
+                    Ok(_) => total += 1,
+                    Err(_error) => {
+                        //println!("{}, {:?}: {}", format, target_file.file_name(), _error)
+                    } // TODO: Handle more of these errors
                 };
             } else if extension.to_ascii_lowercase() == "cue" {
-                // TODO: implement cuesheet support
+                total += match self.add_cuesheet(&target_file.path()) {
+                    Ok(added) => added,
+                    Err(error) => {
+                        println!("{}", error);
+                        0
+                    }
+                }
             }
         }
 
         // Save the database after scanning finishes
         self.save(&config).unwrap();
 
-        Ok(())
+        Ok(total)
     }
 
-    pub fn add_file_to_db(&mut self, target_file: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn add_file(&mut self, target_file: &Path) -> Result<(), Box<dyn Error>> {
         // TODO: Fix error handling here
         let tagged_file = match lofty::read_from_path(target_file) {
             Ok(tagged_file) => tagged_file,
@@ -296,12 +407,12 @@ impl MusicLibrary {
         let mut tags: Vec<(Tag, String)> = Vec::new();
         for item in tag.items() {
             let key = match item.key() {
-                ItemKey::TrackTitle =>  Tag::Title,
+                ItemKey::TrackTitle => Tag::Title,
                 ItemKey::TrackNumber => Tag::Track,
                 ItemKey::TrackArtist => Tag::Artist,
-                ItemKey::Genre =>       Tag::Genre,
-                ItemKey::Comment =>     Tag::Comment,
-                ItemKey::AlbumTitle =>  Tag::Album,
+                ItemKey::Genre => Tag::Genre,
+                ItemKey::Comment => Tag::Comment,
+                ItemKey::AlbumTitle => Tag::Album,
                 ItemKey::Unknown(unknown) => Tag::Key(unknown.to_string()),
                 custom => Tag::Key(format!("{:?}", custom)),
             };
@@ -336,10 +447,9 @@ impl MusicLibrary {
 
         // TODO: Fix error handling
         let binding = fs::canonicalize(target_file).unwrap();
-        let abs_path = binding.to_str().unwrap();
 
         let new_song = Song {
-            location: URI::Local(abs_path.to_string()),
+            location: URI::Local(binding),
             plays: 0,
             skips: 0,
             favorited: false,
@@ -354,18 +464,120 @@ impl MusicLibrary {
             album_art,
         };
 
-        match self.add_song_to_db(new_song) {
+        match self.add_song(new_song) {
             Ok(_) => (),
-            Err(_error) => ()
+            Err(error) => return Err(error),
         };
 
         Ok(())
     }
 
-    pub fn add_song_to_db(&mut self, new_song: Song) -> Result<(), Box<dyn std::error::Error>> {
-        match self.query_by_uri(&new_song.location) {
-            Some(_) => return Err(format!("URI already in database: {:?}", new_song.location).into()),
-            None => ()
+    pub fn add_cuesheet(&mut self, cuesheet: &PathBuf) -> Result<usize, Box<dyn Error>> {
+        let mut tracks_added = 0;
+
+        let cue_data = CD::parse_file(cuesheet.to_owned()).unwrap();
+
+        // Get album level information
+        let album_title = &cue_data.get_cdtext().read(cue::cd_text::PTI::Title).unwrap_or(String::new());
+        let album_artist = &cue_data.get_cdtext().read(cue::cd_text::PTI::Performer).unwrap_or(String::new());
+
+        let parent_dir = cuesheet.parent().expect("The file has no parent path??");
+        for track in cue_data.tracks() {
+            let audio_location = parent_dir.join(track.get_filename());
+
+            if !audio_location.exists() {
+                continue;
+            }
+
+            // Try to remove the original audio file from the db if it exists
+            let _ = self.remove_uri(&URI::Local(audio_location.clone()));
+
+            // Get the track timing information
+            let start = Duration::from_micros((track.get_start() as f32 * 13333.333333).round() as u64);
+            let duration = match track.get_length() {
+                Some(len) =>  Duration::from_micros((len as f32 * 13333.333333).round() as u64),
+                None => {
+                    let tagged_file = match lofty::read_from_path(&audio_location) {
+                        Ok(tagged_file) => tagged_file,
+
+                        Err(_) => match Probe::open(&audio_location)?.read() {
+                            Ok(tagged_file) => tagged_file,
+
+                            Err(error) => return Err(error.into()),
+                        },
+                    };
+
+                    tagged_file.properties().duration() - start
+                }
+            };
+            let end = start + duration;
+
+            // Get the format as a string
+            let format: Option<FileFormat> = match FileFormat::from_file(&audio_location) {
+                Ok(fmt) => Some(fmt),
+                Err(_) => None,
+            };
+
+            let mut tags: Vec<(Tag, String)> = Vec::new();
+            tags.push((Tag::Album, album_title.clone()));
+            tags.push((Tag::Key("AlbumArtist".to_string()), album_artist.clone()));
+            match track.get_cdtext().read(cue::cd_text::PTI::Title) {
+                Some(title) => tags.push((Tag::Title, title)),
+                None => ()
+            };
+            match track.get_cdtext().read(cue::cd_text::PTI::Performer) {
+                Some(artist) => tags.push((Tag::Artist, artist)),
+                None => ()
+            };
+            match track.get_cdtext().read(cue::cd_text::PTI::Genre) {
+                Some(genre) => tags.push((Tag::Genre, genre)),
+                None => ()
+            };
+            match track.get_cdtext().read(cue::cd_text::PTI::Message) {
+                Some(comment) => tags.push((Tag::Comment, comment)),
+                None => ()
+            };
+
+            let album_art = Vec::new();
+
+            let new_song = Song {
+                location: URI::Cue{
+                    location: audio_location,
+                    start,
+                    end,
+                },
+                plays: 0,
+                skips: 0,
+                favorited: false,
+                rating: None,
+                format,
+                duration,
+                play_time: Duration::from_secs(0),
+                last_played: None,
+                date_added: Some(chrono::offset::Utc::now()),
+                date_modified: Some(chrono::offset::Utc::now()),
+                tags,
+                album_art,
+            };
+
+            match self.add_song(new_song) {
+                Ok(_) => tracks_added += 1,
+                Err(_error) => {
+                    //println!("{}", error);
+                    continue
+                },
+            };
+        }
+
+        Ok(tracks_added)
+    }
+
+    pub fn add_song(&mut self, new_song: Song) -> Result<(), Box<dyn Error>> {
+        match self.query_uri(&new_song.location) {
+            Some(_) => {
+                return Err(format!("URI already in database: {:?}", new_song.location).into())
+            }
+            None => (),
         }
 
         self.library.push(new_song);
@@ -373,10 +585,23 @@ impl MusicLibrary {
         Ok(())
     }
 
-    pub fn update_song_tags(&mut self, new_tags: Song) -> Result<(), Box<dyn std::error::Error>> {
-        match self.query_by_uri(&new_tags.location) {
+    /// Removes a song indexed by URI, returning the position removed
+    pub fn remove_uri(&mut self, target_uri: &URI) -> Result<usize, Box<dyn Error>> {
+        let location = match self.query_uri(target_uri) {
+            Some(value) => value.1,
+            None => return Err("URI not in database".into()),
+        };
+
+        self.library.remove(location);
+
+        Ok(location)
+    }
+
+    /// Scan the song by a location and update its tags
+    pub fn update_by_file(&mut self, new_tags: Song) -> Result<(), Box<dyn std::error::Error>> {
+        match self.query_uri(&new_tags.location) {
             Some(_) => (),
-            None => return Err(format!("URI not in database!").into())
+            None => return Err(format!("URI not in database!").into()),
         }
 
         todo!()
@@ -403,61 +628,47 @@ impl MusicLibrary {
 
                 if normalize(&tag.1).contains(&normalize(&query_string)) {
                     songs.lock().unwrap().push(track);
-                    return
+                    return;
                 }
             }
 
             if !search_location {
-                return
+                return;
             }
 
             // Find a URL in the song
-            match &track.location {
-                URI::Local(path) if normalize(&path).contains(&normalize(&query_string)) => {
-                    songs.lock().unwrap().push(track);
-                    return
-                },
-                URI::Remote(_, path) if normalize(&path).contains(&normalize(&query_string)) => {
-                    songs.lock().unwrap().push(track);
-                    return
-                },
-                _ => ()
-            };
+            if normalize(&track.location.path_string()).contains(&normalize(&query_string)) {
+                songs.lock().unwrap().push(track);
+                return;
+            }
         });
 
         let lock = Arc::try_unwrap(songs).expect("Lock still has multiple owners!");
         let mut new_songs = lock.into_inner().expect("Mutex cannot be locked!");
 
+        // Sort the returned list of songs
         new_songs.par_sort_by(|a, b| {
             for opt in sort_by {
                 let tag_a = match opt {
-                    Tag::Field(field_selection) => {
-                        match a.get_field(field_selection) {
-                            Some(field_value) => field_value,
-                            None => continue
-                        }
+                    Tag::Field(field_selection) => match a.get_field(field_selection) {
+                        Some(field_value) => field_value,
+                        None => continue,
                     },
-                    _ => {
-                        match a.get_tag(&opt) {
-                            Some(tag_value) => tag_value.to_owned(),
-                            None => continue
-                        }
-                    }
+                    _ => match a.get_tag(&opt) {
+                        Some(tag_value) => tag_value.to_owned(),
+                        None => continue,
+                    },
                 };
 
                 let tag_b = match opt {
-                    Tag::Field(field_selection) => {
-                        match b.get_field(field_selection) {
-                            Some(field_value) => field_value,
-                            None => continue
-                        }
+                    Tag::Field(field_selection) => match b.get_field(field_selection) {
+                        Some(field_value) => field_value,
+                        None => continue,
                     },
-                    _ => {
-                        match b.get_tag(&opt) {
-                            Some(tag_value) => tag_value.to_owned(),
-                            None => continue
-                        }
-                    }
+                    _ => match b.get_tag(&opt) {
+                        Some(tag_value) => tag_value.to_owned(),
+                        None => continue,
+                    },
                 };
 
                 // Try to parse the tags as f64

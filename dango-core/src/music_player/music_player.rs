@@ -84,11 +84,12 @@ impl SongHandler {
                 }
             },
             URI::Remote(_, location) => {
-                match RemoteSource::new(location.as_ref(), &config) {
+                match RemoteSource::new(location.to_str().unwrap(), &config) {
                     Ok(remote_source) => Box::new(remote_source),
                     Err(_) => return Err(()),
                 }
             },
+            _ => todo!()
         };
         
         let mss = MediaSourceStream::new(src, Default::default());
@@ -97,11 +98,11 @@ impl SongHandler {
         let meta_opts: MetadataOptions = Default::default();
         let fmt_opts: FormatOptions = Default::default();
 
-        let mut hint = Hint::new();
+        let hint = Hint::new();
         
         let probed = symphonia::default::get_probe().format(&hint, mss, &fmt_opts, &meta_opts).expect("Unsupported format");
         
-        let mut reader  = probed.format;
+        let reader  = probed.format;
         
         let track = reader.tracks()
                     .iter()
@@ -113,7 +114,7 @@ impl SongHandler {
                     
         let dec_opts: DecoderOptions = Default::default();
         
-        let mut decoder = symphonia::default::get_codecs().make(&track.codec_params, &dec_opts)
+        let decoder = symphonia::default::get_codecs().make(&track.codec_params, &dec_opts)
                                                     .expect("unsupported codec");
         
         return Ok(SongHandler {reader, decoder, time_base, duration});
@@ -170,7 +171,7 @@ impl MusicPlayer {
                     if local_config != global_config {
                         update_trackers(&mut trackers);
                     }
-    
+
                     let mut results = Vec::new();
                     task::block_on(async {
                         let mut futures = Vec::new();
@@ -183,7 +184,7 @@ impl MusicPlayer {
                         }
                         results = join_all(futures).await;
                     });
-                    
+
                     for result in results {
                         status_sender.send(result).unwrap_or_default()
                     }
