@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal, AsAudioBufferRef, SignalSpec};
+use symphonia::core::audio::{AsAudioBufferRef, AudioBuffer, AudioBufferRef, Signal, SignalSpec};
 
 #[derive(Clone)]
 pub struct MusicProcessor {
@@ -10,7 +10,9 @@ pub struct MusicProcessor {
 
 impl Debug for MusicProcessor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MusicProcessor").field("audio_volume", &self.audio_volume).finish()
+        f.debug_struct("MusicProcessor")
+            .field("audio_volume", &self.audio_volume)
+            .finish()
     }
 }
 
@@ -22,20 +24,20 @@ impl MusicProcessor {
             audio_volume: 1.0,
         }
     }
-    
+
     /// Processes audio samples
-    /// 
+    ///
     /// Currently only supports transformations of volume
     pub fn process(&mut self, audio_buffer_ref: &AudioBufferRef) -> AudioBufferRef {
         audio_buffer_ref.convert(&mut self.audio_buffer);
-        
+
         let process = |sample| sample * self.audio_volume;
-        
+
         self.audio_buffer.transform(process);
-        
+
         return self.audio_buffer.as_audio_buffer_ref();
     }
-    
+
     /// Sets buffer of the MusicProcessor
     pub fn set_buffer(&mut self, duration: u64, spec: SignalSpec) {
         self.audio_buffer = AudioBuffer::new(duration, spec);

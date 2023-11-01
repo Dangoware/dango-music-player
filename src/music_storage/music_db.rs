@@ -362,7 +362,7 @@ impl MusicLibrary {
                     Ok(_) => {
                         //println!("{:?}", target_file.path());
                         total += 1
-                    },
+                    }
                     Err(_error) => {
                         //println!("{}, {:?}: {}", format, target_file.file_name(), _error)
                     } // TODO: Handle more of these errors
@@ -481,8 +481,14 @@ impl MusicLibrary {
         let cue_data = CD::parse_file(cuesheet.to_owned()).unwrap();
 
         // Get album level information
-        let album_title = &cue_data.get_cdtext().read(cue::cd_text::PTI::Title).unwrap_or(String::new());
-        let album_artist = &cue_data.get_cdtext().read(cue::cd_text::PTI::Performer).unwrap_or(String::new());
+        let album_title = &cue_data
+            .get_cdtext()
+            .read(cue::cd_text::PTI::Title)
+            .unwrap_or(String::new());
+        let album_artist = &cue_data
+            .get_cdtext()
+            .read(cue::cd_text::PTI::Performer)
+            .unwrap_or(String::new());
 
         let parent_dir = cuesheet.parent().expect("The file has no parent path??");
         for (i, track) in cue_data.tracks().iter().enumerate() {
@@ -498,17 +504,17 @@ impl MusicLibrary {
             // Get the track timing information
             let pregap = match track.get_zero_pre() {
                 Some(pregap) => Duration::from_micros((pregap as f32 * 13333.333333) as u64),
-                None => Duration::from_secs(0)
+                None => Duration::from_secs(0),
             };
             let postgap = match track.get_zero_post() {
                 Some(postgap) => Duration::from_micros((postgap as f32 * 13333.333333) as u64),
-                None => Duration::from_secs(0)
+                None => Duration::from_secs(0),
             };
             let mut start = Duration::from_micros((track.get_start() as f32 * 13333.333333) as u64);
             start -= pregap;
 
             let duration = match track.get_length() {
-                Some(len) =>  Duration::from_micros((len as f32 * 13333.333333) as u64),
+                Some(len) => Duration::from_micros((len as f32 * 13333.333333) as u64),
                 None => {
                     let tagged_file = match lofty::read_from_path(&audio_location) {
                         Ok(tagged_file) => tagged_file,
@@ -537,33 +543,31 @@ impl MusicLibrary {
             tags.push((Tag::Key("AlbumArtist".to_string()), album_artist.clone()));
             match track.get_cdtext().read(cue::cd_text::PTI::Title) {
                 Some(title) => tags.push((Tag::Title, title)),
-                None => {
-                    match track.get_cdtext().read(cue::cd_text::PTI::UPC_ISRC) {
-                        Some(title) => tags.push((Tag::Title, title)),
-                        None => {
-                            let namestr = format!("{} - {}", i, track.get_filename());
-                            tags.push((Tag::Title, namestr))
-                        }
+                None => match track.get_cdtext().read(cue::cd_text::PTI::UPC_ISRC) {
+                    Some(title) => tags.push((Tag::Title, title)),
+                    None => {
+                        let namestr = format!("{} - {}", i, track.get_filename());
+                        tags.push((Tag::Title, namestr))
                     }
-                }
+                },
             };
             match track.get_cdtext().read(cue::cd_text::PTI::Performer) {
                 Some(artist) => tags.push((Tag::Artist, artist)),
-                None => ()
+                None => (),
             };
             match track.get_cdtext().read(cue::cd_text::PTI::Genre) {
                 Some(genre) => tags.push((Tag::Genre, genre)),
-                None => ()
+                None => (),
             };
             match track.get_cdtext().read(cue::cd_text::PTI::Message) {
                 Some(comment) => tags.push((Tag::Comment, comment)),
-                None => ()
+                None => (),
             };
 
             let album_art = Vec::new();
 
             let new_song = Song {
-                location: URI::Cue{
+                location: URI::Cue {
                     location: audio_location,
                     start,
                     end,
@@ -586,8 +590,8 @@ impl MusicLibrary {
                 Ok(_) => tracks_added += 1,
                 Err(_error) => {
                     //println!("{}", _error);
-                    continue
-                },
+                    continue;
+                }
             };
         }
 
@@ -604,8 +608,8 @@ impl MusicLibrary {
         match new_song.location {
             URI::Local(_) if self.query_path(&new_song.location.path()).is_some() => {
                 return Err(format!("Location exists for {:?}", new_song.location).into())
-            },
-            _ => ()
+            }
+            _ => (),
         }
 
         self.library.push(new_song);
@@ -652,7 +656,7 @@ impl MusicLibrary {
             for tag in target_tags {
                 let track_result = match track.get_tag(&tag) {
                     Some(value) => value,
-                    None => continue
+                    None => continue,
                 };
 
                 if normalize(track_result).contains(&normalize(&query_string)) {
