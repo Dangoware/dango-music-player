@@ -215,11 +215,8 @@ pub struct MusicLibrary {
     pub library: Vec<Song>,
 }
 
-pub fn normalize(input_string: &String) -> String {
-    unidecode(input_string).chars().filter_map(|c: char| {
-        let x = c.to_ascii_lowercase();
-        c.is_alphanumeric().then_some(x)
-    }).collect()
+pub fn normalize(input_string: &String) {
+    unidecode(input_string).retain(|c| !c.is_whitespace());
 }
 
 impl MusicLibrary {
@@ -690,7 +687,7 @@ impl MusicLibrary {
 
         self.library.par_iter().for_each(|track| {
             for tag in target_tags {
-                let track_result = match tag {
+                let mut track_result = match tag {
                     Tag::Field(target) => match track.get_field(&target) {
                         Some(value) => value,
                         None => continue,
@@ -701,7 +698,10 @@ impl MusicLibrary {
                     },
                 };
 
-                if normalize(&track_result).contains(&normalize(&query_string)) {
+                normalize(&mut query_string.to_owned());
+                normalize(&mut track_result);
+
+                if track_result.contains(query_string) {
                     songs.lock().unwrap().push(track);
                     return;
                 }
@@ -772,8 +772,12 @@ impl MusicLibrary {
                 Some(title) => title,
                 None => continue
             };
+            normalize(title);
 
-            match albums.binary_search_by_key(&title, |album| album.title) {
+            match albums.binary_search_by_key(&title, |album| {
+                normalize(&album.title);
+                album.title
+            }) {
                 Ok(pos) => {
                     albums[pos].tracks.push(result);
                 },
