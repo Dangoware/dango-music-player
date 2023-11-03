@@ -664,7 +664,7 @@ impl MusicLibrary {
     ///
     /// Example:
     /// ```
-    /// query(
+    /// query_tracks(
     ///     &String::from("query"),
     ///     &vec![
     ///         Tag::Title
@@ -680,7 +680,7 @@ impl MusicLibrary {
     /// This would find all titles containing the sequence
     /// "query", and would return the results sorted first
     /// by path, then album, disk number, and finally track number.
-    pub fn query(
+    pub fn query_tracks(
         &self,
         query_string: &String,  // The query itself
         target_tags: &Vec<Tag>, // The tags to search
@@ -773,7 +773,7 @@ impl MusicLibrary {
                 None => continue
             };
 
-            match albums.binary_search_by_key(&normalize(&title), |album| normalize(&album.title.to_owned())) {
+            match albums.binary_search_by_key(&title, |album| album.title) {
                 Ok(pos) => {
                     albums[pos].tracks.push(result);
                 },
@@ -791,4 +791,5 @@ impl MusicLibrary {
 
         Ok(albums)
     }
+
 }
