@@ -1,7 +1,7 @@
 use file_format::{FileFormat, Kind};
 use lofty::{AudioFile, ItemKey, ItemValue, Probe, TagType, TaggedFileExt};
 use std::ffi::OsStr;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, BTreeMap};
 use std::{error::Error, io::BufReader};
 
 use chrono::{serde::ts_seconds_option, DateTime, Utc};
@@ -766,7 +766,7 @@ impl MusicLibrary {
     }
 
     pub fn albums(&self) -> Result<Vec<Album>, Box<dyn Error>> {
-        let mut albums: Vec<Album> = Vec::new();
+        let mut albums: BTreeMap<&String, Album> = BTreeMap::new();
         for result in &self.library {
             let title = match result.get_tag(&Tag::Album){
                 Some(title) => title,
@@ -774,26 +774,21 @@ impl MusicLibrary {
             };
             normalize(title);
 
-            match albums.binary_search_by_key(&title, |album| {
-                normalize(&album.title);
-                album.title
-            }) {
-                Ok(pos) => {
-                    albums[pos].tracks.push(result);
-                },
-                Err(pos) => {
+            match albums.get_mut(&title) {
+                Some(album) => album.tracks.push(result),
+                None => {
                     let new_album = Album {
                         title,
                         artist: result.get_tag(&Tag::AlbumArtist),
                         tracks: vec![result],
                         cover: None,
                     };
-                    albums.insert(pos, new_album);
+                    albums.insert(title, new_album);
                 }
             }
         }
 
-        Ok(albums)
+        Ok(albums.into_par_iter().map(|album| album.1).collect())
     }
 
 }
