@@ -1,15 +1,16 @@
 use file_format::{FileFormat, Kind};
 use lofty::{AudioFile, ItemKey, ItemValue, Probe, TagType, TaggedFileExt};
 use std::ffi::OsStr;
+use std::collections::{HashMap, HashSet};
 use std::{error::Error, io::BufReader};
 
 use chrono::{serde::ts_seconds_option, DateTime, Utc};
 use std::time::Duration;
-//use walkdir::WalkDir;
 use cue::cd::CD;
 use jwalk::WalkDir;
 
 use bincode::{deserialize_from, serialize_into};
+use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::BufWriter;
@@ -33,6 +34,7 @@ pub enum Tag {
     Title,
     Album,
     Artist,
+    AlbumArtist,
     Genre,
     Comment,
     Track,
@@ -47,6 +49,7 @@ impl ToString for Tag {
             Self::Title => "TrackTitle".into(),
             Self::Album => "AlbumTitle".into(),
             Self::Artist => "TrackArtist".into(),
+            Self::AlbumArtist => "AlbumArtist".into(),
             Self::Genre => "Genre".into(),
             Self::Comment => "Comment".into(),
             Self::Track => "TrackNumber".into(),
@@ -103,6 +106,15 @@ impl Song {
         match target_field {
             "location" => Some(self.location.clone().path_string()),
             "plays" => Some(self.plays.clone().to_string()),
+            "format" => {
+                match self.format {
+                    Some(format) => match format.short_name() {
+                        Some(short) => Some(short.to_string()),
+                        None => None
+                    },
+                    None => None
+                }
+            },
             _ => None, // Other field types are not yet supported
         }
     }
@@ -113,6 +125,7 @@ pub enum URI {
     Local(PathBuf),
     Cue {
         location: PathBuf,
+        index: usize,
         start: Duration,
         end: Duration,
     },
@@ -120,6 +133,17 @@ pub enum URI {
 }
 
 impl URI {
+    pub fn index(&self) -> Result<&usize, Box<dyn Error>> {
+        match self {
+            URI::Local(_) => Err("\"Local\" has no stored index".into()),
+            URI::Remote(_, _) => Err("\"Remote\" has no stored index".into()),
+            URI::Cue {
+                index,
+                ..
+            } => Ok(index),
+        }
+    }
+
     /// Returns the start time of a CUEsheet song, or an
     /// error if the URI is not a Cue variant
     pub fn start(&self) -> Result<&Duration, Box<dyn Error>> {
@@ -127,9 +151,8 @@ impl URI {
             URI::Local(_) => Err("\"Local\" has no starting time".into()),
             URI::Remote(_, _) => Err("\"Remote\" has no starting time".into()),
             URI::Cue {
-                location: _,
                 start,
-                end: _,
+                ..
             } => Ok(start),
         }
     }
@@ -141,9 +164,8 @@ impl URI {
             URI::Local(_) => Err("\"Local\" has no starting time".into()),
             URI::Remote(_, _) => Err("\"Remote\" has no starting time".into()),
             URI::Cue {
-                location: _,
-                start: _,
                 end,
+                ..
             } => Ok(end),
         }
     }
@@ -154,8 +176,7 @@ impl URI {
             URI::Local(location) => location,
             URI::Cue {
                 location,
-                start: _,
-                end: _,
+                ..
             } => location,
             URI::Remote(_, location) => location,
         }
@@ -166,8 +187,7 @@ impl URI {
             URI::Local(location) => location.as_path().to_string_lossy(),
             URI::Cue {
                 location,
-                start: _,
-                end: _,
+                ..
             } => location.as_path().to_string_lossy(),
             URI::Remote(_, location) => location.as_path().to_string_lossy(),
         };
@@ -182,20 +202,13 @@ pub enum Service {
     Youtube,
 }
 
-/* TODO: Rework this entirely
 #[derive(Debug)]
-pub struct Playlist {
-    title: String,
-    cover_art: Box<Path>,
+pub struct Album<'a> {
+    pub title: &'a String,
+    pub artist: Option<&'a String>,
+    pub cover: Option<&'a AlbumArt>,
+    pub tracks: Vec<&'a Song>,
 }
-
-#[derive(Debug)]
-pub enum MusicObject {
-    Song(Song),
-    Album(Playlist),
-    Playlist(Playlist),
-}
-*/
 
 #[derive(Debug)]
 pub struct MusicLibrary {
@@ -203,9 +216,10 @@ pub struct MusicLibrary {
 }
 
 pub fn normalize(input_string: &String) -> String {
-    unidecode(input_string)
-        .to_ascii_lowercase()
-        .replace(|c: char| !c.is_alphanumeric(), "")
+    unidecode(input_string).chars().filter_map(|c: char| {
+        let x = c.to_ascii_lowercase();
+        c.is_alphanumeric().then_some(x)
+    }).collect()
 }
 
 impl MusicLibrary {
@@ -218,7 +232,7 @@ impl MusicLibrary {
         let global_config = &*config.read().unwrap();
         let mut library: Vec<Song> = Vec::new();
         let mut backup_path = global_config.db_path.clone();
-        backup_path.set_extension("bkp");
+        backup_path.set_extension("tmp");
 
         match global_config.db_path.try_exists() {
             Ok(true) => {
@@ -253,14 +267,12 @@ impl MusicLibrary {
             Ok(true) => {
                 // The database exists, so rename it to `.bkp` and
                 // write the new database file
-                let mut backup_name = config.db_path.clone();
-                backup_name.set_extension("bkp");
-                fs::rename(config.db_path.as_path(), backup_name.as_path())?;
-
-                // TODO: Make this save properly like in config.rs
-
-                let mut writer = BufWriter::new(fs::File::create(config.db_path.to_path_buf())?);
+                let mut writer_name = config.db_path.clone();
+                writer_name.set_extension("tmp");
+                let mut writer = BufWriter::new(fs::File::create(writer_name.to_path_buf())?);
                 serialize_into(&mut writer, &self.library)?;
+
+                fs::rename(writer_name.as_path(), config.db_path.clone().as_path())?;
             }
             Ok(false) => {
                 // Create the database if it does not exist
@@ -273,6 +285,7 @@ impl MusicLibrary {
         Ok(())
     }
 
+    /// Returns the library size in number of tracks
     pub fn size(&self) -> usize {
         self.library.len()
     }
@@ -314,7 +327,7 @@ impl MusicLibrary {
     }
 
     /// Finds all the music files within a specified folder
-    pub fn find_all_music(
+    pub fn scan_folder(
         &mut self,
         target_path: &str,
         config: &Config,
@@ -413,9 +426,12 @@ impl MusicLibrary {
                 ItemKey::TrackTitle => Tag::Title,
                 ItemKey::TrackNumber => Tag::Track,
                 ItemKey::TrackArtist => Tag::Artist,
+                ItemKey::AlbumArtist => Tag::AlbumArtist,
                 ItemKey::Genre => Tag::Genre,
                 ItemKey::Comment => Tag::Comment,
                 ItemKey::AlbumTitle => Tag::Album,
+                ItemKey::DiscNumber => Tag::Disk,
+                ItemKey::Unknown(unknown) if unknown == "ACOUSTID_FINGERPRINT" => continue,
                 ItemKey::Unknown(unknown) => Tag::Key(unknown.to_string()),
                 custom => Tag::Key(format!("{:?}", custom)),
             };
@@ -423,7 +439,7 @@ impl MusicLibrary {
             let value = match item.value() {
                 ItemValue::Text(value) => String::from(value),
                 ItemValue::Locator(value) => String::from(value),
-                ItemValue::Binary(_) => String::from(""),
+                ItemValue::Binary(bin) => format!("BIN#{}", general_purpose::STANDARD.encode(bin)),
             };
 
             tags.push((key, value))
@@ -541,6 +557,7 @@ impl MusicLibrary {
             let mut tags: Vec<(Tag, String)> = Vec::new();
             tags.push((Tag::Album, album_title.clone()));
             tags.push((Tag::Key("AlbumArtist".to_string()), album_artist.clone()));
+            tags.push((Tag::Track, (i + 1).to_string()));
             match track.get_cdtext().read(cue::cd_text::PTI::Title) {
                 Some(title) => tags.push((Tag::Title, title)),
                 None => match track.get_cdtext().read(cue::cd_text::PTI::UPC_ISRC) {
@@ -569,6 +586,7 @@ impl MusicLibrary {
             let new_song = Song {
                 location: URI::Cue {
                     location: audio_location,
+                    index: i,
                     start,
                     end,
                 },
@@ -641,38 +659,52 @@ impl MusicLibrary {
 
     /// Query the database, returning a list of [Song]s
     ///
-    /// The order in which the `sort_by` `Vec` is arranged
-    /// determines the output sorting
+    /// The order in which the sort by Vec is arranged
+    /// determines the output sorting.
+    ///
+    /// Example:
+    /// ```
+    /// query(
+    ///     &String::from("query"),
+    ///     &vec![
+    ///         Tag::Title
+    ///     ],
+    ///     &vec![
+    ///         Tag::Field("location".to_string()),
+    ///         Tag::Album,
+    ///         Tag::Disk,
+    ///         Tag::Track,
+    ///     ],
+    /// )
+    /// ```
+    /// This would find all titles containing the sequence
+    /// "query", and would return the results sorted first
+    /// by path, then album, disk number, and finally track number.
     pub fn query(
         &self,
         query_string: &String,  // The query itself
         target_tags: &Vec<Tag>, // The tags to search
-        search_location: bool,  // Whether to search the location field or not
         sort_by: &Vec<Tag>,     // Tags to sort the resulting data by
     ) -> Option<Vec<&Song>> {
         let songs = Arc::new(Mutex::new(Vec::new()));
 
         self.library.par_iter().for_each(|track| {
             for tag in target_tags {
-                let track_result = match track.get_tag(&tag) {
-                    Some(value) => value,
-                    None => continue,
+                let track_result = match tag {
+                    Tag::Field(target) => match track.get_field(&target) {
+                        Some(value) => value,
+                        None => continue,
+                    },
+                    _ => match track.get_tag(&tag) {
+                        Some(value) => value.to_owned(),
+                        None => continue,
+                    },
                 };
 
-                if normalize(track_result).contains(&normalize(&query_string)) {
+                if normalize(&track_result).contains(&normalize(&query_string)) {
                     songs.lock().unwrap().push(track);
                     return;
                 }
-            }
-
-            if !search_location {
-                return;
-            }
-
-            // Find a URL in the song
-            if normalize(&track.location.path_string()).contains(&normalize(&query_string)) {
-                songs.lock().unwrap().push(track);
-                return;
             }
         });
 
@@ -731,5 +763,32 @@ impl MusicLibrary {
         } else {
             None
         }
+    }
+
+    pub fn albums(&self) -> Result<Vec<Album>, Box<dyn Error>> {
+        let mut albums: Vec<Album> = Vec::new();
+        for result in &self.library {
+            let title = match result.get_tag(&Tag::Album){
+                Some(title) => title,
+                None => continue
+            };
+
+            match albums.binary_search_by_key(&normalize(&title), |album| normalize(&album.title.to_owned())) {
+                Ok(pos) => {
+                    albums[pos].tracks.push(result);
+                },
+                Err(pos) => {
+                    let new_album = Album {
+                        title,
+                        artist: result.get_tag(&Tag::AlbumArtist),
+                        tracks: vec![result],
+                        cover: None,
+                    };
+                    albums.insert(pos, new_album);
+                }
+            }
+        }
+
+        Ok(albums)
     }
 }
