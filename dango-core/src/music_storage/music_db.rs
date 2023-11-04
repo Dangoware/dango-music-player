@@ -730,49 +730,43 @@ impl MusicLibrary {
 
         // Sort the returned list of songs
         new_songs.par_sort_by(|a, b| {
-            for opt in sort_by {
-                let tag_a = match opt {
+            for sort_option in sort_by {
+                let tag_a = match sort_option {
                     Tag::Field(field_selection) => match a.get_field(field_selection) {
                         Some(field_value) => field_value,
                         None => continue,
                     },
-                    _ => match a.get_tag(&opt) {
+                    _ => match a.get_tag(&sort_option) {
                         Some(tag_value) => tag_value.to_owned(),
                         None => continue,
                     },
                 };
 
-                let tag_b = match opt {
+                let tag_b = match sort_option {
                     Tag::Field(field_selection) => match b.get_field(field_selection) {
                         Some(field_value) => field_value,
                         None => continue,
                     },
-                    _ => match b.get_tag(&opt) {
+                    _ => match b.get_tag(&sort_option) {
                         Some(tag_value) => tag_value.to_owned(),
                         None => continue,
                     },
                 };
 
-                // Try to parse the tags as f64
                 if let (Ok(num_a), Ok(num_b)) = (tag_a.parse::<i32>(), tag_b.parse::<i32>()) {
                     // If parsing succeeds, compare as numbers
-                    if num_a < num_b {
-                        return std::cmp::Ordering::Less;
-                    } else if num_a > num_b {
-                        return std::cmp::Ordering::Greater;
-                    }
+                    return num_a.cmp(&num_b);
                 } else {
                     // If parsing fails, compare as strings
-                    if tag_a < tag_b {
-                        return std::cmp::Ordering::Less;
-                    } else if tag_a > tag_b {
-                        return std::cmp::Ordering::Greater;
-                    }
+                    return tag_a.cmp(&tag_b);
                 }
             }
 
             // If all tags are equal, sort by Track number
-            a.get_tag(&Tag::Track).cmp(&b.get_tag(&Tag::Track))
+            let path_a = PathBuf::from(a.get_field("location").unwrap());
+            let path_b = PathBuf::from(b.get_field("location").unwrap());
+
+            path_a.file_name().cmp(&path_b.file_name())
         });
 
         if new_songs.len() > 0 {
@@ -786,22 +780,22 @@ impl MusicLibrary {
     pub fn albums(&self) -> BTreeMap<String, Album> {
         let mut albums: BTreeMap<String, Album> = BTreeMap::new();
         for result in &self.library {
-            let title = match result.get_tag(&Tag::Album){
+            let title = match result.get_tag(&Tag::Album) {
                 Some(title) => title,
                 None => continue
             };
-            let disc_num = result.get_tag(&Tag::Disk).unwrap_or(&"".to_string()).parse::<usize>().unwrap_or(1);
-
             let norm_title = normalize(title);
+
+            let disc_num = result.get_tag(&Tag::Disk).unwrap_or(&"".to_string()).parse::<usize>().unwrap_or(1);
             match albums.get_mut(&norm_title) {
+                // If the album is in the list, add the track to the appropriate disc in it
                 Some(album) => {
                     match album.discs.get_mut(&disc_num) {
                         Some(disc) => disc.push(result),
-                        None => {
-                            album.discs.insert(disc_num, vec![result]);
-                        }
+                        None => {album.discs.insert(disc_num, vec![result]);}
                     }
                 },
+                // If the album is not in the list, make a new one and add it
                 None => {
                     let new_album = Album {
                         title,
@@ -814,27 +808,29 @@ impl MusicLibrary {
             }
         }
 
+        // Sort the tracks in each disk in each album
         let blank = String::from("");
         albums.par_iter_mut().for_each(|album| {
             for disc in &mut album.1.discs {
                 disc.1.par_sort_by(|a, b| {
-                    if let (Ok(num_a), Ok(num_b)) = (
-                        a.get_tag(&Tag::Title).unwrap_or(&blank).parse::<i32>(),
-                        b.get_tag(&Tag::Title).unwrap_or(&blank).parse::<i32>()
-                    ) {
-                        // If parsing succeeds, compare as numbers
-                        match num_a < num_b {
-                            true => return std::cmp::Ordering::Less,
-                            false => return std::cmp::Ordering::Greater
-                        }
-                    }
-                    match a.get_field("location").unwrap() < b.get_field("location").unwrap() {
-                        true => return std::cmp::Ordering::Less,
-                        false => return std::cmp::Ordering::Greater
+                    let a_track = a.get_tag(&Tag::Track).unwrap_or(&blank);
+                    let b_track = b.get_tag(&Tag::Track).unwrap_or(&blank);
+
+                    if let (Ok(num_a), Ok(num_b)) = (a_track.parse::<i32>(), b_track.parse::<i32>()) {
+                        // If parsing the track numbers succeeds, compare as numbers
+                        num_a.cmp(&num_b)
+                    } else {
+                        // If parsing doesn't succeed, compare the locations
+                        let path_a = PathBuf::from(a.get_field("location").unwrap());
+                        let path_b = PathBuf::from(b.get_field("location").unwrap());
+
+                        path_a.file_name().cmp(&path_b.file_name())
                     }
                 });
             }
         });
+
+        // Return the albums!
         albums
     }
 

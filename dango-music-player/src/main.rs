@@ -4,7 +4,6 @@ use std::path::Path;
 use dango_core::{
     music_controller::config::Config,
     music_storage::music_db::{MusicLibrary, Tag},
-    music_storage::utils::normalize,
 };
 
 fn main() {

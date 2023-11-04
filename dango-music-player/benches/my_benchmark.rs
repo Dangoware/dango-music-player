@@ -10,7 +10,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     let config = Arc::new(RwLock::new(Config::default()));
     let mut library = MusicLibrary::init(config.clone()).unwrap();
 
-    if Path::new("music_database").metadata().unwrap().len() <= 8 {
+    if Path::new("music_database").metadata().unwrap().len() <= 20 {
         let now = std::time::Instant::now();
         //let total = library.scan_folder("/home/g2/Music/Random Songs/KICM-3158.cue", &config.clone().read().unwrap()).unwrap();
         let total = library.scan_folder("/home/g2/Downloads/Albums", &config.clone().read().unwrap()).unwrap();
