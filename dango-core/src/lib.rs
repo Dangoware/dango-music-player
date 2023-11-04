@@ -5,6 +5,7 @@ pub mod music_tracker {
 pub mod music_storage {
     pub mod music_db;
     pub mod playlist;
+    pub mod utils;
 }
 
 pub mod music_processor {

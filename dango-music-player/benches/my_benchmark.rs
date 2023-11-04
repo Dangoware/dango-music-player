@@ -22,7 +22,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("album collect", |b| b.iter(|| library.albums()));
     c.bench_function("query tracks", |b| b.iter(|| library
         .query_tracks(
-            &String::from(""),
+            &String::from("yuru"),
             &vec![
                 Tag::Field("location".to_string()),
                 Tag::Title,
