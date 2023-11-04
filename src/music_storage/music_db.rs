@@ -1,17 +1,17 @@
 // Crate things
-use crate::music_controller::config::Config;
 use super::utils::{normalize, read_library, write_library};
+use crate::music_controller::config::Config;
 
 // Various std things
 use std::collections::BTreeMap;
 use std::error::Error;
 
 // Files
+use cue::cd::CD;
 use file_format::{FileFormat, Kind};
 use jwalk::WalkDir;
 use lofty::{AudioFile, ItemKey, ItemValue, Probe, TagType, TaggedFileExt};
 use std::ffi::OsStr;
-use cue::cd::CD;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -105,14 +105,12 @@ impl Song {
         match target_field {
             "location" => Some(self.location.clone().path_string()),
             "plays" => Some(self.plays.clone().to_string()),
-            "format" => {
-                match self.format {
-                    Some(format) => match format.short_name() {
-                        Some(short) => Some(short.to_string()),
-                        None => None
-                    },
-                    None => None
-                }
+            "format" => match self.format {
+                Some(format) => match format.short_name() {
+                    Some(short) => Some(short.to_string()),
+                    None => None,
+                },
+                None => None,
             },
             _ => None, // Other field types are not yet supported
         }
@@ -136,10 +134,7 @@ impl URI {
         match self {
             URI::Local(_) => Err("\"Local\" has no stored index".into()),
             URI::Remote(_, _) => Err("\"Remote\" has no stored index".into()),
-            URI::Cue {
-                index,
-                ..
-            } => Ok(index),
+            URI::Cue { index, .. } => Ok(index),
         }
     }
 
@@ -149,10 +144,7 @@ impl URI {
         match self {
             URI::Local(_) => Err("\"Local\" has no starting time".into()),
             URI::Remote(_, _) => Err("\"Remote\" has no starting time".into()),
-            URI::Cue {
-                start,
-                ..
-            } => Ok(start),
+            URI::Cue { start, .. } => Ok(start),
         }
     }
 
@@ -162,10 +154,7 @@ impl URI {
         match self {
             URI::Local(_) => Err("\"Local\" has no starting time".into()),
             URI::Remote(_, _) => Err("\"Remote\" has no starting time".into()),
-            URI::Cue {
-                end,
-                ..
-            } => Ok(end),
+            URI::Cue { end, .. } => Ok(end),
         }
     }
 
@@ -173,10 +162,7 @@ impl URI {
     pub fn path(&self) -> &PathBuf {
         match self {
             URI::Local(location) => location,
-            URI::Cue {
-                location,
-                ..
-            } => location,
+            URI::Cue { location, .. } => location,
             URI::Remote(_, location) => location,
         }
     }
@@ -184,10 +170,7 @@ impl URI {
     pub fn path_string(&self) -> String {
         let path_str = match self {
             URI::Local(location) => location.as_path().to_string_lossy(),
-            URI::Cue {
-                location,
-                ..
-            } => location.as_path().to_string_lossy(),
+            URI::Cue { location, .. } => location.as_path().to_string_lossy(),
             URI::Remote(_, location) => location.as_path().to_string_lossy(),
         };
         path_str.to_string()
@@ -273,7 +256,7 @@ impl MusicLibrary {
         match global_config.db_path.exists() {
             true => {
                 library = read_library(*global_config.db_path.clone())?;
-            },
+            }
             false => {
                 // Create the database if it does not exist
                 // possibly from the backup file
@@ -718,7 +701,9 @@ impl MusicLibrary {
                     },
                 };
 
-                if normalize(&track_result.to_string()).contains(&normalize(&query_string.to_owned())) {
+                if normalize(&track_result.to_string())
+                    .contains(&normalize(&query_string.to_owned()))
+                {
                     songs.lock().unwrap().push(track);
                     return;
                 }
@@ -782,17 +767,21 @@ impl MusicLibrary {
         for result in &self.library {
             let title = match result.get_tag(&Tag::Album) {
                 Some(title) => title,
-                None => continue
+                None => continue,
             };
             let norm_title = normalize(title);
 
-            let disc_num = result.get_tag(&Tag::Disk).unwrap_or(&"".to_string()).parse::<usize>().unwrap_or(1);
+            let disc_num = result
+                .get_tag(&Tag::Disk)
+                .unwrap_or(&"".to_string())
+                .parse::<usize>()
+                .unwrap_or(1);
             match albums.get_mut(&norm_title) {
                 // If the album is in the list, add the track to the appropriate disc in it
-                Some(album) => {
-                    match album.discs.get_mut(&disc_num) {
-                        Some(disc) => disc.push(result),
-                        None => {album.discs.insert(disc_num, vec![result]);}
+                Some(album) => match album.discs.get_mut(&disc_num) {
+                    Some(disc) => disc.push(result),
+                    None => {
+                        album.discs.insert(disc_num, vec![result]);
                     }
                 },
                 // If the album is not in the list, make a new one and add it
@@ -816,7 +805,8 @@ impl MusicLibrary {
                     let a_track = a.get_tag(&Tag::Track).unwrap_or(&blank);
                     let b_track = b.get_tag(&Tag::Track).unwrap_or(&blank);
 
-                    if let (Ok(num_a), Ok(num_b)) = (a_track.parse::<i32>(), b_track.parse::<i32>()) {
+                    if let (Ok(num_a), Ok(num_b)) = (a_track.parse::<i32>(), b_track.parse::<i32>())
+                    {
                         // If parsing the track numbers succeeds, compare as numbers
                         num_a.cmp(&num_b)
                     } else {
@@ -834,19 +824,23 @@ impl MusicLibrary {
         albums
     }
 
-    pub fn query_albums(&self,
-        query_string: &String,  // The query itself
+    pub fn query_albums(
+        &self,
+        query_string: &String, // The query itself
     ) -> Result<Vec<Album>, Box<dyn Error>> {
         let all_albums = self.albums();
 
         let normalized_query = normalize(query_string);
-        let albums: Vec<Album> = all_albums.par_iter().filter_map(|album|
-            if normalize(album.0).contains(&normalized_query) {
-                Some(album.1.clone())
-            } else {
-                None
-            }
-        ).collect();
+        let albums: Vec<Album> = all_albums
+            .par_iter()
+            .filter_map(|album| {
+                if normalize(album.0).contains(&normalized_query) {
+                    Some(album.1.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         Ok(albums)
     }
