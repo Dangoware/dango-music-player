@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use crate::music_controller::config::Config;
-use crate::music_player::music_player::{DSPMessage, DecoderMessage, MusicPlayer, PlayerStatus};
+use crate::music_player::music_player::{DecoderMessage, MusicPlayer, PlayerStatus};
 use crate::music_storage::music_db::{MusicLibrary, Song, Tag};
 
 pub struct MusicController {
@@ -61,19 +61,6 @@ impl MusicController {
     /// Gets current song being controlled, if any
     pub fn get_current_song(&self) -> Option<Song> {
         return self.music_player.get_current_song();
-    }
-
-    /// Gets audio playback volume
-    pub fn get_vol(&self) -> f32 {
-        return self.music_player.music_processor.audio_volume;
-    }
-
-    /// Sets audio playback volume on a scale of 0.0 to 1.0
-    pub fn set_vol(&mut self, volume: f32) {
-        self.music_player.music_processor.audio_volume = volume;
-        self.song_control(DecoderMessage::DSP(DSPMessage::UpdateProcessor(Box::new(
-            self.music_player.music_processor.clone(),
-        ))));
     }
 
     /// Queries the [MusicLibrary], returning a `Vec<Song>`

@@ -1,17 +1,17 @@
 // Crate things
-use super::utils::{normalize, read_library, write_library};
+use super::utils::{normalize, read_library, write_library, find_images};
 use crate::music_controller::config::Config;
 
 // Various std things
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::ops::ControlFlow::{Break, Continue};
 
 // Files
 use cue::cd::CD;
 use file_format::{FileFormat, Kind};
-use jwalk::WalkDir;
+use walkdir::WalkDir;
 use lofty::{AudioFile, ItemKey, ItemValue, Probe, TagType, TaggedFileExt};
-use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -28,9 +28,9 @@ use rayon::prelude::*;
 use std::sync::{Arc, Mutex, RwLock};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct AlbumArt {
-    pub index: u16,
-    pub path: Option<URI>,
+pub enum AlbumArt {
+    Embedded(usize),
+    External(URI),
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -112,7 +112,7 @@ impl Song {
                 },
                 None => None,
             },
-            _ => None, // Other field types are not yet supported
+            _ => todo!(), // Other field types are not yet supported
         }
     }
 }
@@ -182,6 +182,7 @@ pub enum Service {
     InternetRadio,
     Spotify,
     Youtube,
+    None,
 }
 
 #[derive(Clone, Debug)]
@@ -236,6 +237,8 @@ impl Album<'_> {
     }
 }
 
+const BLOCKED_EXTENSIONS: [&str; 3] = ["vob", "log", "txt"];
+
 #[derive(Debug)]
 pub struct MusicLibrary {
     pub library: Vec<Song>,
@@ -272,8 +275,7 @@ impl MusicLibrary {
         Ok(Self { library })
     }
 
-    /// Serializes the database out to the file
-    /// specified in the config
+    /// Serializes the database out to the file specified in the config
     pub fn save(&self, config: &Config) -> Result<(), Box<dyn Error>> {
         match config.db_path.try_exists() {
             Ok(exists) => {
@@ -293,19 +295,16 @@ impl MusicLibrary {
     /// Queries for a [Song] by its [URI], returning a single `Song`
     /// with the `URI` that matches
     fn query_uri(&self, path: &URI) -> Option<(&Song, usize)> {
-        let result = Arc::new(Mutex::new(None));
-        let index = Arc::new(Mutex::new(0));
-        let _ = &self.library.par_iter().enumerate().for_each(|(i, track)| {
+        let result = self.library.par_iter().enumerate().try_for_each(|(i, track)| {
             if path == &track.location {
-                *result.clone().lock().unwrap() = Some(track);
-                *index.clone().lock().unwrap() = i;
-                return;
+                return std::ops::ControlFlow::Break((track, i));
             }
+            Continue(())
         });
-        let song = Arc::try_unwrap(result).unwrap().into_inner().unwrap();
-        match song {
-            Some(song) => Some((song, Arc::try_unwrap(index).unwrap().into_inner().unwrap())),
-            None => None,
+
+        match result {
+            Break(song) => Some(song),
+            Continue(_) => None,
         }
     }
 
@@ -313,7 +312,7 @@ impl MusicLibrary {
     /// with matching `PathBuf`s
     fn query_path(&self, path: &PathBuf) -> Option<Vec<&Song>> {
         let result: Arc<Mutex<Vec<&Song>>> = Arc::new(Mutex::new(Vec::new()));
-        let _ = &self.library.par_iter().for_each(|track| {
+        let _ = self.library.par_iter().for_each(|track| {
             if path == track.location.path() {
                 result.clone().lock().unwrap().push(&track);
                 return;
@@ -326,20 +325,18 @@ impl MusicLibrary {
         }
     }
 
-    /// Finds all the music files within a specified folder
+    /// Finds all the audio files within a specified folder
     pub fn scan_folder(
         &mut self,
         target_path: &str,
         config: &Config,
     ) -> Result<usize, Box<dyn std::error::Error>> {
         let mut total = 0;
-        let mut i = 0;
-        for entry in WalkDir::new(target_path)
+        for target_file in WalkDir::new(target_path)
             .follow_links(true)
             .into_iter()
             .filter_map(|e| e.ok())
         {
-            let target_file = entry;
             let path = target_file.path();
 
             // Ensure the target is a file and not a directory,
@@ -348,6 +345,7 @@ impl MusicLibrary {
                 continue;
             }
 
+            /* TODO: figure out how to increase the speed of this maybe
             // Check if the file path is already in the db
             if self.query_uri(&URI::Local(path.to_path_buf())).is_some() {
                 continue;
@@ -358,30 +356,27 @@ impl MusicLibrary {
             if i % 500 == 0 {
                 self.save(config).unwrap();
             }
+            */
 
             let format = FileFormat::from_file(&path)?;
-            let extension: &OsStr = match path.extension() {
-                Some(ext) => ext,
-                None => OsStr::new(""),
+            let extension = match path.extension() {
+                Some(ext) => ext.to_string_lossy().to_ascii_lowercase(),
+                None => String::new(),
             };
 
             // If it's a normal file, add it to the database
             // if it's a cuesheet, do a bunch of fancy stuff
             if (format.kind() == Kind::Audio || format.kind() == Kind::Video)
-                && extension.to_ascii_lowercase() != "log"
-                && extension.to_ascii_lowercase() != "vob"
+                && !BLOCKED_EXTENSIONS.contains(&extension.as_str())
             {
                 match self.add_file(&target_file.path()) {
-                    Ok(_) => {
-                        //println!("{:?}", target_file.path());
-                        total += 1
-                    }
+                    Ok(_) => total += 1,
                     Err(_error) => {
-                        //println!("{}, {:?}: {}", format, target_file.file_name(), _error)
+                        println!("{}, {:?}: {}", format, target_file.file_name(), _error)
                     } // TODO: Handle more of these errors
                 };
-            } else if extension.to_ascii_lowercase() == "cue" {
-                total += match self.add_cuesheet(&target_file.path()) {
+            } else if extension == "cue" {
+                total += match self.add_cuesheet(&target_file.path().to_path_buf()) {
                     Ok(added) => added,
                     Err(error) => {
                         println!("{}", error);
@@ -437,24 +432,25 @@ impl MusicLibrary {
             };
 
             let value = match item.value() {
-                ItemValue::Text(value) => String::from(value),
-                ItemValue::Locator(value) => String::from(value),
+                ItemValue::Text(value) => value.clone(),
+                ItemValue::Locator(value) => value.clone(),
                 ItemValue::Binary(bin) => format!("BIN#{}", general_purpose::STANDARD.encode(bin)),
             };
 
             tags.insert(key, value);
         }
 
-        // Get all the album artwork information
+        // Get all the album artwork information from the file
         let mut album_art: Vec<AlbumArt> = Vec::new();
         for (i, _art) in tag.pictures().iter().enumerate() {
-            let new_art = AlbumArt {
-                index: i as u16,
-                path: None,
-            };
+            let new_art = AlbumArt::Embedded(i as usize);
 
             album_art.push(new_art)
         }
+
+        // Find images around the music file that can be used
+        let mut found_images = find_images(&target_file.to_path_buf()).unwrap();
+        album_art.append(&mut found_images);
 
         // Get the format as a string
         let format: Option<FileFormat> = match FileFormat::from_file(target_file) {
@@ -515,7 +511,10 @@ impl MusicLibrary {
             }
 
             // Try to remove the original audio file from the db if it exists
-            let _ = self.remove_uri(&URI::Local(audio_location.clone()));
+            match self.remove_uri(&URI::Local(audio_location.clone())) {
+                Ok(_) => tracks_added -= 1,
+                Err(_) => ()
+            };
 
             // Get the track timing information
             let pregap = match track.get_zero_pre() {
@@ -687,6 +686,7 @@ impl MusicLibrary {
         sort_by: &Vec<Tag>,     // Tags to sort the resulting data by
     ) -> Option<Vec<&Song>> {
         let songs = Arc::new(Mutex::new(Vec::new()));
+        //let matcher = SkimMatcherV2::default();
 
         self.library.par_iter().for_each(|track| {
             for tag in target_tags {
@@ -701,9 +701,19 @@ impl MusicLibrary {
                     },
                 };
 
-                if normalize(&track_result.to_string())
-                    .contains(&normalize(&query_string.to_owned()))
-                {
+                /*
+                let match_level = match matcher.fuzzy_match(&normalize(&track_result), &normalize(query_string)) {
+                    Some(conf) => conf,
+                    None => continue
+                };
+
+                if match_level > 100 {
+                    songs.lock().unwrap().push(track);
+                    return;
+                }
+                */
+
+                if normalize(&track_result.to_string()).contains(&normalize(&query_string.to_owned())) {
                     songs.lock().unwrap().push(track);
                     return;
                 }
@@ -776,6 +786,7 @@ impl MusicLibrary {
                 .unwrap_or(&"".to_string())
                 .parse::<usize>()
                 .unwrap_or(1);
+
             match albums.get_mut(&norm_title) {
                 // If the album is in the list, add the track to the appropriate disc in it
                 Some(album) => match album.discs.get_mut(&disc_num) {
@@ -786,11 +797,13 @@ impl MusicLibrary {
                 },
                 // If the album is not in the list, make a new one and add it
                 None => {
+                    let album_art = result.album_art.get(0);
+
                     let new_album = Album {
                         title,
                         artist: result.get_tag(&Tag::AlbumArtist),
                         discs: BTreeMap::from([(disc_num, vec![result])]),
-                        cover: None,
+                        cover: album_art,
                     };
                     albums.insert(norm_title, new_album);
                 }
@@ -824,6 +837,7 @@ impl MusicLibrary {
         albums
     }
 
+    /// Queries a list of albums by title
     pub fn query_albums(
         &self,
         query_string: &String, // The query itself
