@@ -12,12 +12,12 @@ keywords = ["audio", "music"]
 categories = ["multimedia::audio"]
 
 [dependencies]
-file-format = { version = "0.17.3", features = ["reader", "serde"] }
+file-format = { version = "0.22.0", features = ["reader-asf", "reader-ebml", "reader-mp4", "reader-rm", "reader-txt", "reader-xml", "serde"] }
 lofty = "0.16.1"
-serde = { version = "1.0.164", features = ["derive"] }
+serde = { version = "1.0.191", features = ["derive"] }
 time = "0.3.22"
 toml = "0.7.5"
-walkdir = "2.3.3"
+walkdir = "2.4.0"
 cpal = "0.15.2"
 heapless = "0.7.16"
 rb = "0.4.1"
@@ -37,8 +37,6 @@ unidecode = "0.3.0"
 rayon = "1.8.0"
 log = "0.4"
 pretty_env_logger = "0.4"
-cue = "2.0.0"
 base64 = "0.21.5"
-zip = "0.6.6"
-flate2 = "1.0.28"
 snap = "1.1.0"
+rcue = "0.1.3"
