@@ -33,7 +33,7 @@ fn main() {
     let time = now.elapsed().as_micros() as f32 / 1000.0;
     println!("{} albums total in {}ms", &albums.len(), time);
 
-    let query_text = String::from("yuru yuri");
+    let query_text = String::from("みなみけ");
 
     println!("\nQuery Text: {query_text}");
 
