@@ -19,7 +19,6 @@ use futures::AsyncBufRead;
 
 use crate::music_controller::config::Config;
 use crate::music_player::music_output::AudioStream;
-use crate::music_processor::music_processor::MusicProcessor;
 use crate::music_storage::music_db::{Song, URI};
 use crate::music_tracker::music_tracker::{
     DiscordRPC, LastFM, ListenBrainz, MusicTracker, TrackerError,
@@ -27,7 +26,6 @@ use crate::music_tracker::music_tracker::{
 
 // Struct that controls playback of music
 pub struct MusicPlayer {
-    pub music_processor: MusicProcessor,
     player_status: PlayerStatus,
     music_trackers: Vec<Box<dyn MusicTracker + Send>>,
     current_song: Arc<RwLock<Option<Song>>>,
@@ -51,18 +49,12 @@ pub enum DecoderMessage {
     Pause,
     Stop,
     SeekTo(u64),
-    DSP(DSPMessage),
 }
 
 #[derive(Clone)]
 pub enum TrackerMessage {
     Track(Song),
     TrackNow(Song),
-}
-
-#[derive(Debug, Clone)]
-pub enum DSPMessage {
-    UpdateProcessor(Box<MusicProcessor>),
 }
 
 // Holds a song decoder reader, etc
@@ -148,7 +140,6 @@ impl MusicPlayer {
         );
 
         MusicPlayer {
-            music_processor: MusicProcessor::new(),
             music_trackers: Vec::new(),
             player_status: PlayerStatus::Stopped,
             current_song,
@@ -235,8 +226,6 @@ impl MusicPlayer {
 
             let mut audio_output: Option<Box<dyn AudioStream>> = None;
 
-            let mut music_processor = MusicProcessor::new();
-
             let (tracker_sender, tracker_receiver): (
                 Sender<TrackerMessage>,
                 Receiver<TrackerMessage>,
@@ -290,11 +279,6 @@ impl MusicPlayer {
                             status_sender.send(PlayerStatus::Paused).unwrap();
                         }
                         Some(DecoderMessage::SeekTo(time)) => seek_time = Some(time),
-                        Some(DecoderMessage::DSP(dsp_message)) => match dsp_message {
-                            DSPMessage::UpdateProcessor(new_processor) => {
-                                music_processor = *new_processor
-                            }
-                        },
                         // Exits main decode loop and subsequently ends thread
                         Some(DecoderMessage::Stop) => {
                             status_sender.send(PlayerStatus::Stopped).unwrap();
@@ -372,22 +356,6 @@ impl MusicPlayer {
                                     crate::music_player::music_output::open_stream(spec, duration)
                                         .unwrap(),
                                 );
-                            }
-                            // Handles audio normally provided there is an audio stream
-                            if let Some(ref mut audio_output) = audio_output {
-                                // Changes buffer of the MusicProcessor if the packet has a differing capacity or spec
-                                if music_processor.audio_buffer.capacity() != decoded.capacity()
-                                    || music_processor.audio_buffer.spec() != decoded.spec()
-                                {
-                                    let spec = *decoded.spec();
-                                    let duration = decoded.capacity() as u64;
-
-                                    music_processor.set_buffer(duration, spec);
-                                }
-                                let transformed_audio = music_processor.process(&decoded);
-
-                                // Writes transformed packet to audio out
-                                audio_output.write(transformed_audio).unwrap()
                             }
                         }
                         Err(Error::IoError(_)) => {
