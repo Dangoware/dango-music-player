@@ -1,9 +1,7 @@
-use std::path::Path;
 use std::fs::File;
+use std::path::Path;
 
-pub fn init() {
-
-}
+pub fn init() {}
 
 fn init_config() {
     let config_path = "./config.toml";
@@ -13,7 +11,4 @@ fn init_config() {
     }
 }
 
-fn init_db() {  
-
-}
-
+fn init_db() {}

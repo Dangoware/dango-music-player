@@ -1,107 +1,86 @@
-use std::{thread, path::{PathBuf, Path}};
+use std::path::Path;
+use std::sync::{Arc, RwLock};
 
-use dango_core::{music_tracker::music_tracker::{DiscordRPC, DiscordRPCConfig, MusicTracker, LastFMConfig, LastFM}, music_controller::music_controller::MusicController, music_storage::music_db::{URI, Song}, music_player::music_player::{DecoderMessage, PlayerStatus}};
-use async_std::{fs::File, io, prelude::*, task};
-
-use iced::{executor, widget::Button};
-use iced::widget::{button, column, container, progress_bar, text, Column, text_input, slider, ProgressBar};
-use iced::{
-    Alignment, Application, Command, Element, Length, Settings, Subscription,
-    Theme,
+use dango_core::{
+    music_controller::config::Config,
+    music_storage::music_db::{MusicLibrary, Tag},
 };
-use once_cell::sync::Lazy;
-
-static INPUT_ID: Lazy<text_input::Id> = Lazy::new(text_input::Id::unique);
 
 fn main() {
-    DMP::run(Settings::default());
-    
-}
+    let config = Arc::new(RwLock::new(Config::default()));
 
-#[derive(Debug, Clone)]
-pub enum Message {
-    PlayerMessage(DecoderMessage),
-    SetVol(f32),
-    Open(String),
-    InputChanged(String),
-}
+    let now = std::time::Instant::now();
+    let mut library = MusicLibrary::init(config.clone()).unwrap();
+    let time = now.elapsed().as_micros() as f32 / 1000.0;
+    println!("Initialization took {}ms", time);
 
-struct DMP {
-    controller: MusicController,
-    inputval: String,
-}
+    if !Path::new("music_database").exists()
+        || Path::new("music_database").metadata().unwrap().len() <= 21
+    {
+        let now = std::time::Instant::now();
+        //let total = library.scan_folder("/home/g2/Music/Random Songs/KICM-3158.cue", &config.clone().read().unwrap()).unwrap();
+        let total = library.scan_folder("/home/g2/Downloads/Albums", &config.clone().read().unwrap()).unwrap();
+        //let total = library.scan_folder("/home/g2/Music/Albums/", &config.clone().read().unwrap()).unwrap();
+        let time = now.elapsed().as_micros() as f32 / 1000.0;
+        println!("{} songs in {}ms", total, time);
+    }
 
-impl Application for DMP {
-    type Message = Message;
-    type Theme = Theme;
-    type Executor = executor::Default;
-    type Flags = ();
-    
-    fn new(_flags: ()) -> (DMP, Command<Message>) {
-        (
-            DMP {
-                controller: MusicController::new(&PathBuf::from("config.toml")).unwrap(),
-                inputval: String::from("Song"),
-            },
-            Command::none(),
+    let lib_size = library.size();
+    println!("{} songs total", lib_size);
+
+    let now = std::time::Instant::now();
+    let albums = library.albums();
+    let time = now.elapsed().as_micros() as f32 / 1000.0;
+    println!("{} albums total in {}ms", &albums.len(), time);
+
+    let query_text = String::from("みなみけ");
+
+    println!("\nQuery Text: {query_text}");
+
+    let now = std::time::Instant::now();
+    let queried_songs = library
+        .query_tracks(
+            &query_text,
+            &vec![
+                Tag::Field("location".to_string()),
+                Tag::Title,
+                Tag::Album,
+                Tag::AlbumArtist,
+            ],
+            &vec![
+                Tag::Field("location".to_string()),
+                Tag::Album,
+                Tag::Disk,
+                Tag::Track,
+            ],
         )
-    }
-    
-    fn title(&self) -> String {
-        String::from("Dango Music Player")
-    }
-    
-    fn update(&mut self, message: Message) -> Command<Message> {
-        match message {
-            Message::Open(song) => {
-                let song = Song {
-                    path: URI::Local(song),
-                    title:  Some(String::from("Miku")),
-                    album:  None,
-                    tracknum: None,
-                    artist: Some(String::from("Anamanaguchi")),
-                    date: None,
-                    genre: None,
-                    plays: None,
-                    favorited: None,
-                    format: None, // TODO: Make this a proper FileFormat eventually
-                    duration: None,
-                    custom_tags: None,
-                };
-                self.controller.song_control(DecoderMessage::OpenSong(song));
+        .unwrap();
+    let time = now.elapsed().as_micros() as f32 / 1000.0;
+    println!("{} songs queried in {}ms", queried_songs.len(), time);
+
+    let now = std::time::Instant::now();
+    let queried_albums = library.query_albums(&query_text).unwrap();
+    let time = now.elapsed().as_micros() as f32 / 1000.0;
+    println!("{} albums queried in {}ms", &queried_albums.len(), time);
+
+    for album in &queried_albums {
+        println!("{} songs in [{}] with album art {:?}:", album.len(), album.title(), album.cover());
+        for disc in album.discs() {
+            println!("   Disc {} ]-----", disc.0);
+            for track in disc.1 {
+                println!("      {} : {: >2}) {}",
+                         disc.0,
+                         track.get_tag(&Tag::Track).unwrap_or(&String::from("")),
+                         track.get_tag(&Tag::Title).unwrap_or(&String::from(""))
+                );
             }
-            Message::InputChanged(song) => {
-                self.inputval = song;
-            }
-            Message::PlayerMessage(message) => {
-                self.controller.song_control(message)
-            }
-            Message::SetVol(vol) => {
-                self.controller.set_vol(vol);
-            }
-            _ => {}
-        };
-        Command::none()
+        }
+        println!();
     }
-    
-    fn view(&self) -> Element<Message> {
-        column![
-            text_input("Song goes here!", &self.inputval)
-                    .id(INPUT_ID.clone())
-                    .on_input(Message::InputChanged)
-                    .padding(15)
-                    .size(30),
-            button("Open Song!").on_press(Message::Open(self.inputval.clone())),
-            text(format!("Song volume: {}", self.controller.get_vol())).size(60),
-            button("Play").on_press(Message::PlayerMessage(DecoderMessage::Play)),
-            button("Pause").on_press(Message::PlayerMessage(DecoderMessage::Pause)),
-            button("VOL+").on_press(Message::SetVol(self.controller.get_vol() + 0.1)),
-            button("VOL-").on_press(Message::SetVol(self.controller.get_vol() - 0.1)),
-            text(format!("Status: {:?}", self.controller.get_current_song())),
-            progress_bar(0.0..=1.0, self.controller.get_vol())
-        ]
-        .padding(12)
-        .align_items(Alignment::Center)
-        .into()
+
+    /*
+    for song in queried_songs {
+        println!("{}", song.get_tag(&Tag::Title).unwrap_or(&"".to_string()));
     }
+    */
 }
