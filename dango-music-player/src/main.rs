@@ -19,8 +19,8 @@ fn main() {
     {
         let now = std::time::Instant::now();
         //let total = library.scan_folder("/home/g2/Music/Random Songs/KICM-3158.cue", &config.clone().read().unwrap()).unwrap();
-        let total = library.scan_folder("/home/g2/Downloads/Albums", &config.clone().read().unwrap()).unwrap();
-        //let total = library.scan_folder("/home/g2/Music/Albums/", &config.clone().read().unwrap()).unwrap();
+        //let total = library.scan_folder("/home/g2/Downloads/Albums", &config.clone().read().unwrap()).unwrap();
+        let total = library.scan_folder("/home/g2/Music/Albums/", &config.clone().read().unwrap()).unwrap();
         let time = now.elapsed().as_micros() as f32 / 1000.0;
         println!("{} songs in {}ms", total, time);
     }
@@ -63,6 +63,7 @@ fn main() {
     let time = now.elapsed().as_micros() as f32 / 1000.0;
     println!("{} albums queried in {}ms", &queried_albums.len(), time);
 
+    /*
     for album in &queried_albums {
         println!("{} songs in [{}] with album art {:?}:", album.len(), album.title(), album.cover());
         for disc in album.discs() {
@@ -77,6 +78,7 @@ fn main() {
         }
         println!();
     }
+    */
 
     /*
     for song in queried_songs {

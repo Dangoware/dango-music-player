@@ -11,7 +11,7 @@ use std::ops::ControlFlow::{Break, Continue};
 use rcue::parser::parse_from_file;
 use file_format::{FileFormat, Kind};
 use walkdir::WalkDir;
-use lofty::{AudioFile, ItemKey, ItemValue, Probe, TagType, TaggedFileExt};
+use lofty::{AudioFile, ItemKey, ItemValue, Probe, TagType, TaggedFileExt, ParseOptions};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -246,7 +246,7 @@ impl Album<'_> {
     }
 }
 
-const BLOCKED_EXTENSIONS: [&str; 3] = ["vob", "log", "txt"];
+const BLOCKED_EXTENSIONS: [&str; 5] = ["vob", "log", "txt", "sf2", "mid"];
 
 #[derive(Debug)]
 pub struct MusicLibrary {
@@ -341,6 +341,7 @@ impl MusicLibrary {
         config: &Config,
     ) -> Result<usize, Box<dyn std::error::Error>> {
         let mut total = 0;
+        let mut errors = 0;
         for target_file in WalkDir::new(target_path)
             .follow_links(true)
             .into_iter()
@@ -381,6 +382,7 @@ impl MusicLibrary {
                 match self.add_file(&target_file.path()) {
                     Ok(_) => total += 1,
                     Err(_error) => {
+                        errors += 1;
                         println!("{}, {:?}: {}", format, target_file.file_name(), _error)
                     } // TODO: Handle more of these errors
                 };
@@ -388,6 +390,7 @@ impl MusicLibrary {
                 total += match self.add_cuesheet(&target_file.path().to_path_buf()) {
                     Ok(added) => added,
                     Err(error) => {
+                        errors += 1;
                         println!("{}", error);
                         0
                     }
@@ -398,19 +401,19 @@ impl MusicLibrary {
         // Save the database after scanning finishes
         self.save(&config).unwrap();
 
+        println!("ERRORS: {}", errors);
+
         Ok(total)
     }
 
     pub fn add_file(&mut self, target_file: &Path) -> Result<(), Box<dyn Error>> {
+        let normal_options = ParseOptions::new().parsing_mode(lofty::ParsingMode::Relaxed);
+
         // TODO: Fix error handling here
-        let tagged_file = match lofty::read_from_path(target_file) {
+        let tagged_file = match Probe::open(target_file)?.options(normal_options).read() {
             Ok(tagged_file) => tagged_file,
 
-            Err(_) => match Probe::open(target_file)?.read() {
-                Ok(tagged_file) => tagged_file,
-
-                Err(error) => return Err(error.into()),
-            },
+            Err(error) => return Err(error.into()),
         };
 
         // Ensure the tags exist, if not, insert blank data
@@ -435,7 +438,7 @@ impl MusicLibrary {
                 ItemKey::Comment => Tag::Comment,
                 ItemKey::AlbumTitle => Tag::Album,
                 ItemKey::DiscNumber => Tag::Disk,
-                ItemKey::Unknown(unknown) if unknown == "ACOUSTID_FINGERPRINT" => continue,
+                ItemKey::Unknown(unknown) if unknown == "ACOUSTID_FINGERPRINT" || unknown == "Acoustid Fingerprint" => continue,
                 ItemKey::Unknown(unknown) => Tag::Key(unknown.to_string()),
                 custom => Tag::Key(format!("{:?}", custom)),
             };
@@ -490,7 +493,9 @@ impl MusicLibrary {
 
         match self.add_song(new_song) {
             Ok(_) => (),
-            Err(error) => return Err(error),
+            Err(_) => {
+                //return Err(error)
+            },
         };
 
         Ok(())
@@ -532,7 +537,9 @@ impl MusicLibrary {
                     None => Duration::from_secs(0),
                 };
                 let mut start = track.indices[0].1;
-                start -= pregap;
+                if !start.is_zero() {
+                    start -= pregap;
+                }
 
                 let duration = match next_track.next() {
                     Some(future) => match future.indices.get(0) {
@@ -540,17 +547,15 @@ impl MusicLibrary {
                         None => Duration::from_secs(0)
                     }
                     None => {
-                        let tagged_file = match lofty::read_from_path(&audio_location) {
-                            Ok(tagged_file) => tagged_file,
+                        match lofty::read_from_path(&audio_location) {
+                            Ok(tagged_file) => tagged_file.properties().duration() - start,
 
                             Err(_) => match Probe::open(&audio_location)?.read() {
-                                Ok(tagged_file) => tagged_file,
+                                Ok(tagged_file) => tagged_file.properties().duration() - start,
 
-                                Err(error) => return Err(error.into()),
+                                Err(_) => Duration::from_secs(0),
                             },
-                        };
-
-                        tagged_file.properties().duration() - start
+                        }
                     }
                 };
                 let end = start + duration + postgap;
@@ -656,10 +661,14 @@ impl MusicLibrary {
     }
 
     /// Scan the song by a location and update its tags
-    pub fn update_by_file(&mut self, new_tags: Song) -> Result<(), Box<dyn std::error::Error>> {
-        match self.query_uri(&new_tags.location) {
+    pub fn update_uri(&mut self, target_uri: &URI, new_tags: Vec<Tag>) -> Result<(), Box<dyn std::error::Error>> {
+        match self.query_uri(target_uri) {
             Some(_) => (),
             None => return Err(format!("URI not in database!").into()),
+        }
+
+        for tag in new_tags {
+            println!("{:?}", tag);
         }
 
         todo!()
@@ -667,7 +676,7 @@ impl MusicLibrary {
 
     /// Query the database, returning a list of [Song]s
     ///
-    /// The order in which the sort by Vec is arranged
+    /// The order in which the `sort by` Vec is arranged
     /// determines the output sorting.
     ///
     /// Example:

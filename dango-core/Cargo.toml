@@ -13,7 +13,7 @@ categories = ["multimedia::audio"]
 
 [dependencies]
 file-format = { version = "0.22.0", features = ["reader-asf", "reader-ebml", "reader-mp4", "reader-rm", "reader-txt", "reader-xml", "serde"] }
-lofty = "0.16.1"
+lofty = "0.17.0"
 serde = { version = "1.0.191", features = ["derive"] }
 time = "0.3.22"
 toml = "0.7.5"
