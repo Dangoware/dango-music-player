@@ -33,7 +33,7 @@ fn main() {
     let time = now.elapsed().as_micros() as f32 / 1000.0;
     println!("{} albums total in {}ms", &albums.len(), time);
 
-    let query_text = String::from("みなみけ");
+    let query_text = String::from("物語");
 
     println!("\nQuery Text: {query_text}");
 
@@ -63,14 +63,12 @@ fn main() {
     let time = now.elapsed().as_micros() as f32 / 1000.0;
     println!("{} albums queried in {}ms", &queried_albums.len(), time);
 
-    /*
     for album in &queried_albums {
         println!("{} songs in [{}] with album art {:?}:", album.len(), album.title(), album.cover());
         for disc in album.discs() {
             println!("   Disc {} ]-----", disc.0);
             for track in disc.1 {
-                println!("      {} : {: >2}) {}",
-                         disc.0,
+                println!("     {: >2}) {}",
                          track.get_tag(&Tag::Track).unwrap_or(&String::from("")),
                          track.get_tag(&Tag::Title).unwrap_or(&String::from(""))
                 );
@@ -78,7 +76,6 @@ fn main() {
         }
         println!();
     }
-    */
 
     /*
     for song in queried_songs {
