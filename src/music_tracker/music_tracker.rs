@@ -123,7 +123,7 @@ impl MusicTracker for LastFM {
         };
     }
 
-    async fn get_times_tracked(&mut self, song: &Song) -> Result<u32, TrackerError> {
+    async fn get_times_tracked(&mut self, _song: &Song) -> Result<u32, TrackerError> {
         todo!();
     }
 }
@@ -319,7 +319,7 @@ impl MusicTracker for DiscordRPC {
         }
     }
 
-    async fn track_song(&mut self, song: Song) -> Result<(), TrackerError> {
+    async fn track_song(&mut self, _song: Song) -> Result<(), TrackerError> {
         return Ok(());
     }
 
@@ -327,7 +327,7 @@ impl MusicTracker for DiscordRPC {
         return Ok(());
     }
 
-    async fn get_times_tracked(&mut self, song: &Song) -> Result<u32, TrackerError> {
+    async fn get_times_tracked(&mut self, _song: &Song) -> Result<u32, TrackerError> {
         return Ok(0);
     }
 }
@@ -408,7 +408,7 @@ impl MusicTracker for ListenBrainz {
     async fn test_tracker(&mut self) -> Result<(), TrackerError> {
         todo!()
     }
-    async fn get_times_tracked(&mut self, song: &Song) -> Result<u32, TrackerError> {
+    async fn get_times_tracked(&mut self, _song: &Song) -> Result<u32, TrackerError> {
         todo!()
     }
 }
