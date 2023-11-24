@@ -18,7 +18,7 @@ impl Default for Config {
     fn default() -> Self {
         let path = PathBuf::from("./music_database");
 
-        return Config {
+        Config {
             db_path: Box::new(path),
 
             lastfm: None,
@@ -34,7 +34,7 @@ impl Default for Config {
                 api_url: String::from("https://api.listenbrainz.org"),
                 auth_token: String::from(""),
             }),
-        };
+        }
     }
 }
 
@@ -49,10 +49,10 @@ impl Config {
 
     /// Loads config from given file path
     pub fn from(config_file: &PathBuf) -> std::result::Result<Config, toml::de::Error> {
-        return toml::from_str(
+        toml::from_str(
             &read_to_string(config_file)
                 .expect("Failed to initalize music config: File not found!"),
-        );
+        )
     }
 
     /// Saves config to given path
