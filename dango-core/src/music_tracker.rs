@@ -422,12 +422,12 @@ impl ListenBrainz {
     // Makes an api request to configured url with given json
     pub async fn api_request(
         &self,
-        request: &String,
+        request: &str,
         endpoint: &String,
     ) -> Result<surf::Response, surf::Error> {
-        
+
         surf::post(format!("{}{}", &self.config.api_url, endpoint))
-            .body_string(request.clone())
+            .body_string(request.to_owned())
             .header("Authorization", format!("Token {}", self.config.auth_token))
             .await
     }

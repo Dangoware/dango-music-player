@@ -199,6 +199,7 @@ pub struct Album<'a> {
     discs: BTreeMap<usize, Vec<&'a Song>>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Album<'_> {
     /// Returns the album title
     pub fn title(&self) -> &String {
@@ -383,7 +384,7 @@ impl MusicLibrary {
                     } // TODO: Handle more of these errors
                 };
             } else if extension == "cue" {
-                total += match self.add_cuesheet(&target_file.path().to_path_buf()) {
+                total += match self.add_cuesheet(target_file.path()) {
                     Ok(added) => added,
                     Err(error) => {
                         errors += 1;
@@ -457,7 +458,7 @@ impl MusicLibrary {
         }
 
         // Find images around the music file that can be used
-        let mut found_images = find_images(&target_file.to_path_buf()).unwrap();
+        let mut found_images = find_images(target_file).unwrap();
         album_art.append(&mut found_images);
 
         // Get the format as a string
@@ -497,10 +498,10 @@ impl MusicLibrary {
         Ok(())
     }
 
-    pub fn add_cuesheet(&mut self, cuesheet: &PathBuf) -> Result<usize, Box<dyn Error>> {
+    pub fn add_cuesheet(&mut self, cuesheet: &Path) -> Result<usize, Box<dyn Error>> {
         let mut tracks_added = 0;
 
-        let cue_data = parse_from_file(&cuesheet.as_path().to_string_lossy(), false).unwrap();
+        let cue_data = parse_from_file(&cuesheet.to_string_lossy(), false).unwrap();
 
         // Get album level information
         let album_title = &cue_data.title;
@@ -515,10 +516,7 @@ impl MusicLibrary {
             }
 
             // Try to remove the original audio file from the db if it exists
-            match self.remove_uri(&URI::Local(audio_location.clone())) {
-                Ok(_) => tracks_added -= 1,
-                Err(_) => ()
-            };
+            if self.remove_uri(&URI::Local(audio_location.clone())).is_ok() { tracks_added -= 1 }
 
             let next_track = file.tracks.clone();
             let mut next_track = next_track.iter().skip(1);
@@ -626,12 +624,10 @@ impl MusicLibrary {
     }
 
     pub fn add_song(&mut self, new_song: Song) -> Result<(), Box<dyn Error>> {
-        match self.query_uri(&new_song.location) {
-            Some(_) => {
-                return Err(format!("URI already in database: {:?}", new_song.location).into())
-            }
-            None => (),
+        if self.query_uri(&new_song.location).is_some() {
+            return Err(format!("URI already in database: {:?}", new_song.location).into())
         }
+
         match new_song.location {
             URI::Local(_) if self.query_path(new_song.location.path()).is_some() => {
                 return Err(format!("Location exists for {:?}", new_song.location).into())
@@ -854,7 +850,7 @@ impl MusicLibrary {
     /// Queries a list of albums by title
     pub fn query_albums(
         &self,
-        query_string: &String, // The query itself
+        query_string: &str, // The query itself
     ) -> Result<Vec<Album>, Box<dyn Error>> {
         let all_albums = self.albums();
 
