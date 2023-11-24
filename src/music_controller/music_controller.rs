@@ -23,7 +23,7 @@ impl MusicController {
             library,
         };
 
-        return Ok(controller);
+        Ok(controller)
     }
 
     /// Creates new music controller from a config at given path
@@ -39,7 +39,7 @@ impl MusicController {
             library,
         };
 
-        return Ok(controller);
+        Ok(controller)
     }
 
     /// Queries the [MusicLibrary], returning a `Vec<Song>`
