@@ -1,5 +1,6 @@
 use std::io::{BufReader, BufWriter};
-use std::{error::Error, fs, path::PathBuf};
+use std::path::{Path, PathBuf};
+use std::{error::Error, fs};
 use walkdir::WalkDir;
 use file_format::{FileFormat, Kind};
 
@@ -8,7 +9,7 @@ use snap;
 use super::music_db::{Song, AlbumArt, URI};
 use unidecode::unidecode;
 
-pub(super) fn normalize(input_string: &String) -> String {
+pub(super) fn normalize(input_string: &str) -> String {
     let mut normalized = unidecode(input_string);
 
     // Remove non alphanumeric characters
@@ -65,7 +66,7 @@ pub(super) fn write_library(
     Ok(())
 }
 
-pub fn find_images(song_path: &PathBuf) -> Result<Vec<AlbumArt>, Box<dyn Error>> {
+pub fn find_images(song_path: &Path) -> Result<Vec<AlbumArt>, Box<dyn Error>> {
     let mut images: Vec<AlbumArt> = Vec::new();
 
     let song_dir = song_path.parent().ok_or("")?;

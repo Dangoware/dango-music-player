@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::music_tracker::music_tracker::{DiscordRPCConfig, LastFMConfig, ListenBrainzConfig};
+use crate::music_tracker::{DiscordRPCConfig, LastFMConfig, ListenBrainzConfig};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct Config {
@@ -66,9 +66,8 @@ impl Config {
         fs::write(&temp_file, toml)?;
 
         // If configuration file already exists, delete it
-        match fs::metadata(config_file) {
-            Ok(_) => fs::remove_file(config_file)?,
-            Err(_) => {}
+        if fs::metadata(config_file).is_ok() {
+            fs::remove_file(config_file)?
         }
 
         fs::rename(temp_file, config_file)?;
