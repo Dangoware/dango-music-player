@@ -8,14 +8,7 @@ pub mod music_storage {
     mod utils;
 }
 
-pub mod music_player {
-    pub mod music_output;
-    pub mod music_player;
-    pub mod music_resampler;
-}
-
 pub mod music_controller {
     pub mod config;
-    pub mod init;
     pub mod music_controller;
 }

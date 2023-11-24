@@ -45,12 +45,12 @@ pub(super) fn write_library(
     backup_name.set_extension("bkp");
 
     // Create a new BufWriter on the file and make a snap frame encoer for it too
-    let writer = BufWriter::new(fs::File::create(writer_name.to_path_buf())?);
+    let writer = BufWriter::new(fs::File::create(&writer_name)?);
     let mut e = snap::write::FrameEncoder::new(writer);
 
     // Write out the data using bincode
     bincode::serde::encode_into_std_write(
-        &library,
+        library,
         &mut e,
         bincode::config::standard()
             .with_little_endian()
@@ -83,7 +83,7 @@ pub fn find_images(song_path: &PathBuf) -> Result<Vec<AlbumArt>, Box<dyn Error>>
             continue;
         }
 
-        let format = FileFormat::from_file(&path)?.kind();
+        let format = FileFormat::from_file(path)?.kind();
         if format != Kind::Image {
             break
         }

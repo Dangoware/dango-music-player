@@ -11,7 +11,7 @@ use std::ops::ControlFlow::{Break, Continue};
 use rcue::parser::parse_from_file;
 use file_format::{FileFormat, Kind};
 use walkdir::WalkDir;
-use lofty::{AudioFile, ItemKey, ItemValue, Probe, TagType, TaggedFileExt};
+use lofty::{AudioFile, ItemKey, ItemValue, Probe, TagType, TaggedFileExt, ParseOptions};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -115,10 +115,7 @@ impl Song {
             "location" => Some(self.location.clone().path_string()),
             "plays" => Some(self.plays.clone().to_string()),
             "format" => match self.format {
-                Some(format) => match format.short_name() {
-                    Some(short) => Some(short.to_string()),
-                    None => None,
-                },
+                Some(format) => format.short_name().map(|short| short.to_string()),
                 None => None,
             },
             _ => todo!(), // Other field types are not yet supported
@@ -246,7 +243,7 @@ impl Album<'_> {
     }
 }
 
-const BLOCKED_EXTENSIONS: [&str; 3] = ["vob", "log", "txt"];
+const BLOCKED_EXTENSIONS: [&str; 5] = ["vob", "log", "txt", "sf2", "mid"];
 
 #[derive(Debug)]
 pub struct MusicLibrary {
@@ -321,10 +318,9 @@ impl MusicLibrary {
     /// with matching `PathBuf`s
     fn query_path(&self, path: &PathBuf) -> Option<Vec<&Song>> {
         let result: Arc<Mutex<Vec<&Song>>> = Arc::new(Mutex::new(Vec::new()));
-        let _ = self.library.par_iter().for_each(|track| {
+        self.library.par_iter().for_each(|track| {
             if path == track.location.path() {
-                result.clone().lock().unwrap().push(&track);
-                return;
+                result.clone().lock().unwrap().push(track);
             }
         });
         if result.lock().unwrap().len() > 0 {
@@ -341,6 +337,7 @@ impl MusicLibrary {
         config: &Config,
     ) -> Result<usize, Box<dyn std::error::Error>> {
         let mut total = 0;
+        let mut errors = 0;
         for target_file in WalkDir::new(target_path)
             .follow_links(true)
             .into_iter()
@@ -367,7 +364,7 @@ impl MusicLibrary {
             }
             */
 
-            let format = FileFormat::from_file(&path)?;
+            let format = FileFormat::from_file(path)?;
             let extension = match path.extension() {
                 Some(ext) => ext.to_string_lossy().to_ascii_lowercase(),
                 None => String::new(),
@@ -378,9 +375,10 @@ impl MusicLibrary {
             if (format.kind() == Kind::Audio || format.kind() == Kind::Video)
                 && !BLOCKED_EXTENSIONS.contains(&extension.as_str())
             {
-                match self.add_file(&target_file.path()) {
+                match self.add_file(target_file.path()) {
                     Ok(_) => total += 1,
                     Err(_error) => {
+                        errors += 1;
                         println!("{}, {:?}: {}", format, target_file.file_name(), _error)
                     } // TODO: Handle more of these errors
                 };
@@ -388,6 +386,7 @@ impl MusicLibrary {
                 total += match self.add_cuesheet(&target_file.path().to_path_buf()) {
                     Ok(added) => added,
                     Err(error) => {
+                        errors += 1;
                         println!("{}", error);
                         0
                     }
@@ -396,21 +395,21 @@ impl MusicLibrary {
         }
 
         // Save the database after scanning finishes
-        self.save(&config).unwrap();
+        self.save(config).unwrap();
+
+        println!("ERRORS: {}", errors);
 
         Ok(total)
     }
 
     pub fn add_file(&mut self, target_file: &Path) -> Result<(), Box<dyn Error>> {
+        let normal_options = ParseOptions::new().parsing_mode(lofty::ParsingMode::Relaxed);
+
         // TODO: Fix error handling here
-        let tagged_file = match lofty::read_from_path(target_file) {
+        let tagged_file = match Probe::open(target_file)?.options(normal_options).read() {
             Ok(tagged_file) => tagged_file,
 
-            Err(_) => match Probe::open(target_file)?.read() {
-                Ok(tagged_file) => tagged_file,
-
-                Err(error) => return Err(error.into()),
-            },
+            Err(error) => return Err(error.into()),
         };
 
         // Ensure the tags exist, if not, insert blank data
@@ -435,7 +434,7 @@ impl MusicLibrary {
                 ItemKey::Comment => Tag::Comment,
                 ItemKey::AlbumTitle => Tag::Album,
                 ItemKey::DiscNumber => Tag::Disk,
-                ItemKey::Unknown(unknown) if unknown == "ACOUSTID_FINGERPRINT" => continue,
+                ItemKey::Unknown(unknown) if unknown == "ACOUSTID_FINGERPRINT" || unknown == "Acoustid Fingerprint" => continue,
                 ItemKey::Unknown(unknown) => Tag::Key(unknown.to_string()),
                 custom => Tag::Key(format!("{:?}", custom)),
             };
@@ -452,7 +451,7 @@ impl MusicLibrary {
         // Get all the album artwork information from the file
         let mut album_art: Vec<AlbumArt> = Vec::new();
         for (i, _art) in tag.pictures().iter().enumerate() {
-            let new_art = AlbumArt::Embedded(i as usize);
+            let new_art = AlbumArt::Embedded(i);
 
             album_art.push(new_art)
         }
@@ -490,7 +489,9 @@ impl MusicLibrary {
 
         match self.add_song(new_song) {
             Ok(_) => (),
-            Err(error) => return Err(error),
+            Err(_) => {
+                //return Err(error)
+            },
         };
 
         Ok(())
@@ -532,7 +533,9 @@ impl MusicLibrary {
                     None => Duration::from_secs(0),
                 };
                 let mut start = track.indices[0].1;
-                start -= pregap;
+                if !start.is_zero() {
+                    start -= pregap;
+                }
 
                 let duration = match next_track.next() {
                     Some(future) => match future.indices.get(0) {
@@ -540,23 +543,21 @@ impl MusicLibrary {
                         None => Duration::from_secs(0)
                     }
                     None => {
-                        let tagged_file = match lofty::read_from_path(&audio_location) {
-                            Ok(tagged_file) => tagged_file,
+                        match lofty::read_from_path(audio_location) {
+                            Ok(tagged_file) => tagged_file.properties().duration() - start,
 
-                            Err(_) => match Probe::open(&audio_location)?.read() {
-                                Ok(tagged_file) => tagged_file,
+                            Err(_) => match Probe::open(audio_location)?.read() {
+                                Ok(tagged_file) => tagged_file.properties().duration() - start,
 
-                                Err(error) => return Err(error.into()),
+                                Err(_) => Duration::from_secs(0),
                             },
-                        };
-
-                        tagged_file.properties().duration() - start
+                        }
                     }
                 };
                 let end = start + duration + postgap;
 
                 // Get the format as a string
-                let format: Option<FileFormat> = match FileFormat::from_file(&audio_location) {
+                let format: Option<FileFormat> = match FileFormat::from_file(audio_location) {
                     Ok(fmt) => Some(fmt),
                     Err(_) => None,
                 };
@@ -632,7 +633,7 @@ impl MusicLibrary {
             None => (),
         }
         match new_song.location {
-            URI::Local(_) if self.query_path(&new_song.location.path()).is_some() => {
+            URI::Local(_) if self.query_path(new_song.location.path()).is_some() => {
                 return Err(format!("Location exists for {:?}", new_song.location).into())
             }
             _ => (),
@@ -656,10 +657,14 @@ impl MusicLibrary {
     }
 
     /// Scan the song by a location and update its tags
-    pub fn update_by_file(&mut self, new_tags: Song) -> Result<(), Box<dyn std::error::Error>> {
-        match self.query_uri(&new_tags.location) {
+    pub fn update_uri(&mut self, target_uri: &URI, new_tags: Vec<Tag>) -> Result<(), Box<dyn std::error::Error>> {
+        match self.query_uri(target_uri) {
             Some(_) => (),
-            None => return Err(format!("URI not in database!").into()),
+            None => return Err("URI not in database!".to_string().into()),
+        }
+
+        for tag in new_tags {
+            println!("{:?}", tag);
         }
 
         todo!()
@@ -667,7 +672,7 @@ impl MusicLibrary {
 
     /// Query the database, returning a list of [Song]s
     ///
-    /// The order in which the sort by Vec is arranged
+    /// The order in which the `sort by` Vec is arranged
     /// determines the output sorting.
     ///
     /// Example:
@@ -700,11 +705,11 @@ impl MusicLibrary {
         self.library.par_iter().for_each(|track| {
             for tag in target_tags {
                 let track_result = match tag {
-                    Tag::Field(target) => match track.get_field(&target) {
+                    Tag::Field(target) => match track.get_field(target) {
                         Some(value) => value,
                         None => continue,
                     },
-                    _ => match track.get_tag(&tag) {
+                    _ => match track.get_tag(tag) {
                         Some(value) => value.clone(),
                         None => continue,
                     },
@@ -740,7 +745,7 @@ impl MusicLibrary {
                         Some(field_value) => field_value,
                         None => continue,
                     },
-                    _ => match a.get_tag(&sort_option) {
+                    _ => match a.get_tag(sort_option) {
                         Some(tag_value) => tag_value.to_owned(),
                         None => continue,
                     },
@@ -751,7 +756,7 @@ impl MusicLibrary {
                         Some(field_value) => field_value,
                         None => continue,
                     },
-                    _ => match b.get_tag(&sort_option) {
+                    _ => match b.get_tag(sort_option) {
                         Some(tag_value) => tag_value.to_owned(),
                         None => continue,
                     },
@@ -773,7 +778,7 @@ impl MusicLibrary {
             path_a.file_name().cmp(&path_b.file_name())
         });
 
-        if new_songs.len() > 0 {
+        if !new_songs.is_empty() {
             Some(new_songs)
         } else {
             None

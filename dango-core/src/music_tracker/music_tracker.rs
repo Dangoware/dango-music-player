@@ -41,7 +41,7 @@ pub enum TrackerError {
 
 impl TrackerError {
     pub fn from_surf_error(error: surf::Error) -> TrackerError {
-        return match error.status() {
+        match error.status() {
             StatusCode::Forbidden => TrackerError::InvalidAuth,
             StatusCode::Unauthorized => TrackerError::InvalidAuth,
             StatusCode::NetworkAuthenticationRequired => TrackerError::InvalidAuth,
@@ -50,7 +50,7 @@ impl TrackerError {
             StatusCode::ServiceUnavailable => TrackerError::ServiceUnavailable,
             StatusCode::NotFound => TrackerError::ServiceUnavailable,
             _ => TrackerError::Unknown,
-        };
+        }
     }
 }
 
@@ -85,8 +85,8 @@ impl MusicTracker for LastFM {
         };
 
         params.insert("method", "track.scrobble");
-        params.insert("artist", &artist);
-        params.insert("track", &track);
+        params.insert("artist", artist);
+        params.insert("track", track);
         params.insert("timestamp", &string_timestamp);
 
         return match self.api_request(params).await {
@@ -104,8 +104,8 @@ impl MusicTracker for LastFM {
         };
 
         params.insert("method", "track.updateNowPlaying");
-        params.insert("artist", &artist);
-        params.insert("track", &track);
+        params.insert("artist", artist);
+        params.insert("track", track);
 
         return match self.api_request(params).await {
             Ok(_) => Ok(()),
@@ -123,7 +123,7 @@ impl MusicTracker for LastFM {
         };
     }
 
-    async fn get_times_tracked(&mut self, song: &Song) -> Result<u32, TrackerError> {
+    async fn get_times_tracked(&mut self, _song: &Song) -> Result<u32, TrackerError> {
         todo!();
     }
 }
@@ -160,7 +160,7 @@ impl LastFM {
             auth_token.token
         );
 
-        return Ok(auth_url);
+        Ok(auth_url)
     }
 
     /// Returns a LastFM session key
@@ -186,15 +186,15 @@ impl LastFM {
 
         // Sets session key from received response
         let session_response: Session = serde_json::from_str(&response)?;
-        return Ok(session_response.session.key);
+        Ok(session_response.session.key)
     }
 
     /// Creates a new LastFM struct with a given config
     pub fn new(config: &LastFMConfig) -> LastFM {
-        let last_fm = LastFM {
+        
+        LastFM {
             config: config.clone(),
-        };
-        return last_fm;
+        }
     }
 
     // Creates an api request with the given parameters
@@ -221,9 +221,9 @@ impl LastFM {
 
         let url = "http://ws.audioscrobbler.com/2.0/";
 
-        let response = surf::post(url).body_string(string_params).await;
+        
 
-        return response;
+        surf::post(url).body_string(string_params).await
     }
 
     // Returns an api signature as defined in the last.fm api documentation
@@ -242,7 +242,7 @@ impl LastFM {
         let hash_result = md5_hasher.finalize();
         let hashed_sig = format!("{:#02x}", hash_result);
 
-        return hashed_sig;
+        hashed_sig
     }
 
     // Removes last.fm account from dango-music-player
@@ -265,11 +265,11 @@ pub struct DiscordRPC {
 
 impl DiscordRPC {
     pub fn new(config: &DiscordRPCConfig) -> Self {
-        let rpc = DiscordRPC {
+        
+        DiscordRPC {
             client: discord_presence::client::Client::new(config.dango_client_id),
             config: config.clone(),
-        };
-        return rpc;
+        }
     }
 }
 
@@ -307,8 +307,8 @@ impl MusicTracker for DiscordRPC {
         // Sets discord account activity to current playing song
         let send_activity = self.client.set_activity(|activity| {
             activity
-                .state(format!("{}", album))
-                .details(format!("{}", song_name))
+                .state(album.to_string())
+                .details(song_name.to_string())
                 .assets(|assets| assets.large_image(&self.config.dango_icon))
                 .timestamps(|time| time.start(start_time))
         });
@@ -319,7 +319,7 @@ impl MusicTracker for DiscordRPC {
         }
     }
 
-    async fn track_song(&mut self, song: Song) -> Result<(), TrackerError> {
+    async fn track_song(&mut self, _song: Song) -> Result<(), TrackerError> {
         return Ok(());
     }
 
@@ -327,7 +327,7 @@ impl MusicTracker for DiscordRPC {
         return Ok(());
     }
 
-    async fn get_times_tracked(&mut self, song: &Song) -> Result<u32, TrackerError> {
+    async fn get_times_tracked(&mut self, _song: &Song) -> Result<u32, TrackerError> {
         return Ok(0);
     }
 }
@@ -408,7 +408,7 @@ impl MusicTracker for ListenBrainz {
     async fn test_tracker(&mut self) -> Result<(), TrackerError> {
         todo!()
     }
-    async fn get_times_tracked(&mut self, song: &Song) -> Result<u32, TrackerError> {
+    async fn get_times_tracked(&mut self, _song: &Song) -> Result<u32, TrackerError> {
         todo!()
     }
 }
@@ -425,10 +425,10 @@ impl ListenBrainz {
         request: &String,
         endpoint: &String,
     ) -> Result<surf::Response, surf::Error> {
-        let reponse = surf::post(format!("{}{}", &self.config.api_url, endpoint))
+        
+        surf::post(format!("{}{}", &self.config.api_url, endpoint))
             .body_string(request.clone())
             .header("Authorization", format!("Token {}", self.config.auth_token))
-            .await;
-        return reponse;
+            .await
     }
 }
