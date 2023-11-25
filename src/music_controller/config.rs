@@ -4,14 +4,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::music_tracker::{DiscordRPCConfig, LastFMConfig, ListenBrainzConfig};
-
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct Config {
     pub db_path: Box<PathBuf>,
-    pub lastfm: Option<LastFMConfig>,
-    pub discord: Option<DiscordRPCConfig>,
-    pub listenbrainz: Option<ListenBrainzConfig>,
 }
 
 impl Default for Config {
@@ -20,20 +15,6 @@ impl Default for Config {
 
         Config {
             db_path: Box::new(path),
-
-            lastfm: None,
-
-            discord: Some(DiscordRPCConfig {
-                enabled: true,
-                dango_client_id: 1144475145864499240,
-                dango_icon: String::from("flat"),
-            }),
-
-            listenbrainz: Some(ListenBrainzConfig {
-                enabled: false,
-                api_url: String::from("https://api.listenbrainz.org"),
-                auth_token: String::from(""),
-            }),
         }
     }
 }
