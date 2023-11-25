@@ -63,6 +63,8 @@ fn main() {
     let time = now.elapsed().as_micros() as f32 / 1000.0;
     println!("{} albums queried in {}ms", &queried_albums.len(), time);
 
+    //std::process::exit(0);
+
     for album in &queried_albums {
         println!("{} songs in [{}] with album art {:?}:", album.len(), album.title(), album.cover());
         for disc in album.discs() {
