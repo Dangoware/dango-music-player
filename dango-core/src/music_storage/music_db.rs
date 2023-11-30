@@ -294,7 +294,7 @@ impl Album<'_> {
     }
 }
 
-const BLOCKED_EXTENSIONS: [&str; 5] = ["vob", "log", "txt", "sf2"];
+const BLOCKED_EXTENSIONS: [&str; 4] = ["vob", "log", "txt", "sf2"];
 
 #[derive(Debug)]
 pub struct MusicLibrary {
