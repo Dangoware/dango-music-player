@@ -14,6 +14,7 @@ pub(super) fn normalize(input_string: &str) -> String {
 
     // Remove non alphanumeric characters
     normalized.retain(|c| c.is_alphanumeric());
+    normalized = normalized.to_ascii_lowercase();
 
     normalized
 }

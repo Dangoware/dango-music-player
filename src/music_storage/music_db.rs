@@ -1,5 +1,5 @@
 // Crate things
-use super::utils::{normalize, read_library, write_library, find_images};
+use super::utils::{find_images, normalize, read_library, write_library};
 use crate::music_controller::config::Config;
 
 // Various std things
@@ -8,15 +8,15 @@ use std::error::Error;
 use std::ops::ControlFlow::{Break, Continue};
 
 // Files
-use rcue::parser::parse_from_file;
 use file_format::{FileFormat, Kind};
-use walkdir::WalkDir;
-use lofty::{AudioFile, ItemKey, ItemValue, Probe, TagType, TaggedFileExt, ParseOptions};
+use lofty::{AudioFile, ItemKey, ItemValue, ParseOptions, Probe, TagType, TaggedFileExt};
+use rcue::parser::parse_from_file;
 use std::fs;
 use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
 
 // Time
-use chrono::{serde::ts_seconds_option, DateTime, Utc};
+use chrono::{serde::ts_milliseconds_option, DateTime, Utc};
 use std::time::Duration;
 
 // Serialization/Compression
@@ -42,6 +42,8 @@ impl AlbumArt {
     }
 }
 
+/// A tag for a song
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Tag {
     Title,
@@ -73,6 +75,42 @@ impl ToString for Tag {
     }
 }
 
+/// A field within a Song struct
+pub enum Field {
+    Location(URI),
+    Plays(i32),
+    Skips(i32),
+    Favorited(bool),
+    Rating(u8),
+    Format(FileFormat),
+    Duration(Duration),
+    PlayTime(Duration),
+    LastPlayed(DateTime<Utc>),
+    DateAdded(DateTime<Utc>),
+    DateModified(DateTime<Utc>),
+}
+
+impl ToString for Field {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Location(location) => location.to_string(),
+            Self::Plays(plays) => plays.to_string(),
+            Self::Skips(skips) => skips.to_string(),
+            Self::Favorited(fav) => fav.to_string(),
+            Self::Rating(rating) => rating.to_string(),
+            Self::Format(format) => match format.short_name() {
+                Some(name) => name.to_string(),
+                None => format.to_string()
+            },
+            Self::Duration(duration) => duration.as_millis().to_string(),
+            Self::PlayTime(time) => time.as_millis().to_string(),
+            Self::LastPlayed(last) => last.to_rfc2822(),
+            Self::DateAdded(added) => added.to_rfc2822(),
+            Self::DateModified(modified) => modified.to_rfc2822(),
+        }
+    }
+}
+
 /// Stores information about a single song
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Song {
@@ -84,42 +122,52 @@ pub struct Song {
     pub format: Option<FileFormat>,
     pub duration: Duration,
     pub play_time: Duration,
-    #[serde(with = "ts_seconds_option")]
+    #[serde(with = "ts_milliseconds_option")]
     pub last_played: Option<DateTime<Utc>>,
-    #[serde(with = "ts_seconds_option")]
+    #[serde(with = "ts_milliseconds_option")]
     pub date_added: Option<DateTime<Utc>>,
-    #[serde(with = "ts_seconds_option")]
+    #[serde(with = "ts_milliseconds_option")]
     pub date_modified: Option<DateTime<Utc>>,
     pub album_art: Vec<AlbumArt>,
     pub tags: BTreeMap<Tag, String>,
 }
 
 impl Song {
-    /**
-     * Get a tag's value
-     *
-     * ```
-     * // Assuming an already created song:
-     *
-     * let tag = this_song.get_tag(Tag::Title);
-     *
-     * assert_eq!(tag, "Some Song Title");
-     * ```
-     **/
+    /// Get a tag's value
+    ///
+    /// ```
+    /// use dango_core::music_storage::music_db::Tag;
+    /// // Assuming an already created song:
+    ///
+    /// let tag = this_song.get_tag(Tag::Title);
+    ///
+    /// assert_eq!(tag, "Some Song Title");
+    /// ```
     pub fn get_tag(&self, target_key: &Tag) -> Option<&String> {
         self.tags.get(target_key)
     }
 
-    pub fn get_field(&self, target_field: &str) -> Option<String> {
-        match target_field {
-            "location" => Some(self.location.clone().path_string()),
-            "plays" => Some(self.plays.clone().to_string()),
-            "format" => match self.format {
-                Some(format) => format.short_name().map(|short| short.to_string()),
-                None => None,
-            },
+    pub fn get_field(&self, target_field: &str) -> Option<Field> {
+        let lower_target = target_field.to_lowercase();
+        match lower_target.as_str() {
+            "location"  => Some(Field::Location(self.location.clone())),
+            "plays"     => Some(Field::Plays(self.plays)),
+            "skips"     => Some(Field::Skips(self.skips)),
+            "favorited" => Some(Field::Favorited(self.favorited)),
+            "rating"    => self.rating.map(Field::Rating),
+            "duration"  => Some(Field::Duration(self.duration)),
+            "play_time" => Some(Field::PlayTime(self.play_time)),
+            "format"    => self.format.map(Field::Format),
             _ => todo!(), // Other field types are not yet supported
         }
+    }
+
+    pub fn set_tag(&mut self, target_key: Tag, new_value: String) {
+        self.tags.insert(target_key, new_value);
+    }
+
+    pub fn remove_tag(&mut self, target_key: &Tag) {
+        self.tags.remove(target_key);
     }
 }
 
@@ -172,8 +220,10 @@ impl URI {
             URI::Remote(_, location) => location,
         }
     }
+}
 
-    pub fn path_string(&self) -> String {
+impl ToString for URI {
+    fn to_string(&self) -> String {
         let path_str = match self {
             URI::Local(location) => location.as_path().to_string_lossy(),
             URI::Cue { location, .. } => location.as_path().to_string_lossy(),
@@ -302,12 +352,16 @@ impl MusicLibrary {
     /// Queries for a [Song] by its [URI], returning a single `Song`
     /// with the `URI` that matches
     fn query_uri(&self, path: &URI) -> Option<(&Song, usize)> {
-        let result = self.library.par_iter().enumerate().try_for_each(|(i, track)| {
-            if path == &track.location {
-                return std::ops::ControlFlow::Break((track, i));
-            }
-            Continue(())
-        });
+        let result = self
+            .library
+            .par_iter()
+            .enumerate()
+            .try_for_each(|(i, track)| {
+                if path == &track.location {
+                    return std::ops::ControlFlow::Break((track, i));
+                }
+                Continue(())
+            });
 
         match result {
             Break(song) => Some(song),
@@ -435,7 +489,11 @@ impl MusicLibrary {
                 ItemKey::Comment => Tag::Comment,
                 ItemKey::AlbumTitle => Tag::Album,
                 ItemKey::DiscNumber => Tag::Disk,
-                ItemKey::Unknown(unknown) if unknown == "ACOUSTID_FINGERPRINT" || unknown == "Acoustid Fingerprint" => continue,
+                ItemKey::Unknown(unknown)
+                    if unknown == "ACOUSTID_FINGERPRINT" || unknown == "Acoustid Fingerprint" =>
+                {
+                    continue
+                }
                 ItemKey::Unknown(unknown) => Tag::Key(unknown.to_string()),
                 custom => Tag::Key(format!("{:?}", custom)),
             };
@@ -492,7 +550,7 @@ impl MusicLibrary {
             Ok(_) => (),
             Err(_) => {
                 //return Err(error)
-            },
+            }
         };
 
         Ok(())
@@ -516,7 +574,9 @@ impl MusicLibrary {
             }
 
             // Try to remove the original audio file from the db if it exists
-            if self.remove_uri(&URI::Local(audio_location.clone())).is_ok() { tracks_added -= 1 }
+            if self.remove_uri(&URI::Local(audio_location.clone())).is_ok() {
+                tracks_added -= 1
+            }
 
             let next_track = file.tracks.clone();
             let mut next_track = next_track.iter().skip(1);
@@ -538,19 +598,17 @@ impl MusicLibrary {
                 let duration = match next_track.next() {
                     Some(future) => match future.indices.get(0) {
                         Some(val) => val.1 - start,
-                        None => Duration::from_secs(0)
-                    }
-                    None => {
-                        match lofty::read_from_path(audio_location) {
+                        None => Duration::from_secs(0),
+                    },
+                    None => match lofty::read_from_path(audio_location) {
+                        Ok(tagged_file) => tagged_file.properties().duration() - start,
+
+                        Err(_) => match Probe::open(audio_location)?.read() {
                             Ok(tagged_file) => tagged_file.properties().duration() - start,
 
-                            Err(_) => match Probe::open(audio_location)?.read() {
-                                Ok(tagged_file) => tagged_file.properties().duration() - start,
-
-                                Err(_) => Duration::from_secs(0),
-                            },
-                        }
-                    }
+                            Err(_) => Duration::from_secs(0),
+                        },
+                    },
                 };
                 let end = start + duration + postgap;
 
@@ -563,11 +621,15 @@ impl MusicLibrary {
                 // Get some useful tags
                 let mut tags: BTreeMap<Tag, String> = BTreeMap::new();
                 match album_title {
-                    Some(title) => {tags.insert(Tag::Album, title.clone());},
+                    Some(title) => {
+                        tags.insert(Tag::Album, title.clone());
+                    }
                     None => (),
                 }
                 match album_artist {
-                    Some(artist) => {tags.insert(Tag::Album, artist.clone());},
+                    Some(artist) => {
+                        tags.insert(Tag::Album, artist.clone());
+                    }
                     None => (),
                 }
                 tags.insert(Tag::Track, track.no.parse().unwrap_or((i + 1).to_string()));
@@ -625,7 +687,7 @@ impl MusicLibrary {
 
     pub fn add_song(&mut self, new_song: Song) -> Result<(), Box<dyn Error>> {
         if self.query_uri(&new_song.location).is_some() {
-            return Err(format!("URI already in database: {:?}", new_song.location).into())
+            return Err(format!("URI already in database: {:?}", new_song.location).into());
         }
 
         match new_song.location {
@@ -653,11 +715,17 @@ impl MusicLibrary {
     }
 
     /// Scan the song by a location and update its tags
-    pub fn update_uri(&mut self, target_uri: &URI, new_tags: Vec<Tag>) -> Result<(), Box<dyn std::error::Error>> {
-        match self.query_uri(target_uri) {
-            Some(_) => (),
+    pub fn update_uri(
+        &mut self,
+        target_uri: &URI,
+        new_tags: Vec<Tag>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let target_song = match self.query_uri(target_uri) {
+            Some(song) => song,
             None => return Err("URI not in database!".to_string().into()),
-        }
+        };
+
+        println!("{:?}", target_song.0.location);
 
         for tag in new_tags {
             println!("{:?}", tag);
@@ -673,6 +741,7 @@ impl MusicLibrary {
     ///
     /// Example:
     /// ```
+    /// use dango_core::music_storage::music_db::Tag;
     /// query_tracks(
     ///     &String::from("query"),
     ///     &vec![
@@ -702,7 +771,7 @@ impl MusicLibrary {
             for tag in target_tags {
                 let track_result = match tag {
                     Tag::Field(target) => match track.get_field(target) {
-                        Some(value) => value,
+                        Some(value) => value.to_string(),
                         None => continue,
                     },
                     _ => match track.get_tag(tag) {
@@ -723,7 +792,9 @@ impl MusicLibrary {
                 }
                 */
 
-                if normalize(&track_result.to_string()).contains(&normalize(&query_string.to_owned())) {
+                if normalize(&track_result.to_string())
+                    .contains(&normalize(&query_string.to_owned()))
+                {
                     songs.lock().unwrap().push(track);
                     return;
                 }
@@ -738,7 +809,7 @@ impl MusicLibrary {
             for sort_option in sort_by {
                 let tag_a = match sort_option {
                     Tag::Field(field_selection) => match a.get_field(field_selection) {
-                        Some(field_value) => field_value,
+                        Some(field_value) => field_value.to_string(),
                         None => continue,
                     },
                     _ => match a.get_tag(sort_option) {
@@ -749,7 +820,7 @@ impl MusicLibrary {
 
                 let tag_b = match sort_option {
                     Tag::Field(field_selection) => match b.get_field(field_selection) {
-                        Some(field_value) => field_value,
+                        Some(field_value) => field_value.to_string(),
                         None => continue,
                     },
                     _ => match b.get_tag(sort_option) {
@@ -768,8 +839,8 @@ impl MusicLibrary {
             }
 
             // If all tags are equal, sort by Track number
-            let path_a = PathBuf::from(a.get_field("location").unwrap());
-            let path_b = PathBuf::from(b.get_field("location").unwrap());
+            let path_a = PathBuf::from(a.get_field("location").unwrap().to_string());
+            let path_b = PathBuf::from(b.get_field("location").unwrap().to_string());
 
             path_a.file_name().cmp(&path_b.file_name())
         });
@@ -834,8 +905,8 @@ impl MusicLibrary {
                         num_a.cmp(&num_b)
                     } else {
                         // If parsing doesn't succeed, compare the locations
-                        let path_a = PathBuf::from(a.get_field("location").unwrap());
-                        let path_b = PathBuf::from(b.get_field("location").unwrap());
+                        let path_a = PathBuf::from(a.get_field("location").unwrap().to_string());
+                        let path_b = PathBuf::from(b.get_field("location").unwrap().to_string());
 
                         path_a.file_name().cmp(&path_b.file_name())
                     }
