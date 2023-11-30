@@ -460,22 +460,27 @@ impl MusicLibrary {
     pub fn add_file(&mut self, target_file: &Path) -> Result<(), Box<dyn Error>> {
         let normal_options = ParseOptions::new().parsing_mode(lofty::ParsingMode::Relaxed);
 
-        // TODO: Fix error handling here
-        let tagged_file = match Probe::open(target_file)?.options(normal_options).read() {
-            Ok(tagged_file) => tagged_file,
-
-            Err(error) => return Err(error.into()),
-        };
-
-        // Ensure the tags exist, if not, insert blank data
         let blank_tag = &lofty::Tag::new(TagType::Id3v2);
-        let tag = match tagged_file.primary_tag() {
-            Some(primary_tag) => primary_tag,
+        let tagged_file: lofty::TaggedFile;
+        let mut duration = Duration::from_secs(0);
+        let tag = match Probe::open(target_file)?.options(normal_options).read() {
+            Ok(file) => {
+                tagged_file = file;
 
-            None => match tagged_file.first_tag() {
-                Some(first_tag) => first_tag,
-                None => blank_tag,
+                duration = tagged_file.properties().duration();
+
+                // Ensure the tags exist, if not, insert blank data
+                match tagged_file.primary_tag() {
+                    Some(primary_tag) => primary_tag,
+
+                    None => match tagged_file.first_tag() {
+                        Some(first_tag) => first_tag,
+                        None => blank_tag,
+                    },
+                }
             },
+
+            Err(_) => blank_tag,
         };
 
         let mut tags: BTreeMap<Tag, String> = BTreeMap::new();
@@ -524,8 +529,6 @@ impl MusicLibrary {
             Ok(fmt) => Some(fmt),
             Err(_) => None,
         };
-
-        let duration = tagged_file.properties().duration();
 
         // TODO: Fix error handling
         let binding = fs::canonicalize(target_file).unwrap();
