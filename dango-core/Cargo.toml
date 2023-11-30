@@ -7,13 +7,13 @@ description = "A music backend that manages storage, querying, and playback of r
 homepage = "https://dangoware.com/dango-music-player"
 documentation = "https://docs.rs/dango-core"
 readme = "README.md"
-repository = "https://github.com/DangoWare/dango-music-player"
+repository = "https://github.com/Dangoware/dango-music-player"
 keywords = ["audio", "music"]
 categories = ["multimedia::audio"]
 
 [dependencies]
 file-format = { version = "0.22.0", features = ["reader-asf", "reader-ebml", "reader-mp4", "reader-rm", "reader-txt", "reader-xml", "serde"] }
-lofty = "0.17.0"
+lofty = "0.17.1"
 serde = { version = "1.0.191", features = ["derive"] }
 toml = "0.7.5"
 walkdir = "2.4.0"

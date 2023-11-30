@@ -1,6 +1,7 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
+use dango_core::music_storage::music_db::URI;
 use dango_core::{
     music_controller::config::Config,
     music_storage::music_db::{MusicLibrary, Tag},
@@ -33,7 +34,16 @@ fn main() {
     let time = now.elapsed().as_micros() as f32 / 1000.0;
     println!("{} albums total in {}ms", &albums.len(), time);
 
-    let query_text = String::from("物語");
+    /*
+    library.update_uri(
+        &URI::Local(PathBuf::from("/media/g2/Storage4/Media-Files/Music/Albums/MOTTO MUSIC/Moment/01 - Glittering Sky.flac")),
+        vec![
+            Tag::Title,
+        ]
+    ).unwrap();
+    */
+
+    let query_text = String::from("Glittering");
 
     println!("\nQuery Text: {query_text}");
 
@@ -63,8 +73,7 @@ fn main() {
     let time = now.elapsed().as_micros() as f32 / 1000.0;
     println!("{} albums queried in {}ms", &queried_albums.len(), time);
 
-    //std::process::exit(0);
-
+    /*
     for album in &queried_albums {
         println!("{} songs in [{}] with album art {:?}:", album.len(), album.title(), album.cover());
         for disc in album.discs() {
@@ -78,10 +87,16 @@ fn main() {
         }
         println!();
     }
+    */
 
     /*
+    println!("\n--");
     for song in queried_songs {
-        println!("{}", song.get_tag(&Tag::Title).unwrap_or(&"".to_string()));
+        println!(
+            "{} : {}",
+            song.get_tag(&Tag::Title).unwrap_or(&"".to_string()),
+            song.get_tag(&Tag::Artist).unwrap_or(&"".to_string()),
+        );
     }
     */
 }
