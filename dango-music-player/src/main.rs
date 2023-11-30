@@ -1,7 +1,6 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 
-use dango_core::music_storage::music_db::URI;
 use dango_core::{
     music_controller::config::Config,
     music_storage::music_db::{MusicLibrary, Tag},
