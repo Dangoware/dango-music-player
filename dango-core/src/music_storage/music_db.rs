@@ -180,7 +180,7 @@ pub enum URI {
         start: Duration,
         end: Duration,
     },
-    Remote(Service, PathBuf),
+    Remote(Service, String),
 }
 
 impl URI {
@@ -213,12 +213,21 @@ impl URI {
     }
 
     /// Returns the location as a PathBuf
-    pub fn path(&self) -> &PathBuf {
+    pub fn path(&self) -> PathBuf {
         match self {
-            URI::Local(location) => location,
-            URI::Cue { location, .. } => location,
-            URI::Remote(_, location) => location,
+            URI::Local(location) => location.clone(),
+            URI::Cue { location, .. } => location.clone(),
+            URI::Remote(_, location) => PathBuf::from(location),
         }
+    }
+
+    pub fn as_uri(&self) -> String {
+        let path_str = match self {
+            URI::Local(location) => format!("file://{}", location.as_path().to_string_lossy()),
+            URI::Cue { location, .. } => format!("file://{}", location.as_path().to_string_lossy()),
+            URI::Remote(_, location) => location.clone(),
+        };
+        path_str.to_string()
     }
 }
 
@@ -227,7 +236,7 @@ impl ToString for URI {
         let path_str = match self {
             URI::Local(location) => location.as_path().to_string_lossy(),
             URI::Cue { location, .. } => location.as_path().to_string_lossy(),
-            URI::Remote(_, location) => location.as_path().to_string_lossy(),
+            URI::Remote(_, location) => location.into(),
         };
         path_str.to_string()
     }
@@ -371,7 +380,7 @@ impl MusicLibrary {
 
     /// Queries for a [Song] by its [PathBuf], returning a `Vec<Song>`
     /// with matching `PathBuf`s
-    fn query_path(&self, path: &PathBuf) -> Option<Vec<&Song>> {
+    fn query_path(&self, path: PathBuf) -> Option<Vec<&Song>> {
         let result: Arc<Mutex<Vec<&Song>>> = Arc::new(Mutex::new(Vec::new()));
         self.library.par_iter().for_each(|track| {
             if path == track.location.path() {

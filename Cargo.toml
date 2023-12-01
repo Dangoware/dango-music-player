@@ -6,8 +6,6 @@ members = [
     "dango-tui",
     "dango-music-player"
 ]
-
-[profile.release]
 #strip = true
 #lto = "fat"
 #codegen-units = 1

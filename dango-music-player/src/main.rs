@@ -1,12 +1,15 @@
-use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::path::PathBuf;
 
 use dango_core::{
     music_controller::config::Config,
-    music_storage::music_db::{MusicLibrary, Tag},
+    music_storage::music_db::{MusicLibrary, Tag, URI, Service},
+    music_player::Player,
 };
 
+use chrono::Duration;
+
 fn main() {
+    /*
     let config = Arc::new(RwLock::new(Config::default()));
 
     let now = std::time::Instant::now();
@@ -98,4 +101,29 @@ fn main() {
         );
     }
     */
+    */
+
+    let mut player = Player::new();
+
+    //player.set_source(URI::Remote(Service::None, "https://g2games.dev/Assets/hosted_files/misc/Vids/op2.mp4".to_string()));
+    player.set_source(URI::Local(PathBuf::from("/media/g2/Storage4/Media-Files/Music/Albums/Mamoru-kun has Been Cursed/Meikai Arrange/09. Tea Break (Result).mp3")));
+    player.play();
+    player.set_volume(0.2);
+
+    std::thread::sleep(std::time::Duration::from_secs(2));
+
+    player.enqueue_next(URI::Local(PathBuf::from("/media/g2/Storage4/Media-Files/Music/Albums/Mamoru-kun has Been Cursed/Meikai Arrange/10. Great Tribulation (Sky Garden World).mp3")));
+
+    loop {
+        print!(
+            " {:02}:{:02} / {:02}:{:02}\r",
+            player.position().unwrap_or(Duration::seconds(0)).num_minutes(),
+            player.position().unwrap_or(Duration::seconds(0)).num_seconds() % 60,
+
+            player.duration().unwrap_or(Duration::seconds(0)).num_minutes(),
+            player.duration().unwrap_or(Duration::seconds(0)).num_seconds() % 60,
+        );
+        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
