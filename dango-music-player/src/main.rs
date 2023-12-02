@@ -1,129 +1,24 @@
-use std::path::PathBuf;
-
 use dango_core::{
-    music_controller::config::Config,
-    music_storage::music_db::{MusicLibrary, Tag, URI, Service},
+    music_storage::music_db::{URI, Service},
     music_player::Player,
 };
 
-use chrono::Duration;
-
 fn main() {
-    /*
-    let config = Arc::new(RwLock::new(Config::default()));
-
-    let now = std::time::Instant::now();
-    let mut library = MusicLibrary::init(config.clone()).unwrap();
-    let time = now.elapsed().as_micros() as f32 / 1000.0;
-    println!("Initialization took {}ms", time);
-
-    if !Path::new("music_database").exists()
-        || Path::new("music_database").metadata().unwrap().len() <= 21
-    {
-        let now = std::time::Instant::now();
-        //let total = library.scan_folder("/home/g2/Music/Random Songs/KICM-3158.cue", &config.clone().read().unwrap()).unwrap();
-        //let total = library.scan_folder("/home/g2/Downloads/Albums", &config.clone().read().unwrap()).unwrap();
-        let total = library.scan_folder("/home/g2/Music/", &config.clone().read().unwrap()).unwrap();
-        let time = now.elapsed().as_micros() as f32 / 1000.0;
-        println!("{} songs in {}ms", total, time);
-    }
-
-    let lib_size = library.size();
-    println!("{} songs total", lib_size);
-
-    let now = std::time::Instant::now();
-    let albums = library.albums();
-    let time = now.elapsed().as_micros() as f32 / 1000.0;
-    println!("{} albums total in {}ms", &albums.len(), time);
-
-    /*
-    library.update_uri(
-        &URI::Local(PathBuf::from("/media/g2/Storage4/Media-Files/Music/Albums/MOTTO MUSIC/Moment/01 - Glittering Sky.flac")),
-        vec![
-            Tag::Title,
-        ]
-    ).unwrap();
-    */
-
-    let query_text = String::from("");
-
-    println!("\nQuery Text: {query_text}");
-
-    let now = std::time::Instant::now();
-    let queried_songs = library
-        .query_tracks(
-            &query_text,
-            &vec![
-                Tag::Field("location".to_string()),
-                Tag::Title,
-                Tag::Album,
-                Tag::AlbumArtist,
-            ],
-            &vec![
-                Tag::Field("location".to_string()),
-                Tag::Album,
-                Tag::Disk,
-                Tag::Track,
-            ],
-        )
-        .unwrap();
-    let time = now.elapsed().as_micros() as f32 / 1000.0;
-    println!("{} songs queried in {}ms", queried_songs.len(), time);
-
-    let now = std::time::Instant::now();
-    let queried_albums = library.query_albums(&query_text).unwrap();
-    let time = now.elapsed().as_micros() as f32 / 1000.0;
-    println!("{} albums queried in {}ms", &queried_albums.len(), time);
-
-    /*
-    for album in &queried_albums {
-        println!("{} songs in [{}] with album art {:?}:", album.len(), album.title(), album.cover());
-        for disc in album.discs() {
-            println!("   Disc {} ]-----", disc.0);
-            for track in disc.1 {
-                println!("     {: >2}) {}",
-                         track.get_tag(&Tag::Track).unwrap_or(&String::from("")),
-                         track.get_tag(&Tag::Title).unwrap_or(&String::from(""))
-                );
-            }
-        }
-        println!();
-    }
-    */
-
-    /*
-    println!("\n--");
-    for song in queried_songs {
-        println!(
-            "{} : {}",
-            song.get_tag(&Tag::Title).unwrap_or(&"".to_string()),
-            song.get_tag(&Tag::Artist).unwrap_or(&"".to_string()),
-        );
-    }
-    */
-    */
-
+    // Create a new player
     let mut player = Player::new();
 
-    //player.set_source(URI::Remote(Service::None, "https://g2games.dev/Assets/hosted_files/misc/Vids/op2.mp4".to_string()));
-    player.set_source(URI::Local(PathBuf::from("/media/g2/Storage4/Media-Files/Music/Albums/Mamoru-kun has Been Cursed/Meikai Arrange/09. Tea Break (Result).mp3")));
+    // Add a stream to be queued
+    player.enqueue_next(
+        URI::Remote(
+            Service::InternetRadio,
+            "https://stream.gensokyoradio.net/3".to_string()
+        )
+    );
+
     player.play();
-    player.set_volume(0.2);
-
-    std::thread::sleep(std::time::Duration::from_secs(2));
-
-    player.enqueue_next(URI::Local(PathBuf::from("/media/g2/Storage4/Media-Files/Music/Albums/Mamoru-kun has Been Cursed/Meikai Arrange/10. Great Tribulation (Sky Garden World).mp3")));
+    player.set_volume(0.4);
 
     loop {
-        print!(
-            " {:02}:{:02} / {:02}:{:02}\r",
-            player.position().unwrap_or(Duration::seconds(0)).num_minutes(),
-            player.position().unwrap_or(Duration::seconds(0)).num_seconds() % 60,
-
-            player.duration().unwrap_or(Duration::seconds(0)).num_minutes(),
-            player.duration().unwrap_or(Duration::seconds(0)).num_seconds() % 60,
-        );
-        std::io::Write::flush(&mut std::io::stdout()).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
