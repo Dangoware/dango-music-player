@@ -14,6 +14,7 @@ use rcue::parser::parse_from_file;
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
+use glib::filename_to_uri;
 
 // Time
 use chrono::{serde::ts_milliseconds_option, DateTime, Utc};
@@ -224,8 +225,8 @@ impl URI {
 
     pub fn as_uri(&self) -> String {
         let path_str = match self {
-            URI::Local(location) => format!("file://{}", location.as_path().to_string_lossy()),
-            URI::Cue { location, .. } => format!("file://{}", location.as_path().to_string_lossy()),
+            URI::Local(location) => filename_to_uri(location, None).expect("couldn't convert path to URI").to_string(),
+            URI::Cue { location, .. } => filename_to_uri(location, None).expect("couldn't convert path to URI").to_string(),
             URI::Remote(_, location) => location.clone(),
         };
         path_str.to_string()
