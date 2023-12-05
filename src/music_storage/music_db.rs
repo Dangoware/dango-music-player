@@ -76,6 +76,7 @@ impl ToString for Tag {
 }
 
 /// A field within a Song struct
+#[derive(Debug)]
 pub enum Field {
     Location(URI),
     Plays(i32),
@@ -399,7 +400,7 @@ impl MusicLibrary {
         &mut self,
         target_path: &str,
         config: &Config,
-    ) -> Result<usize, Box<dyn std::error::Error>> {
+    ) -> Result<i32, Box<dyn std::error::Error>> {
         let mut total = 0;
         let mut errors = 0;
         for target_file in WalkDir::new(target_path)
@@ -568,7 +569,7 @@ impl MusicLibrary {
         Ok(())
     }
 
-    pub fn add_cuesheet(&mut self, cuesheet: &Path) -> Result<usize, Box<dyn Error>> {
+    pub fn add_cuesheet(&mut self, cuesheet: &Path) -> Result<i32, Box<dyn Error>> {
         let mut tracks_added = 0;
 
         let cue_data = parse_from_file(&cuesheet.to_string_lossy(), false).unwrap();
@@ -602,7 +603,13 @@ impl MusicLibrary {
                     Some(postgap) => postgap,
                     None => Duration::from_secs(0),
                 };
-                let mut start = track.indices[0].1;
+
+                let mut start;
+                if track.indices.len() > 1 {
+                    start = track.indices[1].1;
+                } else {
+                    start = track.indices[0].1;
+                }
                 if !start.is_zero() {
                     start -= pregap;
                 }
