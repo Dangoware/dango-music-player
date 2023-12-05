@@ -18,8 +18,6 @@ fn main() {
         "LiVE is Smile Always ~LiTTLE DEVIL PARADE~ 2017.06.24 @SAITAMA SUPER ARENA"
     ).unwrap();
 
-    println!("{:#?}", albums);
-
     // Create a new player
     let mut player = Player::new();
     player.set_volume(0.4);
