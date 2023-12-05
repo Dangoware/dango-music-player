@@ -1,13 +1,12 @@
 // Crate things
 //use crate::music_controller::config::Config;
 use crate::music_storage::music_db::URI;
-use std::error::Error;
-use std::sync::{Arc, Mutex, RwLock};
-use std::sync::mpsc::{self, Receiver, Sender};
 use crossbeam_channel::bounded;
+use std::error::Error;
+use std::sync::{Arc, RwLock};
 
 // GStreamer things
-use glib::{FlagsClass, MainContext};
+use glib::FlagsClass;
 use gst::{ClockTime, Element};
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -34,7 +33,6 @@ pub struct Player {
     start: Arc<RwLock<Option<Duration>>>,
     end: Arc<RwLock<Option<Duration>>>,
     pub position: Arc<RwLock<Option<Duration>>>,
-    gapless: bool,
 }
 
 impl Default for Player {
@@ -48,7 +46,9 @@ impl Player {
         // Initialize GStreamer
         gst::init().unwrap();
 
-        let playbin_arc = Arc::new(RwLock::new(gst::ElementFactory::make("playbin3").build().unwrap()));
+        let playbin_arc = Arc::new(RwLock::new(
+            gst::ElementFactory::make("playbin3").build().unwrap(),
+        ));
 
         let playbin = playbin_arc.clone();
 
@@ -66,7 +66,12 @@ impl Player {
             .build()
             .unwrap();
 
-        playbin.write().unwrap().set_property_from_value("flags", &flags);
+        playbin
+            .write()
+            .unwrap()
+            .set_property_from_value("flags", &flags);
+
+        playbin.write().unwrap().set_property("instant-uri", true);
 
         let position = Arc::new(RwLock::new(None));
         let start = Arc::new(RwLock::new(None));
@@ -88,7 +93,7 @@ impl Player {
                     && start_update.read().unwrap().is_some()
                     && end_update.read().unwrap().is_some()
                 {
-                    let atf = end_update.read().unwrap().unwrap() - Duration::milliseconds(100);
+                    let atf = end_update.read().unwrap().unwrap() - Duration::milliseconds(250);
                     if pos_temp.unwrap() >= end_update.read().unwrap().unwrap() {
                         message_tx.try_send(PlayerCmd::Eos).unwrap();
                         playbin_arc
@@ -99,10 +104,7 @@ impl Player {
                         *start_update.write().unwrap() = None;
                         *end_update.write().unwrap() = None;
                     } else if pos_temp.unwrap() >= atf {
-                        match message_tx.try_send(PlayerCmd::AboutToFinish) {
-                            Ok(_) => (),
-                            Err(_) => (),
-                        }
+                        let _ = message_tx.try_send(PlayerCmd::AboutToFinish);
                     }
 
                     // This has to be done AFTER the current time in the file
@@ -118,13 +120,6 @@ impl Player {
             }
         });
 
-        /*
-        playbin.read().unwrap().connect("about-to-finish", false, move |_| {
-            //message_tx.send(PlayerCmd::AboutToFinish).unwrap();
-            None
-        });
-        */
-
         let source = None;
         Self {
             source,
@@ -132,7 +127,6 @@ impl Player {
             message_rx,
             paused: false,
             volume: 1.0,
-            gapless: false,
             start,
             end,
             position,
@@ -144,23 +138,22 @@ impl Player {
     }
 
     pub fn enqueue_next(&mut self, next_track: &URI) {
-        self.ready().unwrap();
         self.set_source(next_track);
-        self.play().unwrap();
     }
 
     /// Set the playback URI
     fn set_source(&mut self, source: &URI) {
+        let uri = self.playbin.read().unwrap().property_value("current-uri");
         self.source = Some(source.clone());
         match source {
-            URI::Cue {start, end, ..} => {
+            URI::Cue { start, end, .. } => {
                 self.playbin.write().unwrap().set_property("uri", source.as_uri());
 
                 // Set the start and end positions of the CUE file
                 *self.start.write().unwrap() = Some(Duration::from_std(*start).unwrap());
                 *self.end.write().unwrap() = Some(Duration::from_std(*end).unwrap());
 
-                self.pause().unwrap();
+                self.play().unwrap();
 
                 // Wait for it to be ready, and then move to the proper position
                 let now = std::time::Instant::now();
@@ -171,23 +164,21 @@ impl Player {
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
                 panic!("Couldn't seek to beginning of cue track in reasonable time (>20ms)");
-            },
+            }
             _ => {
                 self.playbin.write().unwrap().set_property("uri", source.as_uri());
 
-                self.pause().unwrap();
+                self.play().unwrap();
 
-                while self.playbin.read().unwrap().query_duration::<ClockTime>().is_none() {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                };
+                while uri.get::<&str>().unwrap_or("") == self.property("current-uri").get::<&str>().unwrap_or("")
+                    || self.raw_duration().is_none()
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
 
                 *self.start.write().unwrap() = Some(Duration::seconds(0));
-                *self.end.write().unwrap() = self.playbin
-                    .read()
-                    .unwrap()
-                    .query_duration::<ClockTime>()
-                    .map(|pos| Duration::nanoseconds(pos.nseconds() as i64));
-            },
+                *self.end.write().unwrap() = self.raw_duration();
+            }
         }
     }
 
@@ -209,10 +200,7 @@ impl Player {
     }
 
     fn set_state(&mut self, state: gst::State) -> Result<(), gst::StateChangeError> {
-        self.playbin
-            .write()
-            .unwrap()
-            .set_state(state)?;
+        self.playbin.write().unwrap().set_state(state)?;
 
         Ok(())
     }
@@ -253,12 +241,16 @@ impl Player {
         if self.end.read().unwrap().is_some() && self.start.read().unwrap().is_some() {
             Some(self.end.read().unwrap().unwrap() - self.start.read().unwrap().unwrap())
         } else {
-            self.playbin
-                .read()
-                .unwrap()
-                .query_duration::<ClockTime>()
-                .map(|pos| Duration::nanoseconds(pos.nseconds() as i64))
+            self.raw_duration()
         }
+    }
+
+    pub fn raw_duration(&self) -> Option<Duration> {
+        self.playbin
+            .read()
+            .unwrap()
+            .query_duration::<ClockTime>()
+            .map(|pos| Duration::nanoseconds(pos.nseconds() as i64))
     }
 
     /// Seek relative to the current position
@@ -275,7 +267,19 @@ impl Player {
 
     /// Seek absolutely
     pub fn seek_to(&mut self, target_pos: Duration) -> Result<(), Box<dyn Error>> {
-        let seek_pos_clock = ClockTime::from_useconds(target_pos.num_microseconds().unwrap() as u64);
+        if self.start.read().unwrap().is_none() {
+            return Err("Failed to seek: No START time".into());
+        }
+
+        if self.end.read().unwrap().is_none() {
+            return Err("Failed to seek: No END time".into());
+        }
+
+        let clamped_target = target_pos.clamp(self.start.read().unwrap().unwrap(), self.end.read().unwrap().unwrap());
+
+        let seek_pos_clock =
+            ClockTime::from_useconds(clamped_target.num_microseconds().unwrap() as u64);
+
         self.set_gstreamer_volume(0.0);
         self.playbin
             .write()
@@ -287,6 +291,10 @@ impl Player {
 
     pub fn state(&mut self) -> gst::State {
         self.playbin.read().unwrap().current_state()
+    }
+
+    pub fn property(&self, property: &str) -> glib::Value  {
+        self.playbin.read().unwrap().property_value(property)
     }
 }
 
