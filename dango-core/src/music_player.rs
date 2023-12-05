@@ -171,7 +171,7 @@ impl Player {
                 self.play().unwrap();
 
                 while uri.get::<&str>().unwrap_or("") == self.property("current-uri").get::<&str>().unwrap_or("")
-                    || self.raw_duration().is_none()
+                    || self.position().is_none()
                 {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
@@ -267,15 +267,22 @@ impl Player {
 
     /// Seek absolutely
     pub fn seek_to(&mut self, target_pos: Duration) -> Result<(), Box<dyn Error>> {
+        let start;
         if self.start.read().unwrap().is_none() {
             return Err("Failed to seek: No START time".into());
+        } else {
+            start = self.start.read().unwrap().unwrap();
         }
 
+        let end;
         if self.end.read().unwrap().is_none() {
             return Err("Failed to seek: No END time".into());
+        } else {
+            end = self.end.read().unwrap().unwrap();
         }
 
-        let clamped_target = target_pos.clamp(self.start.read().unwrap().unwrap(), self.end.read().unwrap().unwrap());
+        let adjusted_target = target_pos + start;
+        let clamped_target = adjusted_target.clamp(start, end);
 
         let seek_pos_clock =
             ClockTime::from_useconds(clamped_target.num_microseconds().unwrap() as u64);
