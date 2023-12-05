@@ -149,6 +149,7 @@ impl Song {
         self.tags.get(target_key)
     }
 
+    /// Gets an internal field from a song
     pub fn get_field(&self, target_field: &str) -> Option<Field> {
         let lower_target = target_field.to_lowercase();
         match lower_target.as_str() {
@@ -164,10 +165,12 @@ impl Song {
         }
     }
 
+    /// Sets the value of a tag in the song
     pub fn set_tag(&mut self, target_key: Tag, new_value: String) {
         self.tags.insert(target_key, new_value);
     }
 
+    /// Deletes a tag from the song
     pub fn remove_tag(&mut self, target_key: &Tag) {
         self.tags.remove(target_key);
     }
@@ -648,7 +651,7 @@ impl MusicLibrary {
                 }
                 match album_artist {
                     Some(artist) => {
-                        tags.insert(Tag::Album, artist.clone());
+                        tags.insert(Tag::Artist, artist.clone());
                     }
                     None => (),
                 }

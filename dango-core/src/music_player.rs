@@ -73,8 +73,8 @@ impl Player {
         let end: Arc<RwLock<Option<Duration>>> = Arc::new(RwLock::new(None));
 
         let position_update = position.clone();
-        let start_update = start.clone();
-        let end_update = end.clone();
+        let start_update = Arc::clone(&start);
+        let end_update = Arc::clone(&end);
         let (message_tx, message_rx) = bounded(1);
         std::thread::spawn(move || {
             loop {
@@ -88,8 +88,6 @@ impl Player {
                     && start_update.read().unwrap().is_some()
                     && end_update.read().unwrap().is_some()
                 {
-                    if let Some(time) = *start_update.read().unwrap() { pos_temp = Some(pos_temp.unwrap() - time) }
-
                     let atf = end_update.read().unwrap().unwrap() - Duration::milliseconds(100);
                     if pos_temp.unwrap() >= end_update.read().unwrap().unwrap() {
                         message_tx.try_send(PlayerCmd::Eos).unwrap();
@@ -102,9 +100,15 @@ impl Player {
                         *end_update.write().unwrap() = None;
                     } else if pos_temp.unwrap() >= atf {
                         match message_tx.try_send(PlayerCmd::AboutToFinish) {
-                            Ok(_) => println!("Sent ATF"),
-                            Err(err) => println!("{}", err),
+                            Ok(_) => (),
+                            Err(_) => (),
                         }
+                    }
+
+                    // This has to be done AFTER the current time in the file
+                    // is calculated, or everything else is wrong
+                    if let Some(time) = *start_update.read().unwrap() {
+                        pos_temp = Some(pos_temp.unwrap() - time)
                     }
                 }
 
@@ -159,11 +163,14 @@ impl Player {
                 self.pause().unwrap();
 
                 // Wait for it to be ready, and then move to the proper position
-                while self.playbin.read().unwrap().query_duration::<ClockTime>().is_none() {
+                let now = std::time::Instant::now();
+                while now.elapsed() < std::time::Duration::from_millis(20) {
+                    if self.seek_to(Duration::from_std(*start).unwrap()).is_ok() {
+                        return;
+                    }
                     std::thread::sleep(std::time::Duration::from_millis(1));
-                };
-
-                self.seek_to(Duration::from_std(*start).unwrap()).unwrap();
+                }
+                panic!("Couldn't seek to beginning of cue track in reasonable time (>20ms)");
             },
             _ => {
                 self.playbin.write().unwrap().set_property("uri", source.as_uri());
