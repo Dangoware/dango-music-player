@@ -14,15 +14,11 @@ fn main() {
 
     library.scan_folder("/media/g2/Storage4/Media-Files/Music/Albums/LiSA BEST -Day- & BEST -Way-/", &Config::default()).unwrap();
 
-    let query_results = library.query_tracks(
-        &"MATOKONOKO".to_string(),
-        &vec![Tag::Title],
-        &vec![Tag::Album,Tag::Disk,Tag::Track],
-    ).unwrap();
-
     let albums = library.query_albums(
         "LiVE is Smile Always ~LiTTLE DEVIL PARADE~ 2017.06.24 @SAITAMA SUPER ARENA"
     ).unwrap();
+
+    println!("{:#?}", albums);
 
     // Create a new player
     let mut player = Player::new();

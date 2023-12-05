@@ -140,9 +140,9 @@ impl Player {
     }
 
     pub fn enqueue_next(&mut self, next_track: &URI) {
-        self.ready();
+        self.ready().unwrap();
         self.set_source(next_track);
-        self.play();
+        self.play().unwrap();
     }
 
     /// Set the playback URI
@@ -156,7 +156,7 @@ impl Player {
                 *self.start.write().unwrap() = Some(Duration::from_std(*start).unwrap());
                 *self.end.write().unwrap() = Some(Duration::from_std(*end).unwrap());
 
-                self.pause();
+                self.pause().unwrap();
 
                 // Wait for it to be ready, and then move to the proper position
                 while self.playbin.read().unwrap().query_duration::<ClockTime>().is_none() {
@@ -168,7 +168,7 @@ impl Player {
             _ => {
                 self.playbin.write().unwrap().set_property("uri", source.as_uri());
 
-                self.pause();
+                self.pause().unwrap();
 
                 while self.playbin.read().unwrap().query_duration::<ClockTime>().is_none() {
                     std::thread::sleep(std::time::Duration::from_millis(1));
@@ -201,33 +201,34 @@ impl Player {
         self.volume
     }
 
-    fn set_state(&mut self, state: gst::State) {
+    fn set_state(&mut self, state: gst::State) -> Result<(), gst::StateChangeError> {
         self.playbin
             .write()
             .unwrap()
-            .set_state(state)
-            .expect("Unable to set the pipeline state");
+            .set_state(state)?;
+
+        Ok(())
     }
 
-    pub fn ready(&mut self) {
+    pub fn ready(&mut self) -> Result<(), gst::StateChangeError> {
         self.set_state(gst::State::Ready)
     }
 
     /// If the player is paused or stopped, starts playback
-    pub fn play(&mut self) {
-        self.set_state(gst::State::Playing);
+    pub fn play(&mut self) -> Result<(), gst::StateChangeError> {
+        self.set_state(gst::State::Playing)
     }
 
     /// Pause, if playing
-    pub fn pause(&mut self) {
+    pub fn pause(&mut self) -> Result<(), gst::StateChangeError> {
         self.paused = true;
-        self.set_state(gst::State::Paused);
+        self.set_state(gst::State::Paused)
     }
 
     /// Resume from being paused
-    pub fn resume(&mut self) {
+    pub fn resume(&mut self) -> Result<(), gst::StateChangeError> {
         self.paused = false;
-        self.set_state(gst::State::Playing);
+        self.set_state(gst::State::Playing)
     }
 
     /// Check if playback is paused
