@@ -1,12 +1,12 @@
+use file_format::{FileFormat, Kind};
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::{error::Error, fs};
 use walkdir::WalkDir;
-use file_format::{FileFormat, Kind};
 
 use snap;
 
-use super::music_db::{Song, AlbumArt, URI};
+use super::music_db::{AlbumArt, Song, URI};
 use unidecode::unidecode;
 
 pub(super) fn normalize(input_string: &str) -> String {
@@ -76,8 +76,9 @@ pub fn find_images(song_path: &Path) -> Result<Vec<AlbumArt>, Box<dyn Error>> {
         .into_iter()
         .filter_map(|e| e.ok())
     {
-        if target_file.depth() >= 3 { // Don't recurse very deep
-            break
+        if target_file.depth() >= 3 {
+            // Don't recurse very deep
+            break;
         }
 
         let path = target_file.path();
@@ -87,7 +88,7 @@ pub fn find_images(song_path: &Path) -> Result<Vec<AlbumArt>, Box<dyn Error>> {
 
         let format = FileFormat::from_file(path)?.kind();
         if format != Kind::Image {
-            break
+            break;
         }
 
         let image_uri = URI::Local(path.to_path_buf().canonicalize().unwrap());

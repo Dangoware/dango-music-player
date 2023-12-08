@@ -9,12 +9,12 @@ use std::ops::ControlFlow::{Break, Continue};
 
 // Files
 use file_format::{FileFormat, Kind};
+use glib::filename_to_uri;
 use lofty::{AudioFile, ItemKey, ItemValue, ParseOptions, Probe, TagType, TaggedFileExt};
 use rcue::parser::parse_from_file;
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
-use glib::filename_to_uri;
 
 // Time
 use chrono::{serde::ts_milliseconds_option, DateTime, Utc};
@@ -102,7 +102,7 @@ impl ToString for Field {
             Self::Rating(rating) => rating.to_string(),
             Self::Format(format) => match format.short_name() {
                 Some(name) => name.to_string(),
-                None => format.to_string()
+                None => format.to_string(),
             },
             Self::Duration(duration) => duration.as_millis().to_string(),
             Self::PlayTime(time) => time.as_millis().to_string(),
@@ -153,14 +153,14 @@ impl Song {
     pub fn get_field(&self, target_field: &str) -> Option<Field> {
         let lower_target = target_field.to_lowercase();
         match lower_target.as_str() {
-            "location"  => Some(Field::Location(self.location.clone())),
-            "plays"     => Some(Field::Plays(self.plays)),
-            "skips"     => Some(Field::Skips(self.skips)),
+            "location" => Some(Field::Location(self.location.clone())),
+            "plays" => Some(Field::Plays(self.plays)),
+            "skips" => Some(Field::Skips(self.skips)),
             "favorited" => Some(Field::Favorited(self.favorited)),
-            "rating"    => self.rating.map(Field::Rating),
-            "duration"  => Some(Field::Duration(self.duration)),
+            "rating" => self.rating.map(Field::Rating),
+            "duration" => Some(Field::Duration(self.duration)),
             "play_time" => Some(Field::PlayTime(self.play_time)),
-            "format"    => self.format.map(Field::Format),
+            "format" => self.format.map(Field::Format),
             _ => todo!(), // Other field types are not yet supported
         }
     }
@@ -228,8 +228,12 @@ impl URI {
 
     pub fn as_uri(&self) -> String {
         let path_str = match self {
-            URI::Local(location) => filename_to_uri(location, None).expect("couldn't convert path to URI").to_string(),
-            URI::Cue { location, .. } => filename_to_uri(location, None).expect("couldn't convert path to URI").to_string(),
+            URI::Local(location) => filename_to_uri(location, None)
+                .expect("couldn't convert path to URI")
+                .to_string(),
+            URI::Cue { location, .. } => filename_to_uri(location, None)
+                .expect("couldn't convert path to URI")
+                .to_string(),
             URI::Remote(_, location) => location.clone(),
         };
         path_str.to_string()
@@ -492,7 +496,7 @@ impl MusicLibrary {
                         None => blank_tag,
                     },
                 }
-            },
+            }
 
             Err(_) => blank_tag,
         };

@@ -1,6 +1,6 @@
 // Crate things
 //use crate::music_controller::config::Config;
-use crate::music_storage::music_db::{URI, Tag};
+use crate::music_storage::music_db::{Tag, URI};
 use crossbeam_channel::bounded;
 use std::error::Error;
 use std::sync::{Arc, RwLock};
@@ -48,11 +48,11 @@ impl TryInto<gst::State> for PlayerState {
     fn try_into(self) -> Result<gst::State, Box<dyn Error>> {
         match self {
             Self::VoidPending => Ok(gst::State::VoidPending),
-            Self::Playing =>  Ok(gst::State::Playing),
+            Self::Playing => Ok(gst::State::Playing),
             Self::Paused => Ok(gst::State::Paused),
             Self::Ready => Ok(gst::State::Ready),
             Self::Null => Ok(gst::State::Null),
-            state => Err(format!("Invalid gst::State: {:?}", state).into())
+            state => Err(format!("Invalid gst::State: {:?}", state).into()),
         }
     }
 
@@ -177,10 +177,22 @@ impl Player {
             .expect("Failed to get GStreamer message bus")
             .add_watch(move |_bus, msg| {
                 match msg.view() {
-                    gst::MessageView::Eos(_) => {},
-                    gst::MessageView::StreamStart(_) => {},
-                    gst::MessageView::Error(e) =>
-                        println!("song {}", e.error()),
+                    gst::MessageView::Eos(_) => {}
+                    gst::MessageView::StreamStart(_) => println!("Stream start"),
+                    gst::MessageView::Error(e) => {
+                        println!("ERROR: {}", e.error());
+                        playbin_bus_ctrl
+                            .write()
+                            .unwrap()
+                            .set_state(gst::State::Ready)
+                            .unwrap();
+
+                        playbin_bus_ctrl
+                            .write()
+                            .unwrap()
+                            .set_state(gst::State::Playing)
+                            .unwrap();
+                    },
                     gst::MessageView::Tag(tag) => {
                         if let Some(title) = tag.tags().get::<gst::tags::Title>() {
                             println!("  Title: {}", title.get());
@@ -193,10 +205,18 @@ impl Player {
                         let percent = buffering.percent();
                         if percent < 100 {
                             *buffer_bus_ctrl.write().unwrap() = Some(percent as u8);
-                            playbin_bus_ctrl.write().unwrap().set_state(gst::State::Paused).unwrap();
+                            playbin_bus_ctrl
+                                .write()
+                                .unwrap()
+                                .set_state(gst::State::Paused)
+                                .unwrap();
                         } else if *paused_bus_ctrl.read().unwrap() == false {
                             *buffer_bus_ctrl.write().unwrap() = None;
-                            playbin_bus_ctrl.write().unwrap().set_state(gst::State::Playing).unwrap();
+                            playbin_bus_ctrl
+                                .write()
+                                .unwrap()
+                                .set_state(gst::State::Playing)
+                                .unwrap();
                         }
                     }
                     _ => (),
@@ -239,7 +259,10 @@ impl Player {
         self.source = Some(source.clone());
         match source {
             URI::Cue { start, end, .. } => {
-                self.playbin.write().unwrap().set_property("uri", source.as_uri());
+                self.playbin
+                    .write()
+                    .unwrap()
+                    .set_property("uri", source.as_uri());
 
                 // Set the start and end positions of the CUE file
                 *self.start.write().unwrap() = Some(Duration::from_std(*start).unwrap());
@@ -258,11 +281,15 @@ impl Player {
                 panic!("Couldn't seek to beginning of cue track in reasonable time (>20ms)");
             }
             _ => {
-                self.playbin.write().unwrap().set_property("uri", source.as_uri());
+                self.playbin
+                    .write()
+                    .unwrap()
+                    .set_property("uri", source.as_uri());
 
                 self.play().unwrap();
 
-                while uri.get::<&str>().unwrap_or("") == self.property("current-uri").get::<&str>().unwrap_or("")
+                while uri.get::<&str>().unwrap_or("")
+                    == self.property("current-uri").get::<&str>().unwrap_or("")
                     || self.position().is_none()
                 {
                     std::thread::sleep(std::time::Duration::from_millis(10));
@@ -392,13 +419,11 @@ impl Player {
     pub fn state(&mut self) -> PlayerState {
         match *self.buffer.read().unwrap() {
             None => self.playbin.read().unwrap().current_state().into(),
-            Some(value) => {
-                PlayerState::Buffering(value)
-            }
+            Some(value) => PlayerState::Buffering(value),
         }
     }
 
-    pub fn property(&self, property: &str) -> glib::Value  {
+    pub fn property(&self, property: &str) -> glib::Value {
         self.playbin.read().unwrap().property_value(property)
     }
 

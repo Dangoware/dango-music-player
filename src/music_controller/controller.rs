@@ -18,10 +18,7 @@ impl MusicController {
             Err(error) => return Err(error),
         };
 
-        let controller = MusicController {
-            config,
-            library,
-        };
+        let controller = MusicController { config, library };
 
         Ok(controller)
     }
@@ -34,10 +31,7 @@ impl MusicController {
             Err(error) => return Err(error),
         };
 
-        let controller = MusicController {
-            config,
-            library,
-        };
+        let controller = MusicController { config, library };
 
         Ok(controller)
     }
