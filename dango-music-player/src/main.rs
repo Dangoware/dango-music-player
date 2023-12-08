@@ -3,8 +3,8 @@ use std::sync::{Arc, RwLock};
 use chrono::Duration;
 use dango_core::{
     music_controller::config::Config,
-    music_storage::music_db::{MusicLibrary, Tag, Field, Song, URI, Service},
     music_player::{Player, PlayerCmd, PlayerState},
+    music_storage::music_db::{Field, MusicLibrary, Service, Song, Tag, URI},
 };
 
 fn main() {
@@ -12,11 +12,16 @@ fn main() {
 
     let mut library = MusicLibrary::init(config).unwrap();
 
-    library.scan_folder("/media/g2/Storage4/Media-Files/Music/Albums/LiSA BEST -Day- & BEST -Way-/", &Config::default()).unwrap();
+    library
+        .scan_folder(
+            "/media/g2/Storage4/Media-Files/Music/Albums/LiSA BEST -Day- & BEST -Way-/",
+            &Config::default(),
+        )
+        .unwrap();
 
-    let mut albums = library.query_albums(
-        "みなみけ ただいま キャラクターソングアルバム みなきけのみなうた DISC1"
-    ).unwrap();
+    let albums = library
+        .query_albums("みなみけ ただいま キャラクターソングアルバム みなきけのみなうた DISC1")
+        .unwrap();
 
     println!("{}", albums.len());
 
@@ -24,22 +29,21 @@ fn main() {
     let mut player = Player::new();
     player.set_volume(0.4);
 
-    player.enqueue_next(
-        &URI::Remote(
-            Service::None,
-            "cdda://".to_string()
-        )
-    );
+    player.enqueue_next(&URI::Remote(Service::None, "https://stream.gensokyoradio.net/3".to_string()));
 
     loop {
         let duration = match player.duration() {
-            Some(duration) => format!("{}:{:02}", duration.num_minutes() % 60, duration.num_seconds() % 60),
-            None => String::from("NaN")
+            Some(duration) => format!(
+                "{}:{:02}",
+                duration.num_minutes() % 60,
+                duration.num_seconds() % 60
+            ),
+            None => String::from("NaN"),
         };
 
         let state = match player.state() {
             PlayerState::Buffering(percent) => format!("{}% Buffering", percent),
-            state => format!("{:?}", state)
+            state => format!("{:?}", state),
         };
 
         match player.position() {
@@ -47,12 +51,10 @@ fn main() {
                 "\x1b[2K{:2}:{:02}/{} - {}\r",
                 pos.num_minutes() % 60,
                 pos.num_seconds() % 60,
-
                 duration,
-
                 state
             ),
-            None => ()
+            None => (),
         }
         std::io::Write::flush(&mut std::io::stdout()).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(100));
