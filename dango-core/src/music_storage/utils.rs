@@ -6,7 +6,7 @@ use walkdir::WalkDir;
 
 use snap;
 
-use super::music_db::{AlbumArt, Song, URI};
+use super::library::{AlbumArt, Song, URI};
 use unidecode::unidecode;
 
 pub(super) fn normalize(input_string: &str) -> String {

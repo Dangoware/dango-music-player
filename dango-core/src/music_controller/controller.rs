@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use crate::music_controller::config::Config;
-use crate::music_storage::music_db::{MusicLibrary, Song, Tag};
+use crate::music_storage::library::{MusicLibrary, Song, Tag};
 
 pub struct MusicController {
     pub config: Arc<RwLock<Config>>,

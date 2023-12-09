@@ -1,6 +1,6 @@
 // Crate things
 //use crate::music_controller::config::Config;
-use crate::music_storage::music_db::{Tag, URI};
+use crate::music_storage::library::{Tag, URI};
 use crossbeam_channel::bounded;
 use std::error::Error;
 use std::sync::{Arc, RwLock};
@@ -180,7 +180,6 @@ impl Player {
                     gst::MessageView::Eos(_) => {}
                     gst::MessageView::StreamStart(_) => println!("Stream start"),
                     gst::MessageView::Error(e) => {
-                        println!("ERROR: {}", e.error());
                         playbin_bus_ctrl
                             .write()
                             .unwrap()
@@ -193,14 +192,6 @@ impl Player {
                             .set_state(gst::State::Playing)
                             .unwrap();
                     },
-                    gst::MessageView::Tag(tag) => {
-                        if let Some(title) = tag.tags().get::<gst::tags::Title>() {
-                            println!("  Title: {}", title.get());
-                        }
-                        if let Some(album) = tag.tags().get::<gst::tags::Album>() {
-                            println!("  Album: {}", album.get());
-                        }
-                    }
                     gst::MessageView::Buffering(buffering) => {
                         let percent = buffering.percent();
                         if percent < 100 {
