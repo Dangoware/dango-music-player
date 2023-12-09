@@ -1,3 +1,4 @@
+use super::music_collection::MusicCollection;
 // Crate things
 use super::utils::{find_images, normalize, read_library, write_library};
 use crate::music_controller::config::Config;
@@ -269,33 +270,16 @@ pub struct Album<'a> {
 
 #[allow(clippy::len_without_is_empty)]
 impl Album<'_> {
-    /// Returns the album title
-    pub fn title(&self) -> &String {
-        self.title
-    }
-
     /// Returns the Album Artist, if they exist
     pub fn artist(&self) -> Option<&String> {
         self.artist
     }
 
-    /// Returns the album cover as an AlbumArt struct, if it exists
-    pub fn cover(&self) -> Option<&AlbumArt> {
-        self.cover
-    }
-
-    pub fn tracks(&self) -> Vec<&Song> {
-        let mut songs = Vec::new();
-        for disc in &self.discs {
-            songs.append(&mut disc.1.clone())
-        }
-        songs
-    }
+    
 
     pub fn discs(&self) -> &BTreeMap<usize, Vec<&Song>> {
         &self.discs
     }
-
     /// Returns the specified track at `index` from the album, returning
     /// an error if the track index is out of range
     pub fn track(&self, disc: usize, index: usize) -> Option<&Song> {
@@ -309,6 +293,23 @@ impl Album<'_> {
             total += disc.1.len();
         }
         total
+    }
+}
+impl MusicCollection for Album<'_> {
+    //returns the Album title
+    fn title(&self) -> &String {
+        self.title
+    }
+    /// Returns the album cover as an AlbumArt struct, if it exists
+    fn cover(&self) -> Option<&AlbumArt> {
+        self.cover
+    }
+    fn tracks(&self) -> Vec<&Song> {
+        let mut songs = Vec::new();
+        for disc in &self.discs {
+            songs.append(&mut disc.1.clone())
+        }
+        songs
     }
 }
 

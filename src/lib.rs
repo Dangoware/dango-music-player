@@ -1,7 +1,8 @@
 pub mod music_storage {
-    pub mod music_db;
+    pub mod library;
     pub mod playlist;
     mod utils;
+    pub mod  music_collection;
 }
 
 pub mod music_controller {
