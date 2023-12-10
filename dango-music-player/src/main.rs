@@ -7,9 +7,10 @@ use dango_core::{
     music_storage::{
         library::{Field, MusicLibrary, Service, Song, Tag, URI},
         music_collection::MusicCollection,
-        playlist::Playlist,
+        playlist::{Playlist, self},
     },
 };
+use gstreamer::prelude::ElementExtManual;
 
 fn main() {
     let config = Arc::new(RwLock::new(Config::default()));
@@ -18,26 +19,33 @@ fn main() {
 
     library
         .scan_folder(
-            "F:/Music/Mp3/ななひら/Free Pl@ying",
+            r"F:/Music/Mp3/ななひら/",
             &Config::default(),
         )
         .unwrap();
 
-    let mut albums = library
-        .query_albums("Free Pl@ying")
-        .unwrap();
-
-    println!("{}", albums.len());
-
+    let mut playlist: Playlist = Playlist::new();
+    let songs = library
+    .query_tracks(
+        &String::from("Ma"),
+        &vec![
+            Tag::Album
+        ],
+        &vec![
+            Tag::Field("location".to_string()),
+            Tag::Album,
+            Tag::Disk,
+            Tag::Track,
+        ],
+    ).unwrap();
     // Create a new player
     let mut player = Player::new();
-    player.set_volume(0.08);
-
-    let mut all_songs: Vec<&Song> = Vec::new();
-    albums.iter_mut().for_each(|album| all_songs.append(&mut album.tracks()));
+    player.set_volume(0.04);
+    playlist.set_tracks(songs);
+    playlist.get_index("You Make My Life 1UP");
 
     'outer_loop:
-    for song in all_songs {
+    for song in playlist.tracks() {
 
         // Add a stream to be played
         player.enqueue_next(&song.location);
