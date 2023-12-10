@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use rayon::prelude::*;
 use std::sync::{Arc, Mutex, RwLock};
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub enum AlbumArt {
     Embedded(usize),
     External(URI),
@@ -115,7 +115,7 @@ impl ToString for Field {
 }
 
 /// Stores information about a single song
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct Song {
     pub location: URI,
     pub plays: i32,
@@ -275,7 +275,6 @@ impl Album<'_> {
         self.artist
     }
 
-    
 
     pub fn discs(&self) -> &BTreeMap<usize, Vec<&Song>> {
         &self.discs
