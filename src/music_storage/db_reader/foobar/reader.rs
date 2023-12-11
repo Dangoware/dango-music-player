@@ -36,7 +36,7 @@ impl ExternalLibrary for FoobarPlaylist {
         }
 
         let meta_size = i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize;
-        let metadata = get_bytes_vec(&mut buf_iter, meta_size);
+        let metadata = &get_bytes_vec(&mut buf_iter, meta_size);
         let track_count = i32::from_le_bytes(get_bytes(&mut buf_iter));
 
         // Read all the track fields
@@ -135,7 +135,7 @@ impl ExternalLibrary for FoobarPlaylist {
 
         Self {
             songs: retrieved_songs,
-            metadata,
+            metadata: metadata.clone(),
         }
     }
 
@@ -161,7 +161,7 @@ pub struct FoobarPlaylistTrack {
 
 impl FoobarPlaylistTrack {
     fn find_song(&self) -> Song {
-        let location = URI::Local(self.file_name.into());
+        let location = URI::Local(self.file_name.clone().into());
 
         Song {
             location,
