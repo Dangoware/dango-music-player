@@ -28,7 +28,7 @@ impl XmlLibrary {
     }
 }
 impl ExternalLibrary for XmlLibrary {
-    fn from_file(file: &PathBuf) -> Self {
+    fn from_file(file: &Path) -> Self {
         let mut reader = Reader::from_file(file).unwrap();
         reader.trim_text(true);
         //count every event, for fun ig?

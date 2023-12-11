@@ -1,15 +1,13 @@
-use std::path::PathBuf;
-
 use chrono::{DateTime, TimeZone, Utc};
 
 pub fn get_bytes<const S: usize>(iterator: &mut std::vec::IntoIter<u8>) -> [u8; S] {
     let mut bytes = [0; S];
 
-    for i in 0..S {
-        bytes[i] = iterator.next().unwrap();
+    for byte in bytes.iter_mut().take(S) {
+        *byte = iterator.next().unwrap();
     }
 
-    return bytes;
+    bytes
 }
 
 pub fn get_bytes_vec(iterator: &mut std::vec::IntoIter<u8>, number: usize) -> Vec<u8> {
@@ -19,7 +17,7 @@ pub fn get_bytes_vec(iterator: &mut std::vec::IntoIter<u8>, number: usize) -> Ve
         bytes.push(iterator.next().unwrap());
     }
 
-    return bytes;
+    bytes
 }
 
 /// Converts the windows DateTime into Chrono DateTime
@@ -28,7 +26,7 @@ pub fn get_datetime(iterator: &mut std::vec::IntoIter<u8>, topbyte: bool) -> Dat
 
     if topbyte {
         // Zero the topmost byte
-        datetime_i64 = datetime_i64 & 0x00FFFFFFFFFFFFFFF;
+        datetime_i64 &= 0x00FFFFFFFFFFFFFFF;
     }
 
     if datetime_i64 <= 0 {

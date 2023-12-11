@@ -179,7 +179,7 @@ impl Player {
                 match msg.view() {
                     gst::MessageView::Eos(_) => {}
                     gst::MessageView::StreamStart(_) => println!("Stream start"),
-                    gst::MessageView::Error(e) => {
+                    gst::MessageView::Error(_) => {
                         playbin_bus_ctrl
                             .write()
                             .unwrap()
@@ -201,7 +201,7 @@ impl Player {
                                 .unwrap()
                                 .set_state(gst::State::Paused)
                                 .unwrap();
-                        } else if *paused_bus_ctrl.read().unwrap() == false {
+                        } else if !(*paused_bus_ctrl.read().unwrap()) {
                             *buffer_bus_ctrl.write().unwrap() = None;
                             playbin_bus_ctrl
                                 .write()
@@ -377,19 +377,17 @@ impl Player {
 
     /// Seek absolutely
     pub fn seek_to(&mut self, target_pos: Duration) -> Result<(), Box<dyn Error>> {
-        let start;
-        if self.start.read().unwrap().is_none() {
+        let start = if self.start.read().unwrap().is_none() {
             return Err("Failed to seek: No START time".into());
         } else {
-            start = self.start.read().unwrap().unwrap();
-        }
+            self.start.read().unwrap().unwrap()
+        };
 
-        let end;
-        if self.end.read().unwrap().is_none() {
+        let end = if self.end.read().unwrap().is_none() {
             return Err("Failed to seek: No END time".into());
         } else {
-            end = self.end.read().unwrap().unwrap();
-        }
+            self.end.read().unwrap().unwrap()
+        };
 
         let adjusted_target = target_pos + start;
         let clamped_target = adjusted_target.clamp(start, end);

@@ -29,7 +29,7 @@ impl MusicBeeDatabase {
         // Get the song count from the first 4 bytes
         // and then right shift it by 8 for some reason
         let mut database_song_count = i32::from_le_bytes(get_bytes(&mut buf_iter));
-        database_song_count = database_song_count >> 8;
+        database_song_count >>= 8;
 
         let mut song_count = 0;
         loop {
