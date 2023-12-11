@@ -23,19 +23,21 @@ fn main() {
 
     let mut library = MusicLibrary::init(config).unwrap();
 
-    let xml = XmlLibrary::from_file(&PathBuf::from(
-        "F:\\Music\\Mp3\\Music Main\\iTunes Music Library.xml",
-    ))
-    .to_songs();
+    // let xml = XmlLibrary::from_file(&PathBuf::from(
+    //     "F:\\Music\\Mp3\\Music Main\\iTunes Music Library.xml",
+    // ))
+    // .to_songs();
 
-    for song in xml {
-        _ = library.add_song(song);
-    }
+    // for song in xml {
+    //     _ = library.add_song(song);
+    // }
+    
+    
 
     let mut playlist: Playlist = Playlist::new();
     let songs = library
         .query_tracks(
-            &String::from("pancake"),
+            &String::from("snow fairy"),
             &vec![Tag::Title],
             &vec![
                 Tag::Field("location".to_string()),
@@ -50,7 +52,8 @@ fn main() {
     player.set_volume(0.04);
     _ = playlist.set_tracks(songs);
     playlist.get_index("You Make My Life 1UP");
-
+    
+        
     'outer_loop: for song in playlist.tracks() {
         // Add a stream to be played
         player.enqueue_next(&song.location);
