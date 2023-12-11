@@ -202,8 +202,8 @@ fn to_tag(string: String) -> Tag {
         "album artist" => Tag::AlbumArtist,
         "genre" => Tag::Genre,
         "comment" => Tag::Comment,
-        "track" => Tag::Track,
-        "disc" => Tag::Disk,
+        "track number" => Tag::Track,
+        "disc number" => Tag::Disk,
         _ => Tag::Key(string),
     }
 }
