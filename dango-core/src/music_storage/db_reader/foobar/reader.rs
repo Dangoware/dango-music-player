@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::{fs::File, io::Read, path::PathBuf, time::Duration};
+use std::{fs::File, io::Read, path::Path, time::Duration};
 
 use crate::music_storage::db_reader::common::{get_bytes, get_bytes_vec};
 use crate::music_storage::db_reader::extern_library::ExternalLibrary;
@@ -19,7 +19,7 @@ pub struct FoobarPlaylist {
 impl ExternalLibrary for FoobarPlaylist {
     /// Reads the entire MusicBee library and returns relevant values
     /// as a `Vec` of `Song`s
-    fn from_file(file: &PathBuf) -> Self {
+    fn from_file(file: &Path) -> Self {
         let mut f = File::open(file).unwrap();
         let mut buffer = Vec::new();
         let mut retrieved_songs: Vec<FoobarPlaylistTrack> = Vec::new();

@@ -1,4 +1,4 @@
-pub fn meta_offset(metadata: &Vec<u8>, offset: usize) -> String {
+pub fn meta_offset(metadata: &[u8], offset: usize) -> String {
     let mut result_vec = Vec::new();
 
     let mut i = offset;
