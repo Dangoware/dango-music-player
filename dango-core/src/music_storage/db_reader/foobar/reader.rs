@@ -1,7 +1,10 @@
-use chrono::{DateTime, Utc};
+use std::collections::BTreeMap;
 use std::{fs::File, io::Read, path::PathBuf, time::Duration};
 
-use crate::music_storage::db_reader::common::{get_bytes, get_bytes_vec, get_datetime};
+use crate::music_storage::db_reader::common::{get_bytes, get_bytes_vec};
+use crate::music_storage::db_reader::extern_library::ExternalLibrary;
+use crate::music_storage::library::{Song, URI};
+use super::utils::meta_offset;
 
 const MAGIC: [u8; 16] = [
     0xE1, 0xA0, 0x9C, 0x91, 0xF8, 0x3C, 0x77, 0x42, 0x85, 0x2C, 0x3B, 0xCC, 0x14, 0x01, 0xD3, 0xF2,
@@ -9,69 +12,31 @@ const MAGIC: [u8; 16] = [
 
 #[derive(Debug)]
 pub struct FoobarPlaylist {
-    path: PathBuf,
     metadata: Vec<u8>,
+    songs: Vec<FoobarPlaylistTrack>,
 }
 
-#[derive(Debug, Default)]
-pub struct FoobarPlaylistTrack {
-    flags: i32,
-    file_name: String,
-    subsong_index: i32,
-    file_size: i64,
-    file_time: DateTime<Utc>,
-    duration: Duration,
-    rpg_album: u32,
-    rpg_track: u32,
-    rpk_album: u32,
-    rpk_track: u32,
-    entries: Vec<(String, String)>,
-}
-
-impl FoobarPlaylist {
-    pub fn new(path: &String) -> Self {
-        FoobarPlaylist {
-            path: PathBuf::from(path),
-            metadata: Vec::new(),
-        }
-    }
-
-    fn get_meta_offset(&self, offset: usize) -> String {
-        let mut result_vec = Vec::new();
-
-        let mut i = offset;
-        loop {
-            if self.metadata[i] == 0x00 {
-                break;
-            }
-
-            result_vec.push(self.metadata[i]);
-            i += 1;
-        }
-
-        String::from_utf8_lossy(&result_vec).into()
-    }
-
+impl ExternalLibrary for FoobarPlaylist {
     /// Reads the entire MusicBee library and returns relevant values
     /// as a `Vec` of `Song`s
-    pub fn read(&mut self) -> Result<Vec<FoobarPlaylistTrack>, Box<dyn std::error::Error>> {
-        let mut f = File::open(&self.path).unwrap();
+    fn from_file(file: &PathBuf) -> Self {
+        let mut f = File::open(file).unwrap();
         let mut buffer = Vec::new();
         let mut retrieved_songs: Vec<FoobarPlaylistTrack> = Vec::new();
 
         // Read the whole file
-        f.read_to_end(&mut buffer)?;
+        f.read_to_end(&mut buffer).unwrap();
 
         let mut buf_iter = buffer.into_iter();
 
         // Parse the header
         let magic = get_bytes::<16>(&mut buf_iter);
         if magic != MAGIC {
-            return Err("Magic bytes mismatch!".into());
+            panic!("Magic bytes mismatch!");
         }
 
         let meta_size = i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize;
-        self.metadata = get_bytes_vec(&mut buf_iter, meta_size);
+        let metadata = get_bytes_vec(&mut buf_iter, meta_size);
         let track_count = i32::from_le_bytes(get_bytes(&mut buf_iter));
 
         // Read all the track fields
@@ -82,7 +47,7 @@ impl FoobarPlaylist {
             let has_padding = (0x04 & flags) != 0;
 
             let file_name_offset = i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize;
-            let file_name = self.get_meta_offset(file_name_offset);
+            let file_name = meta_offset(metadata, file_name_offset);
 
             let subsong_index = i32::from_le_bytes(get_bytes(&mut buf_iter));
 
@@ -98,17 +63,18 @@ impl FoobarPlaylist {
 
             let file_size = i64::from_le_bytes(get_bytes(&mut buf_iter));
 
-            let file_time = get_datetime(&mut buf_iter, false);
+            // TODO: Figure out how to make this work properly
+            let file_time = i64::from_le_bytes(get_bytes(&mut buf_iter));
 
             let duration = Duration::from_nanos(u64::from_le_bytes(get_bytes(&mut buf_iter)) / 100);
 
-            let rpg_album = u32::from_le_bytes(get_bytes(&mut buf_iter));
+            let rpg_album = f32::from_le_bytes(get_bytes(&mut buf_iter));
 
-            let rpg_track = u32::from_le_bytes(get_bytes(&mut buf_iter));
+            let rpg_track = f32::from_le_bytes(get_bytes(&mut buf_iter));
 
-            let rpk_album = u32::from_le_bytes(get_bytes(&mut buf_iter));
+            let rpk_album = f32::from_le_bytes(get_bytes(&mut buf_iter));
 
-            let rpk_track = u32::from_le_bytes(get_bytes(&mut buf_iter));
+            let rpk_track = f32::from_le_bytes(get_bytes(&mut buf_iter));
 
             get_bytes::<4>(&mut buf_iter);
 
@@ -121,8 +87,7 @@ impl FoobarPlaylist {
             for _ in 0..primary_count {
                 println!("{}", i32::from_le_bytes(get_bytes(&mut buf_iter)));
 
-                let key =
-                    self.get_meta_offset(i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize);
+                let key = meta_offset(metadata, i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize);
 
                 entries.push((key, String::new()));
             }
@@ -135,18 +100,15 @@ impl FoobarPlaylist {
             for i in 0..primary_count {
                 println!("primkey {i}");
 
-                let value =
-                    self.get_meta_offset(i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize);
+                let value = meta_offset(metadata, i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize);
 
                 entries[i as usize].1 = value;
             }
 
             // Get secondary Keys
             for _ in 0..secondary_count {
-                let key =
-                    self.get_meta_offset(i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize);
-                let value =
-                    self.get_meta_offset(i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize);
+                let key = meta_offset(metadata, i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize);
+                let value = meta_offset(metadata, i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize);
                 entries.push((key, value));
             }
 
@@ -171,6 +133,50 @@ impl FoobarPlaylist {
             retrieved_songs.push(track);
         }
 
-        Ok(retrieved_songs)
+        Self {
+            songs: retrieved_songs,
+            metadata,
+        }
+    }
+
+    fn to_songs(&self) -> Vec<Song> {
+        self.songs.iter().map(|song| song.find_song()).collect()
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct FoobarPlaylistTrack {
+    flags: i32,
+    file_name: String,
+    subsong_index: i32,
+    file_size: i64,
+    file_time: i64,
+    duration: Duration,
+    rpg_album: f32,
+    rpg_track: f32,
+    rpk_album: f32,
+    rpk_track: f32,
+    entries: Vec<(String, String)>,
+}
+
+impl FoobarPlaylistTrack {
+    fn find_song(&self) -> Song {
+        let location = URI::Local(self.file_name.into());
+
+        Song {
+            location,
+            plays: 0,
+            skips: 0,
+            favorited: false,
+            rating: None,
+            format: None,
+            duration: self.duration,
+            play_time: Duration::from_secs(0),
+            last_played: None,
+            date_added: None,
+            date_modified: None,
+            album_art: Vec::new(),
+            tags: BTreeMap::new(),
+        }
     }
 }
