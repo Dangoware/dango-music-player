@@ -6,6 +6,7 @@ pub mod music_storage {
     pub mod db_reader {
         pub mod foobar {
             pub mod reader;
+            pub mod utils;
         }
         pub mod musicbee {
             pub mod reader;
