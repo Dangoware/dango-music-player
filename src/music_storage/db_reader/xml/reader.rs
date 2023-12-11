@@ -1,19 +1,26 @@
+use file_format::FileFormat;
+use lofty::{AudioFile, LoftyError, ParseOptions, Probe, TagType, TaggedFileExt};
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
-
 use std::collections::{BTreeMap, HashMap};
+use std::fs::File;
 use std::io::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::Duration as StdDur;
 use std::vec::Vec;
 
 use chrono::prelude::*;
 
 use crate::music_storage::db_reader::extern_library::ExternalLibrary;
+use crate::music_storage::library::{AlbumArt, Service, Song, Tag, URI};
+use crate::music_storage::utils;
+
+use urlencoding::decode;
 
 #[derive(Debug, Default, Clone)]
 pub struct XmlLibrary {
-    tracks: Vec<XMLSong>
+    tracks: Vec<XMLSong>,
 }
 impl XmlLibrary {
     fn new() -> Self {
@@ -21,7 +28,7 @@ impl XmlLibrary {
     }
 }
 impl ExternalLibrary for XmlLibrary {
-    fn from_file(&mut self, file: &PathBuf) -> Self {
+    fn from_file(file: &PathBuf) -> Self {
         let mut reader = Reader::from_file(file).unwrap();
         reader.trim_text(true);
         //count every event, for fun ig?
@@ -37,7 +44,6 @@ impl ExternalLibrary for XmlLibrary {
         let mut skip = false;
 
         let mut converted_songs: Vec<XMLSong> = Vec::new();
-
 
         let mut song_tags: HashMap<String, String> = HashMap::new();
         let mut key: String = String::new();
@@ -78,7 +84,7 @@ impl ExternalLibrary for XmlLibrary {
                 Ok(Event::Text(e)) => {
                     if count < 17 && count != 10 {
                         continue;
-                    }else if skip {
+                    } else if skip {
                         skip = false;
                         continue;
                     }
@@ -113,10 +119,140 @@ impl ExternalLibrary for XmlLibrary {
         let elasped = now.elapsed();
         println!("\n\nXMLReader\n=========================================\n\nDone!\n{} songs grabbed in {:#?}\nIDs Skipped: {}", count3, elasped, count4);
         // dbg!(folder);
-        self.tracks.append(converted_songs.as_mut());
-        self.clone()
+        let mut lib = XmlLibrary::new();
+        lib.tracks.append(converted_songs.as_mut());
+        lib
+    }
+    fn to_songs(&self) -> Vec<crate::music_storage::library::Song> {
+        let mut count = 0;
+        let mut bun: Vec<Song> = Vec::new();
+        for track in &self.tracks {
+            //grab "other" tags
+            let mut tags_: BTreeMap<Tag, String> = BTreeMap::new();
+            for (key, val) in &track.tags {
+                tags_.insert(to_tag(key.clone()), val.clone());
+            }
+            //make the path readable
+            let loc_ = if track.location.contains("file://localhost/") {
+                decode(track.location.strip_prefix("file://localhost/").unwrap())
+                    .unwrap()
+                    .into_owned()
+            } else {
+                decode(track.location.as_str()).unwrap().into_owned()
+            };
+            let loc = loc_.as_str();
+            if File::open(loc).is_err() && !loc.contains("http") {
+                count += 1;
+                dbg!(loc);
+                continue;
+            }
+
+            let sug: URI = if track.location.contains("file://localhost/") {
+                URI::Local(PathBuf::from(
+                    decode(track.location.strip_prefix("file://localhost/").unwrap())
+                        .unwrap()
+                        .into_owned()
+                        .as_str(),
+                ))
+            } else {
+                URI::Remote(Service::None, decode(&track.location).unwrap().into_owned())
+            };
+            let dur = match get_duration(Path::new(&loc)) {
+                Ok(e) => e,
+                Err(e) => {
+                    dbg!(e);
+                    StdDur::from_secs(0)
+                }
+            };
+            let play_time_ = StdDur::from_secs(track.plays as u64 * dur.as_secs());
+
+            let ny: Song = Song {
+                location: sug,
+                plays: track.plays,
+                skips: 0,
+                favorited: track.favorited,
+                rating: track.rating,
+                format: match FileFormat::from_file(PathBuf::from(&loc)) {
+                    Ok(e) => Some(e),
+                    Err(_) => None,
+                },
+                duration: dur,
+                play_time: play_time_,
+                last_played: track.last_played,
+                date_added: track.date_added,
+                date_modified: track.date_modified,
+                album_art: match get_art(Path::new(&loc)) {
+                    Ok(e) => e,
+                    Err(_) => Vec::new(),
+                },
+                tags: tags_,
+            };
+            // dbg!(&ny.tags);
+            bun.push(ny);
+        }
+        println!("skipped: {}", count);
+        bun
     }
 }
+fn to_tag(string: String) -> Tag {
+    match string.to_lowercase().as_str() {
+        "name" => Tag::Title,
+        "album" => Tag::Album,
+        "artist" => Tag::Artist,
+        "album artist" => Tag::AlbumArtist,
+        "genre" => Tag::Genre,
+        "comment" => Tag::Comment,
+        "track" => Tag::Track,
+        "disc" => Tag::Disk,
+        _ => Tag::Key(string),
+    }
+}
+fn get_duration(file: &Path) -> Result<StdDur, lofty::LoftyError> {
+    let dur = match Probe::open(file)?.read() {
+        Ok(tagged_file) => tagged_file.properties().duration(),
+
+        Err(_) => StdDur::from_secs(0),
+    };
+    Ok(dur)
+}
+fn get_art(file: &Path) -> Result<Vec<AlbumArt>, LoftyError> {
+    let mut album_art: Vec<AlbumArt> = Vec::new();
+
+    let blank_tag = &lofty::Tag::new(TagType::Id3v2);
+    let normal_options = ParseOptions::new().parsing_mode(lofty::ParsingMode::Relaxed);
+    let tagged_file: lofty::TaggedFile;
+
+    let tag = match Probe::open(file)?.options(normal_options).read() {
+        Ok(e) => {
+            tagged_file = e;
+            match tagged_file.primary_tag() {
+                Some(primary_tag) => primary_tag,
+
+                None => match tagged_file.first_tag() {
+                    Some(first_tag) => first_tag,
+                    None => blank_tag,
+                },
+            }
+        }
+        Err(_) => blank_tag,
+    };
+    let mut img = match utils::find_images(file) {
+        Ok(e) => e,
+        Err(_) => Vec::new(),
+    };
+    if !img.is_empty() {
+        album_art.append(img.as_mut());
+    }
+
+    for (i, _art) in tag.pictures().iter().enumerate() {
+        let new_art = AlbumArt::Embedded(i);
+
+        album_art.push(new_art)
+    }
+
+    Ok(album_art)
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct XMLSong {
     pub id: i32,
@@ -138,8 +274,7 @@ impl XMLSong {
         Default::default()
     }
 
-
-    fn from_hashmap(map: &mut HashMap<String, String>) -> Result<XMLSong, Error> {
+    fn from_hashmap(map: &mut HashMap<String, String>) -> Result<XMLSong, LoftyError> {
         let mut song = XMLSong::new();
         //get the path with the first bit chopped off
         let path_: String = map.get_key_value("Location").unwrap().1.clone();
@@ -188,8 +323,7 @@ impl XMLSong {
     }
 }
 
-
-pub fn get_folder(file: &PathBuf) -> String {
+fn get_folder(file: &PathBuf) -> String {
     let mut reader = Reader::from_file(file).unwrap();
     reader.trim_text(true);
     //count every event, for fun ig?

@@ -1,15 +1,15 @@
 pub mod music_storage {
     pub mod library;
+    pub mod music_collection;
     pub mod playlist;
     mod utils;
-    pub mod  music_collection;
     pub mod db_reader {
         pub mod foobar {
             pub mod reader;
         }
         pub mod musicbee {
-            pub mod utils;
             pub mod reader;
+            pub mod utils;
         }
         pub mod xml {
             pub mod reader;

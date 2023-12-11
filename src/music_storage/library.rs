@@ -275,7 +275,6 @@ impl Album<'_> {
         self.artist
     }
 
-
     pub fn discs(&self) -> &BTreeMap<usize, Vec<&Song>> {
         &self.discs
     }
