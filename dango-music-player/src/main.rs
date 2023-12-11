@@ -1,63 +1,66 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
 
 use chrono::Duration;
 use dango_core::{
     music_controller::config::Config,
     music_player::{Player, PlayerCmd, PlayerState},
     music_storage::{
+        db_reader::extern_library::ExternalLibrary,
+        db_reader::xml::reader::*,
         library::{Field, MusicLibrary, Service, Song, Tag, URI},
         music_collection::MusicCollection,
-        playlist::{Playlist, self},
+        playlist::{self, Playlist},
     },
 };
 use gstreamer::prelude::ElementExtManual;
+use urlencoding::decode;
 
 fn main() {
     let config = Arc::new(RwLock::new(Config::default()));
 
     let mut library = MusicLibrary::init(config).unwrap();
 
-    library
-        .scan_folder(
-            r"F:/Music/Mp3/ななひら/",
-            &Config::default(),
-        )
-        .unwrap();
+    let xml = XmlLibrary::from_file(&PathBuf::from(
+        "F:\\Music\\Mp3\\Music Main\\iTunes Music Library.xml",
+    ))
+    .to_songs();
+
+    for song in xml {
+        _ = library.add_song(song);
+    }
 
     let mut playlist: Playlist = Playlist::new();
     let songs = library
-    .query_tracks(
-        &String::from("Ma"),
-        &vec![
-            Tag::Album
-        ],
-        &vec![
-            Tag::Field("location".to_string()),
-            Tag::Album,
-            Tag::Disk,
-            Tag::Track,
-        ],
-    ).unwrap();
+        .query_tracks(
+            &String::from("pancake"),
+            &vec![Tag::Title],
+            &vec![
+                Tag::Field("location".to_string()),
+                Tag::Album,
+                Tag::Disk,
+                Tag::Track,
+            ],
+        )
+        .unwrap();
     // Create a new player
     let mut player = Player::new();
     player.set_volume(0.04);
-    playlist.set_tracks(songs);
+    _ = playlist.set_tracks(songs);
     playlist.get_index("You Make My Life 1UP");
 
-    'outer_loop:
-    for song in playlist.tracks() {
-
+    'outer_loop: for song in playlist.tracks() {
         // Add a stream to be played
         player.enqueue_next(&song.location);
         if player.is_paused() {
             player.play().unwrap();
         }
 
-
-
         let location = match song.get_field("location").unwrap() {
             Field::Location(loc) => loc.path(),
-            _ => std::path::PathBuf::new()
+            _ => std::path::PathBuf::new(),
         };
 
         let loc_name = match location.file_name() {
@@ -73,15 +76,16 @@ fn main() {
         );
 
         loop {
-            match player.message_rx.recv_timeout(std::time::Duration::from_millis(100)) {
-                Ok(msg) => {
-                    match msg {
-                        PlayerCmd::AboutToFinish => break,
-                        PlayerCmd::Eos => break 'outer_loop,
-                        _ => ()
-                    }
+            match player
+                .message_rx
+                .recv_timeout(std::time::Duration::from_millis(100))
+            {
+                Ok(msg) => match msg {
+                    PlayerCmd::AboutToFinish => break,
+                    PlayerCmd::Eos => break 'outer_loop,
+                    _ => (),
                 },
-                Err(_) => ()
+                Err(_) => (),
             }
 
             match player.position() {
@@ -89,20 +93,25 @@ fn main() {
                     "{:2}:{:02}/{}:{:02} - {:?}\r",
                     pos.num_minutes() % 60,
                     pos.num_seconds() % 60,
-
-                    player.duration().unwrap_or(Duration::seconds(0)).num_minutes() % 60,
-                    player.duration().unwrap_or(Duration::seconds(0)).num_seconds() % 60,
-
+                    player
+                        .duration()
+                        .unwrap_or(Duration::seconds(0))
+                        .num_minutes()
+                        % 60,
+                    player
+                        .duration()
+                        .unwrap_or(Duration::seconds(0))
+                        .num_seconds()
+                        % 60,
                     player.state()
                 ),
-                None => ()
+                None => (),
             }
             std::io::Write::flush(&mut std::io::stdout()).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
         println!();
     }
-    
 
     /*
     let mut all_songs: Vec<&Song> = Vec::new();

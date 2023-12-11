@@ -191,7 +191,7 @@ impl Player {
                             .unwrap()
                             .set_state(gst::State::Playing)
                             .unwrap();
-                    },
+                    }
                     gst::MessageView::Buffering(buffering) => {
                         let percent = buffering.percent();
                         if percent < 100 {

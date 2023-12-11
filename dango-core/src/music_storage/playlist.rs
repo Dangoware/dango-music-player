@@ -2,9 +2,12 @@ use chrono::Duration;
 use walkdir::Error;
 
 use crate::music_controller::config::Config;
-use std::{path::Path, default, thread::AccessError};
+use std::{default, path::Path, thread::AccessError};
 
-use super::{library::{AlbumArt, Song, self, Tag}, music_collection::MusicCollection};
+use super::{
+    library::{self, AlbumArt, Song, Tag},
+    music_collection::MusicCollection,
+};
 
 #[derive(Debug, Clone)]
 pub struct Playlist<'a> {
@@ -48,7 +51,7 @@ impl<'a> Playlist<'a> {
             for track in &self.tracks {
                 index += 1;
                 if song_name == track.tags.get_key_value(&Tag::Title).unwrap().1 {
-                    dbg!("Index gotted! ",index);
+                    dbg!("Index gotted! ", index);
                     return Some(index);
                 }
             }
@@ -75,17 +78,17 @@ impl MusicCollection for Playlist<'_> {
         }
     }
     fn tracks(&self) -> Vec<&Song> {
-            self.tracks.clone()
+        self.tracks.clone()
     }
 }
 impl Default for Playlist<'_> {
     fn default() -> Self {
-        Playlist { 
-            title: String::default(), 
-            cover: None, 
-            tracks: Vec::default(), 
-            play_count: -1, 
-            play_time: Duration::zero(), 
+        Playlist {
+            title: String::default(),
+            cover: None,
+            tracks: Vec::default(),
+            play_count: -1,
+            play_time: Duration::zero(),
         }
     }
 }
