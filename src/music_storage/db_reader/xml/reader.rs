@@ -4,7 +4,6 @@ use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
-use std::io::Error;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration as StdDur;
@@ -107,7 +106,6 @@ impl ExternalLibrary for XmlLibrary {
                                 panic!("Key not selected?!")
                             }
                         }
-                        _ => panic!("WHAT DID YOU JUST DO?!🐰🐰🐰🐰"),
                     }
                 }
                 Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
@@ -323,34 +321,34 @@ impl XMLSong {
     }
 }
 
-fn get_folder(file: &PathBuf) -> String {
-    let mut reader = Reader::from_file(file).unwrap();
-    reader.trim_text(true);
-    //count every event, for fun ig?
-    let mut count = 0;
-    let mut buf = Vec::new();
-    let mut folder = String::new();
-    loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(_)) => {
-                count += 1;
-            }
-            Ok(Event::Text(e)) => {
-                if count == 10 {
-                    folder = String::from(
-                        e.unescape()
-                            .unwrap()
-                            .to_string()
-                            .strip_prefix("file://localhost/")
-                            .unwrap(),
-                    );
-                    return folder;
-                }
-            }
-            Err(_e) => {
-                panic!("oh no! something happened in the public function `get_reader_from_xml()!`")
-            }
-            _ => (),
-        }
-    }
-}
+// fn get_folder(file: &PathBuf) -> String {
+//     let mut reader = Reader::from_file(file).unwrap();
+//     reader.trim_text(true);
+//     //count every event, for fun ig?
+//     let mut count = 0;
+//     let mut buf = Vec::new();
+//     let mut folder = String::new();
+//     loop {
+//         match reader.read_event_into(&mut buf) {
+//             Ok(Event::Start(_)) => {
+//                 count += 1;
+//             }
+//             Ok(Event::Text(e)) => {
+//                 if count == 10 {
+//                     folder = String::from(
+//                         e.unescape()
+//                             .unwrap()
+//                             .to_string()
+//                             .strip_prefix("file://localhost/")
+//                             .unwrap(),
+//                     );
+//                     return folder;
+//                 }
+//             }
+//             Err(_e) => {
+//                 panic!("oh no! something happened in the public function `get_reader_from_xml()!`")
+//             }
+//             _ => (),
+//         }
+//     }
+// }
