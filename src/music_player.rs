@@ -3,7 +3,7 @@
 use crate::music_storage::library::{Tag, URI};
 use crossbeam_channel::bounded;
 use std::error::Error;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 // GStreamer things
 use glib::FlagsClass;
@@ -292,6 +292,30 @@ impl Player {
         }
     }
 
+    /// Gets a mutable reference to the playbin element
+    fn playbin_mut(
+        &mut self,
+    ) -> Result<RwLockWriteGuard<gst::Element>, std::sync::PoisonError<RwLockWriteGuard<'_, Element>>>
+    {
+        let element = match self.playbin.write() {
+            Ok(element) => element,
+            Err(err) => return Err(err),
+        };
+        Ok(element)
+    }
+
+    /// Gets a read-only reference to the playbin element
+    fn playbin(
+        &self,
+    ) -> Result<RwLockReadGuard<gst::Element>, std::sync::PoisonError<RwLockReadGuard<'_, Element>>>
+    {
+        let element = match self.playbin.read() {
+            Ok(element) => element,
+            Err(err) => return Err(err),
+        };
+        Ok(element)
+    }
+
     /// Set the playback volume, accepts a float from 0 to 1
     pub fn set_volume(&mut self, volume: f64) {
         self.volume = volume.clamp(0.0, 1.0);
@@ -301,7 +325,7 @@ impl Player {
     /// Set volume of the internal playbin player, can be
     /// used to bypass the main volume control for seeking
     fn set_gstreamer_volume(&mut self, volume: f64) {
-        self.playbin.write().unwrap().set_property("volume", volume)
+        self.playbin_mut().unwrap().set_property("volume", volume)
     }
 
     /// Returns the current volume level, a float from 0 to 1
@@ -310,7 +334,7 @@ impl Player {
     }
 
     fn set_state(&mut self, state: gst::State) -> Result<(), gst::StateChangeError> {
-        self.playbin.write().unwrap().set_state(state)?;
+        self.playbin_mut().unwrap().set_state(state)?;
 
         Ok(())
     }
@@ -338,7 +362,7 @@ impl Player {
 
     /// Check if playback is paused
     pub fn is_paused(&mut self) -> bool {
-        self.playbin.read().unwrap().current_state() == gst::State::Paused
+        self.playbin().unwrap().current_state() == gst::State::Paused
     }
 
     /// Get the current playback position of the player
@@ -356,8 +380,7 @@ impl Player {
     }
 
     pub fn raw_duration(&self) -> Option<Duration> {
-        self.playbin
-            .read()
+        self.playbin()
             .unwrap()
             .query_duration::<ClockTime>()
             .map(|pos| Duration::nanoseconds(pos.nseconds() as i64))
@@ -396,8 +419,7 @@ impl Player {
             ClockTime::from_useconds(clamped_target.num_microseconds().unwrap() as u64);
 
         self.set_gstreamer_volume(0.0);
-        self.playbin
-            .write()
+        self.playbin_mut()
             .unwrap()
             .seek_simple(gst::SeekFlags::FLUSH, seek_pos_clock)?;
         self.set_gstreamer_volume(self.volume);
@@ -407,13 +429,13 @@ impl Player {
     /// Get the current state of the playback
     pub fn state(&mut self) -> PlayerState {
         match *self.buffer.read().unwrap() {
-            None => self.playbin.read().unwrap().current_state().into(),
+            None => self.playbin().unwrap().current_state().into(),
             Some(value) => PlayerState::Buffering(value),
         }
     }
 
     pub fn property(&self, property: &str) -> glib::Value {
-        self.playbin.read().unwrap().property_value(property)
+        self.playbin().unwrap().property_value(property)
     }
 
     /// Stop the playback entirely
@@ -432,8 +454,7 @@ impl Player {
 impl Drop for Player {
     /// Cleans up `GStreamer` pipeline when `Backend` is dropped.
     fn drop(&mut self) {
-        self.playbin
-            .write()
+        self.playbin_mut()
             .unwrap()
             .set_state(gst::State::Null)
             .expect("Unable to set the pipeline to the `Null` state");
