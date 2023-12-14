@@ -1,13 +1,12 @@
-[workspace]
-resolver = "2"
+[package]
+name = "dango-music-player"
+version = "0.1.0"
+edition = "2021"
 
-members = [
-    "dango-core",
-    "dango-tui",
-    "dango-music-player"
-]
-#strip = true
-#lto = "fat"
-#codegen-units = 1
-#panic = "abort"
-#debug = true
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = "0.4.31"
+dango-core = { path = "../dango-core"}
+gstreamer = "0.21.2"
+urlencoding = "2.1.3"
