@@ -1,0 +1,7 @@
+target/
+
+music_database*
+*.db3*
+config.toml
+Cargo.lock
+*.kate-swp*
