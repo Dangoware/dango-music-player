@@ -25,6 +25,9 @@ impl XmlLibrary {
     fn new() -> Self {
         Default::default()
     }
+    pub fn tracks(self) -> Vec<XMLSong> {
+        self.tracks
+    }
 }
 impl ExternalLibrary for XmlLibrary {
     fn from_file(file: &Path) -> Self {

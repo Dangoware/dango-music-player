@@ -5,3 +5,5 @@ music_database*
 config.toml
 Cargo.lock
 *.kate-swp*
+*.m3u
+*.m3u8

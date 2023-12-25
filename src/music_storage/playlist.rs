@@ -2,12 +2,19 @@ use chrono::Duration;
 use walkdir::Error;
 
 use crate::music_controller::config::Config;
-use std::{default, path::Path, thread::AccessError};
-
 use super::{
     library::{self, AlbumArt, Song, Tag},
     music_collection::MusicCollection,
+    db_reader::extern_library::ExternalLibrary
 };
+use crate::music_storage::db_reader::xml::reader::{XmlLibrary};
+
+use std::{default, path::Path, path::PathBuf, thread::AccessError};
+use std::io::Read;
+
+use m3u8_rs::{MediaPlaylist, MediaPlaylistType, MediaSegment};
+// use nom::IResult;
+
 
 #[derive(Debug, Clone)]
 pub struct Playlist<'a> {
@@ -47,7 +54,7 @@ impl<'a> Playlist<'a> {
     }
     pub fn get_index(&self, song_name: &str) -> Option<usize> {
         let mut index = 0;
-        if self.contains(&Tag::Title, song_name) {
+        if self.contains_value(&Tag::Title, song_name) {
             for track in &self.tracks {
                 index += 1;
                 if song_name == track.tags.get_key_value(&Tag::Title).unwrap().1 {
@@ -58,13 +65,40 @@ impl<'a> Playlist<'a> {
         }
         None
     }
-    pub fn contains(&self, tag: &Tag, title: &str) -> bool {
+    pub fn contains_value(&self, tag: &Tag, value: &str) -> bool {
         for track in &self.tracks {
-            if title == track.tags.get_key_value(tag).unwrap().1 {
+            if value == track.tags.get_key_value(tag).unwrap().1 {
                 return true;
             }
         }
         false
+    }
+    pub fn to_m3u8(&mut self) {
+        let seg = &self.tracks.iter().map({
+            |track|
+            MediaSegment {
+                uri: track.location.to_string().into(),
+                duration: track.duration.as_millis() as f32,
+                title: Some(track.tags.get_key_value(&Tag::Title).unwrap().1.to_string().into()),
+                ..Default::default()
+            }
+        }).collect::<Vec<MediaSegment>>();
+
+        let m3u8 = MediaPlaylist {
+            version: Some(6),
+            target_duration: 3.0,
+            media_sequence: 338559,
+            discontinuity_sequence: 1234,
+            end_list: true,
+            playlist_type: Some(MediaPlaylistType::Vod),
+            segments: seg.clone(),
+            ..Default::default()
+        };
+        let mut file = std::fs::OpenOptions::new().read(true).create(true).write(true).open("F:\\Dango Music Player\\playlist.m3u8").unwrap();
+        m3u8.write_to(&mut file).unwrap();
+    }
+    pub fn from_file(file: std::fs::File) -> Playlist<'a> {
+        todo!()
     }
 }
 impl MusicCollection for Playlist<'_> {
@@ -87,8 +121,21 @@ impl Default for Playlist<'_> {
             title: String::default(),
             cover: None,
             tracks: Vec::default(),
-            play_count: -1,
+            play_count: 0,
             play_time: Duration::zero(),
         }
     }
+}
+
+#[test]
+fn list_to_m3u8() {
+    let lib = XmlLibrary::from_file(Path::new("F:\\Music\\Mp3\\Music Main\\iTunes Music Library.xml"));
+    let mut a = Playlist::new();
+    let c = lib.to_songs();
+    let mut b = c.iter().map({
+        |song|
+        song
+    }).collect::<Vec<&Song>>();
+    a.tracks.append(&mut b);
+    a.to_m3u8()
 }
