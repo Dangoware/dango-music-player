@@ -368,7 +368,7 @@ impl MusicLibrary {
 
     /// Queries for a [Song] by its [URI], returning a single `Song`
     /// with the `URI` that matches
-    fn query_uri(&self, path: &URI) -> Option<(&Song, usize)> {
+    pub fn query_uri(&self, path: &URI) -> Option<(&Song, usize)> {
         let result = self
             .library
             .par_iter()

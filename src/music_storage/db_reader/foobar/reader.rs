@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::{fs::File, io::Read, path::Path, time::Duration};
 
+use super::utils::meta_offset;
 use crate::music_storage::db_reader::common::{get_bytes, get_bytes_vec};
 use crate::music_storage::db_reader::extern_library::ExternalLibrary;
 use crate::music_storage::library::{Song, URI};
-use super::utils::meta_offset;
 
 const MAGIC: [u8; 16] = [
     0xE1, 0xA0, 0x9C, 0x91, 0xF8, 0x3C, 0x77, 0x42, 0x85, 0x2C, 0x3B, 0xCC, 0x14, 0x01, 0xD3, 0xF2,
@@ -87,7 +87,10 @@ impl ExternalLibrary for FoobarPlaylist {
             for _ in 0..primary_count {
                 println!("{}", i32::from_le_bytes(get_bytes(&mut buf_iter)));
 
-                let key = meta_offset(metadata, i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize);
+                let key = meta_offset(
+                    metadata,
+                    i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize,
+                );
 
                 entries.push((key, String::new()));
             }
@@ -100,15 +103,24 @@ impl ExternalLibrary for FoobarPlaylist {
             for i in 0..primary_count {
                 println!("primkey {i}");
 
-                let value = meta_offset(metadata, i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize);
+                let value = meta_offset(
+                    metadata,
+                    i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize,
+                );
 
                 entries[i as usize].1 = value;
             }
 
             // Get secondary Keys
             for _ in 0..secondary_count {
-                let key = meta_offset(metadata, i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize);
-                let value = meta_offset(metadata, i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize);
+                let key = meta_offset(
+                    metadata,
+                    i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize,
+                );
+                let value = meta_offset(
+                    metadata,
+                    i32::from_le_bytes(get_bytes(&mut buf_iter)) as usize,
+                );
                 entries.push((key, value));
             }
 
