@@ -1,6 +1,6 @@
 // Crate things
 //use crate::music_controller::config::Config;
-use crate::music_storage::library::{Tag, URI};
+use crate::music_storage::library::URI;
 use crossbeam_channel::bounded;
 use std::error::Error;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -11,8 +11,9 @@ use gst::{ClockTime, Element};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 
-// Time things
+// Extra things
 use chrono::Duration;
+use thiserror::Error;
 
 #[derive(Debug)]
 pub enum PlayerCmd {
@@ -59,6 +60,22 @@ impl TryInto<gst::State> for PlayerState {
     type Error = Box<dyn Error>;
 }
 
+#[derive(Error, Debug)]
+pub enum PlayerError {
+    #[error("player initialization failed")]
+    Init(#[from] glib::Error),
+    #[error("element factory failed to create playbin3")]
+    Factory(#[from] glib::BoolError),
+    #[error("could not change playback state")]
+    StateChange(#[from] gst::StateChangeError),
+    #[error("failed to build gstreamer item")]
+    Build,
+    #[error("poison error")]
+    Poison,
+    #[error("general player error")]
+    General,
+}
+
 /// An instance of a music player with a GStreamer backend
 pub struct Player {
     source: Option<URI>,
@@ -73,22 +90,16 @@ pub struct Player {
     paused: Arc<RwLock<bool>>,
 }
 
-impl Default for Player {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Player {
-    pub fn new() -> Self {
-        // Initialize GStreamer
-        gst::init().unwrap();
+    pub fn new() -> Result<Self, PlayerError> {
+        // Initialize GStreamer, maybe figure out how to nicely fail here
+        gst::init()?;
         let ctx = glib::MainContext::default();
         let _guard = ctx.acquire();
         let mainloop = glib::MainLoop::new(Some(&ctx), false);
 
         let playbin_arc = Arc::new(RwLock::new(
-            gst::ElementFactory::make("playbin3").build().unwrap(),
+            gst::ElementFactory::make("playbin3").build()?,
         ));
 
         let playbin = playbin_arc.clone();
@@ -99,13 +110,13 @@ impl Player {
         // Set up the Playbin flags to only play audio
         let flags = flags_class
             .builder_with_value(flags)
-            .unwrap()
+            .ok_or(PlayerError::Build)?
             .set_by_nick("audio")
             .set_by_nick("download")
             .unset_by_nick("video")
             .unset_by_nick("text")
             .build()
-            .unwrap();
+            .ok_or(PlayerError::Build)?;
 
         playbin
             .write()
@@ -125,7 +136,7 @@ impl Player {
         let start_update = Arc::clone(&start);
         let end_update = Arc::clone(&end);
         let (message_tx, message_rx) = bounded(1); //TODO: Maybe figure out a better method than making this bounded
-        std::thread::spawn(move || {
+        std::thread::spawn(move || { //TODO: Figure out how to return errors nicely in threads
             loop {
                 let mut pos_temp = playbin_arc
                     .read()
@@ -223,7 +234,7 @@ impl Player {
         });
 
         let source = None;
-        Self {
+        Ok(Self {
             source,
             playbin,
             message_rx,
@@ -233,7 +244,7 @@ impl Player {
             paused,
             position,
             buffer,
-        }
+        })
     }
 
     pub fn source(&self) -> &Option<URI> {

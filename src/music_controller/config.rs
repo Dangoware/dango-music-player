@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct Config {
-    pub db_path: Box<PathBuf>,
+    pub db_path: PathBuf,
 }
 
 impl Default for Config {
@@ -14,7 +14,7 @@ impl Default for Config {
         let path = PathBuf::from("./music_database");
 
         Config {
-            db_path: Box::new(path),
+            db_path: path,
         }
     }
 }

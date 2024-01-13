@@ -332,13 +332,13 @@ impl MusicLibrary {
 
         match global_config.db_path.exists() {
             true => {
-                library = read_library(*global_config.db_path.clone())?;
+                library = read_library(global_config.db_path.clone())?;
             }
             false => {
                 // Create the database if it does not exist
                 // possibly from the backup file
                 if backup_path.exists() {
-                    library = read_library(*backup_path.clone())?;
+                    library = read_library(backup_path.clone())?;
                     write_library(&library, global_config.db_path.to_path_buf(), false)?;
                 } else {
                     write_library(&library, global_config.db_path.to_path_buf(), false)?;
