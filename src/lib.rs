@@ -20,9 +20,4 @@ pub mod music_storage {
     }
 }
 
-pub mod music_controller {
-    pub mod config;
-    pub mod controller;
-}
-
 pub mod music_player;

@@ -1,7 +1,6 @@
 use super::music_collection::MusicCollection;
 // Crate things
 use super::utils::{find_images, normalize, read_library, write_library};
-use crate::music_controller::config::Config;
 
 // Various std things
 use std::collections::BTreeMap;
