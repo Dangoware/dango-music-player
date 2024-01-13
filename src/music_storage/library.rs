@@ -9,7 +9,7 @@ use std::error::Error;
 use std::ops::ControlFlow::{Break, Continue};
 
 // Files
-use file_format::{ FileFormat, Kind };
+use file_format::{FileFormat, Kind};
 use glib::filename_to_uri;
 use lofty::{AudioFile, ItemKey, ItemValue, ParseOptions, Probe, TagType, TaggedFileExt};
 use rcue::parser::parse_from_file;
