@@ -2,7 +2,7 @@ use std::{path::PathBuf, marker::PhantomData};
 
 #[derive(Debug, Default)]
 pub struct Config {
-    db_path: Option<PathBuf>,
+    pub db_path: Option<PathBuf>,
 }
 
 impl Config {

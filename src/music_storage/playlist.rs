@@ -1,15 +1,15 @@
+use std::path::Path;
+
 use chrono::Duration;
 use walkdir::Error;
 
 use super::{
-    db_reader::extern_library::ExternalLibrary,
-    library::{self, AlbumArt, Song, Tag},
-    music_collection::MusicCollection,
+    library::{AlbumArt, Song, Tag},
+    music_collection::MusicCollection, db_reader::{
+        xml::reader::XmlLibrary,
+        extern_library::ExternalLibrary
+    },
 };
-use crate::music_storage::db_reader::xml::reader::XmlLibrary;
-
-use std::io::Read;
-use std::{default, path::Path, path::PathBuf, thread::AccessError};
 
 use m3u8_rs::{MediaPlaylist, MediaPlaylistType, MediaSegment};
 // use nom::IResult;
@@ -18,7 +18,7 @@ use m3u8_rs::{MediaPlaylist, MediaPlaylistType, MediaSegment};
 pub struct Playlist<'a> {
     title: String,
     cover: Option<&'a AlbumArt>,
-    tracks: Vec<&'a Song>,
+    tracks: Vec<Song>,
     play_count: i32,
     play_time: Duration,
 }
@@ -32,11 +32,11 @@ impl<'a> Playlist<'a> {
     pub fn play_time(&self) -> chrono::Duration {
         self.play_time
     }
-    pub fn set_tracks(&mut self, songs: Vec<&'a Song>) -> Result<(), Error> {
+    pub fn set_tracks(&mut self, songs: Vec<Song>) -> Result<(), Error> {
         self.tracks = songs;
         Ok(())
     }
-    pub fn add_track(&mut self, song: &'a Song) -> Result<(), Error> {
+    pub fn add_track(&mut self, song: Song) -> Result<(), Error> {
         self.tracks.push(song);
         Ok(())
     }
@@ -79,14 +79,7 @@ impl<'a> Playlist<'a> {
                 |track| MediaSegment {
                     uri: track.location.to_string().into(),
                     duration: track.duration.as_millis() as f32,
-                    title: Some(
-                        track
-                            .tags
-                            .get_key_value(&Tag::Title)
-                            .unwrap()
-                            .1
-                            .into(),
-                    ),
+                    title: Some(track.tags.get_key_value(&Tag::Title).unwrap().1.into()),
                     ..Default::default()
                 }
             })
@@ -125,8 +118,8 @@ impl MusicCollection for Playlist<'_> {
             None => None,
         }
     }
-    fn tracks(&self) -> Vec<&Song> {
-        self.tracks.clone()
+    fn tracks(&self) -> Vec<Song> {
+        self.tracks
     }
 }
 impl Default for Playlist<'_> {
@@ -148,7 +141,7 @@ fn list_to_m3u8() {
     ));
     let mut a = Playlist::new();
     let c = lib.to_songs();
-    let mut b = c.iter().map( |song| song ).collect::<Vec<&Song>>();
+    let mut b = c.iter().map(|song| song).collect::<Vec<&Song>>();
     a.tracks.append(&mut b);
     a.to_m3u8()
 }
