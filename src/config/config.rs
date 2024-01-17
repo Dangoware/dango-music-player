@@ -1,8 +1,15 @@
 use std::{path::PathBuf, marker::PhantomData};
 
+use crate::music_storage::library::MusicLibrary;
+
+#[derive(Debug, Default)]
+struct ConfigLibrary {
+    name: String,
+    path: PathBuf,
+}
 #[derive(Debug, Default)]
 pub struct Config {
-    db_path: Option<PathBuf>,
+    libraries: Vec<ConfigLibrary>
 }
 
 impl Config {
