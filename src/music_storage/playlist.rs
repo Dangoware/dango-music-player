@@ -102,6 +102,7 @@ impl<'a> Playlist<'a> {
             segments: seg.clone(),
             ..Default::default()
         };
+        //TODO: change this to put in a real file path
         let mut file = std::fs::OpenOptions::new()
             .read(true)
             .create(true)
