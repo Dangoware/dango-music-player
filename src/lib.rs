@@ -3,21 +3,7 @@ pub mod music_storage {
     pub mod music_collection;
     pub mod playlist;
     mod utils;
-    pub mod db_reader {
-        pub mod foobar {
-            pub mod reader;
-            pub mod utils;
-        }
-        pub mod musicbee {
-            pub mod reader;
-            pub mod utils;
-        }
-        pub mod xml {
-            pub mod reader;
-        }
-        pub mod common;
-        pub mod extern_library;
-    }
+    pub mod db_reader;
 }
 
 pub mod music_controller{
@@ -25,3 +11,7 @@ pub mod music_controller{
 }
 
 pub mod music_player;
+pub mod config {
+    pub mod config;
+    pub mod other_settings;
+}

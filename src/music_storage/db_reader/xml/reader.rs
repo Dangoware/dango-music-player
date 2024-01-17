@@ -92,7 +92,6 @@ impl ExternalLibrary for XmlLibrary {
                     }
 
                     let text = e.unescape().unwrap().to_string();
-
                     if text == count2.to_string() && !key_selected {
                         continue;
                     }
@@ -118,8 +117,7 @@ impl ExternalLibrary for XmlLibrary {
             buf.clear();
         }
         let elasped = now.elapsed();
-        println!("\n\nXMLReader\n=========================================\n\nDone!\n{} songs grabbed in {:#?}\nIDs Skipped: {}", count3, elasped, count4);
-        // dbg!(folder);
+        println!("\n\nXMLReader grabbed {} songs in {:#?} seconds\nIDs Skipped: {}", count3, elasped.as_secs(), count4);
         let mut lib = XmlLibrary::new();
         lib.tracks.append(converted_songs.as_mut());
         lib

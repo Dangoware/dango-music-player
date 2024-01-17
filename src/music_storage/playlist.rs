@@ -6,7 +6,6 @@ use super::{
     library::{self, AlbumArt, Song, Tag},
     music_collection::MusicCollection,
 };
-use crate::music_controller::config::Config;
 use crate::music_storage::db_reader::xml::reader::XmlLibrary;
 
 use std::io::Read;
@@ -86,7 +85,6 @@ impl<'a> Playlist<'a> {
                             .get_key_value(&Tag::Title)
                             .unwrap()
                             .1
-                            .to_string()
                             .into(),
                     ),
                     ..Default::default()
@@ -104,6 +102,7 @@ impl<'a> Playlist<'a> {
             segments: seg.clone(),
             ..Default::default()
         };
+        //TODO: change this to put in a real file path
         let mut file = std::fs::OpenOptions::new()
             .read(true)
             .create(true)
@@ -149,7 +148,7 @@ fn list_to_m3u8() {
     ));
     let mut a = Playlist::new();
     let c = lib.to_songs();
-    let mut b = c.iter().map({ |song| song }).collect::<Vec<&Song>>();
+    let mut b = c.iter().map( |song| song ).collect::<Vec<&Song>>();
     a.tracks.append(&mut b);
     a.to_m3u8()
 }
