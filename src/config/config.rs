@@ -11,12 +11,8 @@ struct ConfigLibrary {
     pub uuid: Uuid
 }
 impl ConfigLibrary {
-    fn new() -> Self {
-        ConfigLibrary {
-            name: String::new(),
-            path: PathBuf::default(),
-            uuid: Uuid::new_v4()
-        }
+    pub fn new() -> Self {
+        ConfigLibrary::default()
     }
     pub fn open(&self) -> Result<File, Error> {
         match File::open(self.path.as_path()) {
@@ -39,6 +35,7 @@ pub struct Config {
     pub path: PathBuf,
     default_library: Uuid,
     pub libraries: Vec<ConfigLibrary>,
+    volume: f32,
 }
 
 impl Config {
@@ -61,15 +58,17 @@ impl Config {
         }
         Err("No default library!".to_string())
     }
-    pub fn save(&self) -> Result<(), Error> {
-        let mut file = OpenOptions::new().create(true).truncate(true).read(true).write(true).open("dango_temp_config_save.json")?;
+    pub fn to_file(&self) -> Result<(), Error> {
+        let mut writer = self.path.clone();
+        writer.set_extension("tmp");
+        let mut file = OpenOptions::new().create(true).truncate(true).read(true).write(true).open(writer)?;
         let config = to_string_pretty(self)?;
 
         file.write_all(&config.as_bytes())?;
-        fs::rename("dango_temp_config_save.json", self.path.as_path())?;
+        fs::rename(writer, self.path.as_path())?;
         Ok(())
     }
-    pub fn load(path: PathBuf) -> Result<Self, Error> {
+    pub fn load_file(path: PathBuf) -> Result<Self, Error> {
         let mut file: File = File::open(path)?;
         let mut bun: String = String::new();
         _ = file.read_to_string(&mut bun);

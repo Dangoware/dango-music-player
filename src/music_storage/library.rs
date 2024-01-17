@@ -13,6 +13,7 @@ use file_format::{FileFormat, Kind};
 use glib::filename_to_uri;
 use lofty::{AudioFile, ItemKey, ItemValue, ParseOptions, Probe, TagType, TaggedFileExt};
 use rcue::parser::parse_from_file;
+use uuid::Uuid;
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -316,16 +317,27 @@ const BLOCKED_EXTENSIONS: [&str; 4] = ["vob", "log", "txt", "sf2"];
 
 #[derive(Debug)]
 pub struct MusicLibrary {
+    pub name: String,
+    pub uuid: Uuid,
     pub library: Vec<Song>,
 }
 
 impl MusicLibrary {
+    pub fn with_uuid(uuid: Uuid, path: PathBuf) -> Result<Self, Box<dyn Error>> {
+        MusicLibrary {
+            name: String::default(),
+            uuid,
+            library: Vec::new(),
+        };
+
+        todo!()
+    }
     /// Initialize the database
     ///
     /// If the database file already exists, return the [MusicLibrary], otherwise create
     /// the database first. This needs to be run before anything else to retrieve
     /// the [MusicLibrary] Vec
-    pub fn init(config: Arc<RwLock<Config>>) -> Result<Self, Box<dyn Error>> {
+    pub fn init(config: Arc<RwLock<Config>>, uuid: Uuid) -> Result<Self, Box<dyn Error>> {
         let global_config = &*config.read().unwrap();
         let mut library: Vec<Song> = Vec::new();
         let mut backup_path = global_config.db_path.clone();
