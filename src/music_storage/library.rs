@@ -1,6 +1,7 @@
-use super::music_collection::MusicCollection;
 // Crate things
 use super::utils::{find_images, normalize, read_library, write_library};
+use super::music_collection::MusicCollection;
+use crate::config::config::Config;
 
 // Various std things
 use std::collections::BTreeMap;
@@ -269,6 +270,16 @@ pub struct Album<'a> {
 
 #[allow(clippy::len_without_is_empty)]
 impl Album<'_> {
+    //returns the Album title
+    fn title(&self) -> &String {
+        self.title
+    }
+
+    /// Returns the album cover as an AlbumArt struct, if it exists
+    fn cover(&self) -> Option<&AlbumArt> {
+        self.cover
+    }
+
     /// Returns the Album Artist, if they exist
     pub fn artist(&self) -> Option<&String> {
         self.artist
@@ -283,6 +294,14 @@ impl Album<'_> {
         Some(self.discs.get(&disc)?[index])
     }
 
+    fn tracks(&self) -> Vec<&Song> {
+        let mut songs = Vec::new();
+        for disc in &self.discs {
+            songs.append(&mut disc.1.clone())
+        }
+        songs
+    }
+
     /// Returns the number of songs in the album
     pub fn len(&self) -> usize {
         let mut total = 0;
@@ -290,23 +309,6 @@ impl Album<'_> {
             total += disc.1.len();
         }
         total
-    }
-}
-impl MusicCollection for Album<'_> {
-    //returns the Album title
-    fn title(&self) -> &String {
-        self.title
-    }
-    /// Returns the album cover as an AlbumArt struct, if it exists
-    fn cover(&self) -> Option<&AlbumArt> {
-        self.cover
-    }
-    fn tracks(&self) -> Vec<&Song> {
-        let mut songs = Vec::new();
-        for disc in &self.discs {
-            songs.append(&mut disc.1.clone())
-        }
-        songs
     }
 }
 
@@ -327,20 +329,20 @@ impl MusicLibrary {
         let global_config = &*config.read().unwrap();
         let mut library: Vec<Song> = Vec::new();
         let mut backup_path = global_config.db_path.clone();
-        backup_path.set_extension("bkp");
+        backup_path.unwrap().set_extension("bkp");
 
-        match global_config.db_path.exists() {
+        match global_config.db_path.unwrap().exists() {
             true => {
-                library = read_library(global_config.db_path.clone())?;
+                library = read_library(global_config.db_path.unwrap().clone())?;
             }
             false => {
                 // Create the database if it does not exist
                 // possibly from the backup file
-                if backup_path.exists() {
-                    library = read_library(backup_path.clone())?;
-                    write_library(&library, global_config.db_path.to_path_buf(), false)?;
+                if backup_path.unwrap().exists() {
+                    library = read_library(backup_path.unwrap().clone())?;
+                    write_library(&library, global_config.db_path.unwrap().to_path_buf(), false)?;
                 } else {
-                    write_library(&library, global_config.db_path.to_path_buf(), false)?;
+                    write_library(&library, global_config.db_path.unwrap().to_path_buf(), false)?;
                 }
             }
         };
@@ -350,9 +352,9 @@ impl MusicLibrary {
 
     /// Serializes the database out to the file specified in the config
     pub fn save(&self, config: &Config) -> Result<(), Box<dyn Error>> {
-        match config.db_path.try_exists() {
+        match config.db_path.unwrap().try_exists() {
             Ok(exists) => {
-                write_library(&self.library, config.db_path.to_path_buf(), exists)?;
+                write_library(&self.library, config.db_path.unwrap().to_path_buf(), exists)?;
             }
             Err(error) => return Err(error.into()),
         }
