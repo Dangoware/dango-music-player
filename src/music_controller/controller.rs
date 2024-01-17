@@ -2,6 +2,8 @@
 //! player. It manages queues, playback, library access, and
 //! other functions
 
+use std::sync::{Arc, RwLock};
+
 use crate::{
     music_player::Player,
     music_storage::library::Song,
@@ -16,7 +18,7 @@ struct Queue {
 
 pub struct Controller {
     queues: Vec<Queue>,
-    config: Config,
+    config: Arc<RwLock<Config>>,
 }
 
 impl Controller {

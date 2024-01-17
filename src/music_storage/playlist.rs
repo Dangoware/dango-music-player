@@ -119,7 +119,7 @@ impl MusicCollection for Playlist<'_> {
         }
     }
     fn tracks(&self) -> Vec<Song> {
-        self.tracks
+        self.tracks.to_owned()
     }
 }
 impl Default for Playlist<'_> {
@@ -141,7 +141,7 @@ fn list_to_m3u8() {
     ));
     let mut a = Playlist::new();
     let c = lib.to_songs();
-    let mut b = c.iter().map(|song| song).collect::<Vec<&Song>>();
+    let mut b = c.iter().map(|song| song.to_owned()).collect::<Vec<Song>>();
     a.tracks.append(&mut b);
     a.to_m3u8()
 }
