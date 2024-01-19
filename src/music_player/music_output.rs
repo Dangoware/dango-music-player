@@ -74,8 +74,7 @@ pub fn open_stream(spec: SignalSpec, duration: Duration) -> Result<Box<dyn Audio
             cpal::SampleFormat::F64 => AudioOutput::<f64>::create_stream(spec, &device, &config.into(), duration),
             _ => todo!(),
         };
-    }
-
+}
 
 impl<T: OutputSample> AudioOutput<T> {
     // Creates the stream (TODO: Merge w/open_stream?)
@@ -83,7 +82,7 @@ impl<T: OutputSample> AudioOutput<T> {
         let num_channels = config.channels as usize;
         
         // Ring buffer is created with 200ms audio capacity
-        let ring_len = ((200 * config.sample_rate.0 as usize) / 1000) * num_channels;
+        let ring_len = ((50 * config.sample_rate.0 as usize) / 1000) * num_channels;
         let ring_buf= rb::SpscRb::new(ring_len);
         
         let ring_buf_producer = ring_buf.producer();

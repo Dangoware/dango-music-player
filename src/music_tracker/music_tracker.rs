@@ -1,10 +1,11 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::BTreeMap;
+use serde_json::json;
 
 use async_trait::async_trait;
-use serde::{Serialize, Deserialize, Serializer};
+use serde::{Serialize, Deserialize};
 use md5::{Md5, Digest};
-use discord_presence::{ Event, DiscordError};
+use discord_presence::{Event};
 use surf::StatusCode;
 
 use crate::music_storage::music_db::Song;
@@ -37,7 +38,6 @@ pub enum TrackerError {
     /// Unknown tracker error
     Unknown,
 }
-
 
 impl TrackerError {
     pub fn from_surf_error(error: surf::Error) -> TrackerError {
@@ -299,5 +299,89 @@ impl MusicTracker for DiscordRPC {
     
     async fn get_times_tracked(&mut self, song: &Song) -> Result<u32, TrackerError> {
         return Ok(0);
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct ListenBrainzConfig {
+    pub enabled: bool,
+    pub api_url: String,
+    pub auth_token: String,
+}
+
+pub struct ListenBrainz {
+    config: ListenBrainzConfig,
+}
+
+#[async_trait]
+impl MusicTracker for ListenBrainz {
+    async fn track_now(&mut self, song: Song) -> Result<(), TrackerError> {
+        let (artist, track) = match (song.artist, song.title) {
+            (Some(artist), Some(track)) => (artist, track),
+            _ => return Err(TrackerError::InvalidSong)
+        };
+        // Creates a json to submit a single song as defined in the listenbrainz documentation
+        let json_req = json!({
+            "listen_type": "playing_now",
+            "payload": [
+                {
+                    "track_metadata": {
+                        "artist_name": artist,
+                        "track_name": track,
+                    }
+                }
+            ]
+        });
+        
+        return match self.api_request(&json_req.to_string(), &String::from("/1/submit-listens")).await {
+            Ok(_) => Ok(()),
+            Err(err) => Err(TrackerError::from_surf_error(err))
+        }
+    }
+    
+    async fn track_song(&mut self, song: Song) -> Result<(), TrackerError> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).expect("Your time is off.").as_secs() - 30;
+        
+        let (artist, track) = match (song.artist, song.title) {
+            (Some(artist), Some(track)) => (artist, track),
+            _ => return Err(TrackerError::InvalidSong)
+        };
+        
+        let json_req = json!({
+            "listen_type": "single",
+            "payload": [
+                {
+                    "listened_at": timestamp,
+                    "track_metadata": {
+                        "artist_name": artist,
+                        "track_name": track,
+                    }
+                }
+            ]
+        });
+        
+        return match self.api_request(&json_req.to_string(), &String::from("/1/submit-listens")).await {
+            Ok(_) => Ok(()),
+            Err(err) => Err(TrackerError::from_surf_error(err))
+        }
+    }
+    async fn test_tracker(&mut self) -> Result<(), TrackerError> {
+        todo!()
+    }
+    async fn get_times_tracked(&mut self, song: &Song) -> Result<u32, TrackerError> {
+        todo!()
+    }
+}
+
+impl ListenBrainz {
+    pub fn new(config: &ListenBrainzConfig) -> Self {
+        ListenBrainz {
+            config: config.clone()
+        }
+    }
+    // Makes an api request to configured url with given json
+    pub async fn api_request(&self, request: &String, endpoint: &String) -> Result<surf::Response, surf::Error> {
+        let reponse =  surf::post(format!("{}{}", &self.config.api_url, endpoint)).body_string(request.clone()).header("Authorization", format!("Token {}", self.config.auth_token)).await;
+        return reponse
     }
 }

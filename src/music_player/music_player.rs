@@ -21,7 +21,7 @@ use crate::music_controller::config::Config;
 use crate::music_player::music_output::AudioStream;
 use crate::music_processor::music_processor::MusicProcessor;
 use crate::music_storage::music_db::{URI, Song};
-use crate::music_tracker::music_tracker::{MusicTracker, LastFM, DiscordRPCConfig, DiscordRPC, TrackerError};
+use crate::music_tracker::music_tracker::{MusicTracker, TrackerError, LastFM, DiscordRPC, ListenBrainz};
 
 // Struct that controls playback of music
 pub struct MusicPlayer {
@@ -146,13 +146,22 @@ impl MusicPlayer {
             // Sets local config for trackers to detect changes
             let local_config = global_config.clone();
             let mut trackers: Vec<Box<dyn MusicTracker>> = Vec::new();
-            // Updates local trackers to the music controller config
+            // Updates local trackers to the music controller config // TODO: refactor
             let update_trackers = |trackers: &mut Vec<Box<dyn MusicTracker>>|{
                 if let Some(lastfm_config) = global_config.lastfm.clone() {
-                    trackers.push(Box::new(LastFM::new(&lastfm_config)));
+                    if lastfm_config.enabled {
+                        trackers.push(Box::new(LastFM::new(&lastfm_config)));
+                    }
                 }
                 if let Some(discord_config) = global_config.discord.clone() {
-                    trackers.push(Box::new(DiscordRPC::new(&discord_config)));
+                    if discord_config.enabled {
+                        trackers.push(Box::new(DiscordRPC::new(&discord_config)));
+                    }
+                }
+                if let Some(listenbz_config) = global_config.listenbrainz.clone() {
+                    if listenbz_config.enabled {
+                        trackers.push(Box::new(ListenBrainz::new(&listenbz_config)));
+                    }
                 }
             };
             update_trackers(&mut trackers);
