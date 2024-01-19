@@ -32,18 +32,35 @@ impl Default for ConfigLibrary {
     }
 }
 #[derive(Debug, Default, Serialize, Deserialize)]
+pub struct ConfigLibraries {
+    default_library: Uuid,
+    pub library_folder: PathBuf,
+    pub libraries: Vec<ConfigLibrary>,
+}
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     pub path: PathBuf,
-    default_library: Uuid,
-    pub libraries: Vec<ConfigLibrary>,
-    pub library_folder: PathBuf,
+    pub libraries: ConfigLibraries,
     volume: f32,
 }
-
+#[test]
+fn config_test_() {
+    Config {
+        path: PathBuf::from("F:\\temp\\config.json"),
+        libraries: ConfigLibraries {
+            libraries: vec![ConfigLibrary::default(),ConfigLibrary::default(),ConfigLibrary::default()],
+            ..Default::default()
+        },
+        ..Default::default()
+    }.to_file();
+}
 impl Config {
     pub fn new() -> Self {
         Config {
-            libraries: vec![ConfigLibrary::default()],
+            libraries: ConfigLibraries {
+                libraries: vec![ConfigLibrary::default()],
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
@@ -52,18 +69,18 @@ impl Config {
     }
     //TODO: Add new function for test tube
     pub fn set_default_library(mut self, uuid: &Uuid) {
-        self.default_library = *uuid;
+        self.libraries.default_library = *uuid;
     }
     pub fn get_default_library(&self) -> Result<&ConfigLibrary, ConfigError> {
-        for library in &self.libraries {
-            if library.uuid == self.default_library {
+        for library in &self.libraries.libraries {
+            if library.uuid == self.libraries.default_library {
                 return Ok(library)
             }
         }
         Err(ConfigError::NoDefaultLibrary)
     }
     pub fn get_library(&self, uuid: &Uuid) -> Result<ConfigLibrary, ConfigError> {
-        for library in &self.libraries {
+        for library in &self.libraries.libraries {
             if &library.uuid == uuid {
                 return Ok(library.to_owned())
             }
@@ -71,7 +88,7 @@ impl Config {
         Err(ConfigError::NoConfigLibrary(*uuid))
     }
     pub fn library_exists(&self, uuid: &Uuid) -> bool {
-        for library in &self.libraries {
+        for library in &self.libraries.libraries {
             if &library.uuid == uuid {
                 return true
             }
@@ -83,8 +100,9 @@ impl Config {
         writer.set_extension("tmp");
         let mut file = OpenOptions::new().create(true).truncate(true).read(true).write(true).open(&writer)?;
         let config = to_string_pretty(self)?;
+        // dbg!(&config);
 
-        file.write_all(&config.as_bytes())?;
+        file.write_all(config.as_bytes())?;
         fs::rename(writer, self.path.as_path())?;
         Ok(())
     }
