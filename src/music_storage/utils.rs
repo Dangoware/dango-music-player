@@ -38,13 +38,10 @@ pub(super) fn read_library(path: PathBuf) -> Result<Vec<Song>, Box<dyn Error>> {
 pub(super) fn write_library(
     library: &Vec<Song>,
     path: PathBuf,
-    take_backup: bool,
 ) -> Result<(), Box<dyn Error>> {
     // Create 2 new names for the file, a temporary one for writing out, and a backup
     let mut writer_name = path.clone();
     writer_name.set_extension("tmp");
-    let mut backup_name = path.clone();
-    backup_name.set_extension("bkp");
 
     // Create a new BufWriter on the file and make a snap frame encoer for it too
     let writer = BufWriter::new(fs::File::create(&writer_name)?);
@@ -58,10 +55,6 @@ pub(super) fn write_library(
             .with_little_endian()
             .with_variable_int_encoding(),
     )?;
-
-    if path.exists() && take_backup {
-        fs::rename(&path, backup_name)?;
-    }
     fs::rename(writer_name, &path)?;
 
     Ok(())

@@ -2,6 +2,7 @@
 use super::utils::{find_images, normalize, read_library, write_library};
 use super::music_collection::MusicCollection;
 use crate::config::config::Config;
+use crate::music_storage::library;
 
 // Various std things
 use std::collections::BTreeMap;
@@ -321,52 +322,62 @@ pub struct MusicLibrary {
     pub uuid: Uuid,
     pub library: Vec<Song>,
 }
-
+#[test]
+    fn test_() {
+        let a = MusicLibrary::init(Arc::new(RwLock::from(Config::new())), None).unwrap();
+        dbg!(a);
+    }
 impl MusicLibrary {
-    pub fn with_uuid(uuid: Uuid, path: PathBuf) -> Result<Self, Box<dyn Error>> {
+    pub fn new() -> Self {
         MusicLibrary {
             name: String::default(),
+            uuid: Uuid::default(),
+            library: Vec::new(),
+        }
+    }
+    pub fn with_uuid(uuid: Uuid, path: PathBuf) -> Result<Self, Box<dyn Error>> {
+        MusicLibrary {
+            name: String::new(),
             uuid,
             library: Vec::new(),
         };
 
         todo!()
     }
+
     /// Initialize the database
     ///
     /// If the database file already exists, return the [MusicLibrary], otherwise create
     /// the database first. This needs to be run before anything else to retrieve
     /// the [MusicLibrary] Vec
-    pub fn init(config: Arc<RwLock<Config>>, uuid: Uuid) -> Result<Self, Box<dyn Error>> {
+    pub fn init(config: Arc<RwLock<Config>>, uuid: Option<Uuid>) -> Result<Self, Box<dyn Error>> {
         let global_config = &*config.read().unwrap();
-        let mut library: Vec<Song> = Vec::new();
-        let mut backup_path = global_config.db_path.clone();
-        backup_path.unwrap().set_extension("bkp");
 
-        match global_config.db_path.unwrap().exists() {
-            true => {
-                library = read_library(global_config.db_path.unwrap().clone())?;
-            }
-            false => {
-                // Create the database if it does not exist
-                // possibly from the backup file
-                if backup_path.unwrap().exists() {
-                    library = read_library(backup_path.unwrap().clone())?;
-                    write_library(&library, global_config.db_path.unwrap().to_path_buf(), false)?;
-                } else {
-                    write_library(&library, global_config.db_path.unwrap().to_path_buf(), false)?;
+        let mut library = MusicLibrary::new();
+
+        if let Some(uuid) = uuid {
+            match global_config.library_exists(&uuid) {
+                true => {
+                    library.library = read_library(global_config.get_library(&uuid)?.path)?;
+                },
+                false => {
+                    // Create the database if it does not exist
+                    write_library(&library.library, global_config.path.clone())?;
+                    library = MusicLibrary::with_uuid(uuid, global_config.path.parent().unwrap().to_path_buf())?;
                 }
-            }
-        };
-
-        Ok(Self { library })
+            };
+        }else {
+            write_library(&library.library, global_config.path.clone())?;
+        }
+        Ok(library)
     }
 
     /// Serializes the database out to the file specified in the config
     pub fn save(&self, config: &Config) -> Result<(), Box<dyn Error>> {
-        match config.db_path.unwrap().try_exists() {
-            Ok(exists) => {
-                write_library(&self.library, config.db_path.unwrap().to_path_buf(), exists)?;
+        let path = config.get_library(&self.uuid)?.path;
+        match path.try_exists() {
+            Ok(_) => {
+                write_library(&self.library, path)?;
             }
             Err(error) => return Err(error.into()),
         }
