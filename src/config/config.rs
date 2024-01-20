@@ -1,7 +1,11 @@
-use std::{path::{PathBuf, Path}, marker::PhantomData, fs::{File, OpenOptions, self}, io::{Error, Write, Read}, default};
+use std::{
+    path::PathBuf,
+    fs::{File, OpenOptions, self},
+    io::{Error, Write, Read},
+};
 
 use serde::{Serialize, Deserialize};
-use serde_json::{to_string, to_string_pretty};
+use serde_json::to_string_pretty;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -11,6 +15,7 @@ pub struct ConfigLibrary {
     pub path: PathBuf,
     pub uuid: Uuid
 }
+
 impl ConfigLibrary {
     pub fn new() -> Self {
         ConfigLibrary::default()
@@ -22,6 +27,7 @@ impl ConfigLibrary {
         }
     }
 }
+
 impl Default for ConfigLibrary {
     fn default() -> Self {
         ConfigLibrary {
@@ -31,29 +37,71 @@ impl Default for ConfigLibrary {
         }
     }
 }
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ConfigLibraries {
     default_library: Uuid,
     pub library_folder: PathBuf,
     pub libraries: Vec<ConfigLibrary>,
 }
+
+impl ConfigLibraries {
+    //TODO: Add new function for test tube
+    pub fn set_default(mut self, uuid: &Uuid) {
+        self.default_library = *uuid;
+    }
+
+    pub fn get_default(&self) -> Result<&ConfigLibrary, ConfigError> {
+        for library in &self.libraries {
+            if library.uuid == self.default_library {
+                return Ok(library)
+            }
+        }
+        Err(ConfigError::NoDefaultLibrary)
+    }
+
+    pub fn get_library(&self, uuid: &Uuid) -> Result<ConfigLibrary, ConfigError> {
+        for library in &self.libraries {
+            if &library.uuid == uuid {
+                return Ok(library.to_owned())
+            }
+        }
+        Err(ConfigError::NoConfigLibrary(*uuid))
+    }
+
+    pub fn uuid_exists(&self, uuid: &Uuid) -> bool {
+        for library in &self.libraries {
+            if &library.uuid == uuid {
+                return true
+            }
+        }
+        false
+    }
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     pub path: PathBuf,
     pub libraries: ConfigLibraries,
     volume: f32,
 }
+
 #[test]
-fn config_test_() {
-    Config {
-        path: PathBuf::from("F:\\temp\\config.json"),
+fn config_test() {
+    let _ = Config {
+        path: PathBuf::from("config_test.json"),
         libraries: ConfigLibraries {
-            libraries: vec![ConfigLibrary::default(),ConfigLibrary::default(),ConfigLibrary::default()],
+            libraries: vec![
+                ConfigLibrary::default(),
+                ConfigLibrary::default(),
+                ConfigLibrary::default()
+            ],
             ..Default::default()
         },
         ..Default::default()
-    }.to_file();
+    }.write_file();
 }
+
 impl Config {
     pub fn new() -> Self {
         Config {
@@ -64,38 +112,12 @@ impl Config {
             ..Default::default()
         }
     }
+
     pub fn new_main() -> Self {
         Config::default()
     }
-    //TODO: Add new function for test tube
-    pub fn set_default_library(mut self, uuid: &Uuid) {
-        self.libraries.default_library = *uuid;
-    }
-    pub fn get_default_library(&self) -> Result<&ConfigLibrary, ConfigError> {
-        for library in &self.libraries.libraries {
-            if library.uuid == self.libraries.default_library {
-                return Ok(library)
-            }
-        }
-        Err(ConfigError::NoDefaultLibrary)
-    }
-    pub fn get_library(&self, uuid: &Uuid) -> Result<ConfigLibrary, ConfigError> {
-        for library in &self.libraries.libraries {
-            if &library.uuid == uuid {
-                return Ok(library.to_owned())
-            }
-        }
-        Err(ConfigError::NoConfigLibrary(*uuid))
-    }
-    pub fn library_exists(&self, uuid: &Uuid) -> bool {
-        for library in &self.libraries.libraries {
-            if &library.uuid == uuid {
-                return true
-            }
-        }
-        false
-    }
-    pub fn to_file(&self) -> Result<(), Error> {
+
+    pub fn write_file(&self) -> Result<(), Error> {
         let mut writer = self.path.clone();
         writer.set_extension("tmp");
         let mut file = OpenOptions::new().create(true).truncate(true).read(true).write(true).open(&writer)?;
@@ -106,7 +128,8 @@ impl Config {
         fs::rename(writer, self.path.as_path())?;
         Ok(())
     }
-    pub fn load_file(path: PathBuf) -> Result<Self, Error> {
+
+    pub fn read_file(path: PathBuf) -> Result<Self, Error> {
         let mut file: File = File::open(path)?;
         let mut bun: String = String::new();
         _ = file.read_to_string(&mut bun);

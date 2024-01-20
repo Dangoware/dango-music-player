@@ -6,7 +6,7 @@ use walkdir::WalkDir;
 
 use snap;
 
-use super::library::{AlbumArt, Song, URI};
+use super::library::{AlbumArt, URI};
 use unidecode::unidecode;
 
 pub(super) fn normalize(input_string: &str) -> String {
@@ -19,35 +19,36 @@ pub(super) fn normalize(input_string: &str) -> String {
     normalized
 }
 
-pub(super) fn read_library(path: PathBuf) -> Result<Vec<Song>, Box<dyn Error>> {
+pub(super) fn read_file<T: for<'de> serde::Deserialize<'de>>(path: PathBuf) -> Result<T, Box<dyn Error>> {
     // Create a new snap reader over the database file
     let database = fs::File::open(path)?;
     let reader = BufReader::new(database);
     let mut d = snap::read::FrameDecoder::new(reader);
 
     // Decode the library from the serialized data into the vec
-    let library: Vec<Song> = bincode::serde::decode_from_std_read(
+    let library: T = bincode::serde::decode_from_std_read(
         &mut d,
         bincode::config::standard()
             .with_little_endian()
             .with_variable_int_encoding(),
     )?;
+
     Ok(library)
 }
 
-pub(super) fn write_library(
-    library: &Vec<Song>,
+pub(super) fn write_file<T: serde::Serialize>(
+    library: &T,
     path: PathBuf,
 ) -> Result<(), Box<dyn Error>> {
-    // Create 2 new names for the file, a temporary one for writing out, and a backup
+    // Create a temporary name for writing out
     let mut writer_name = path.clone();
     writer_name.set_extension("tmp");
 
-    // Create a new BufWriter on the file and make a snap frame encoer for it too
+    // Create a new BufWriter on the file and a snap frame encoder
     let writer = BufWriter::new(fs::File::create(&writer_name)?);
     let mut e = snap::write::FrameEncoder::new(writer);
 
-    // Write out the data using bincode
+    // Write out the data
     bincode::serde::encode_into_std_write(
         library,
         &mut e,

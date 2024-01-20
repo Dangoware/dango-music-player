@@ -1,9 +1,15 @@
+# Rust binary output dir
 target/
 
-music_database*
-*.db3*
-config.toml
+# Rust configuration
 Cargo.lock
+
+# Database files
+*.db3*
+music_database*
+
+# Storage formats
 *.kate-swp*
 *.m3u
 *.m3u8
+*.json

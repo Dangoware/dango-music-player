@@ -3,6 +3,8 @@ pub mod music_storage {
     pub mod music_collection;
     pub mod playlist;
     mod utils;
+
+    #[allow(dead_code)]
     pub mod db_reader;
 }
 
