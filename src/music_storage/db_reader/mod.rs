@@ -6,7 +6,7 @@ pub mod musicbee {
     pub mod reader;
     pub mod utils;
 }
-pub mod xml {
+pub mod itunes {
     pub mod reader;
 }
 pub mod common;

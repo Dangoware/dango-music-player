@@ -18,18 +18,18 @@ use crate::music_storage::utils;
 use urlencoding::decode;
 
 #[derive(Debug, Default, Clone)]
-pub struct XmlLibrary {
-    tracks: Vec<XMLSong>,
+pub struct ITunesLibrary {
+    tracks: Vec<ITunesSong>,
 }
-impl XmlLibrary {
+impl ITunesLibrary {
     fn new() -> Self {
         Default::default()
     }
-    pub fn tracks(self) -> Vec<XMLSong> {
+    pub fn tracks(self) -> Vec<ITunesSong> {
         self.tracks
     }
 }
-impl ExternalLibrary for XmlLibrary {
+impl ExternalLibrary for ITunesLibrary {
     fn from_file(file: &Path) -> Self {
         let mut reader = Reader::from_file(file).unwrap();
         reader.trim_text(true);
@@ -45,7 +45,7 @@ impl ExternalLibrary for XmlLibrary {
         let mut buf = Vec::new();
         let mut skip = false;
 
-        let mut converted_songs: Vec<XMLSong> = Vec::new();
+        let mut converted_songs: Vec<ITunesSong> = Vec::new();
 
         let mut song_tags: HashMap<String, String> = HashMap::new();
         let mut key: String = String::new();
@@ -63,7 +63,7 @@ impl ExternalLibrary for XmlLibrary {
                 tagvalue.clear();
                 key_selected = false;
 
-                //end the song to start a new one, and turn turn current song map into XMLSong
+                //end the song to start a new one, and turn turn current song map into iTunesSong
                 if song_tags.contains_key(&"Location".to_string()) {
                     count3 += 1;
                     //check for skipped IDs
@@ -73,7 +73,7 @@ impl ExternalLibrary for XmlLibrary {
                         count3 += 1;
                         count4 += 1;
                     }
-                    converted_songs.push(XMLSong::from_hashmap(&mut song_tags).unwrap());
+                    converted_songs.push(ITunesSong::from_hashmap(&mut song_tags).unwrap());
                     song_tags.clear();
                     skip = true;
                 }
@@ -117,8 +117,8 @@ impl ExternalLibrary for XmlLibrary {
             buf.clear();
         }
         let elasped = now.elapsed();
-        println!("\n\nXMLReader grabbed {} songs in {:#?} seconds\nIDs Skipped: {}", count3, elasped.as_secs(), count4);
-        let mut lib = XmlLibrary::new();
+        println!("\n\niTunesReader grabbed {} songs in {:#?} seconds\nIDs Skipped: {}", count3, elasped.as_secs(), count4);
+        let mut lib = ITunesLibrary::new();
         lib.tracks.append(converted_songs.as_mut());
         lib
     }
@@ -253,7 +253,7 @@ fn get_art(file: &Path) -> Result<Vec<AlbumArt>, LoftyError> {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct XMLSong {
+pub struct ITunesSong {
     pub id: i32,
     pub plays: i32,
     pub favorited: bool,
@@ -268,13 +268,13 @@ pub struct XMLSong {
     pub location: String,
 }
 
-impl XMLSong {
-    pub fn new() -> XMLSong {
+impl ITunesSong {
+    pub fn new() -> ITunesSong {
         Default::default()
     }
 
-    fn from_hashmap(map: &mut HashMap<String, String>) -> Result<XMLSong, LoftyError> {
-        let mut song = XMLSong::new();
+    fn from_hashmap(map: &mut HashMap<String, String>) -> Result<ITunesSong, LoftyError> {
+        let mut song = ITunesSong::new();
         //get the path with the first bit chopped off
         let path_: String = map.get_key_value("Location").unwrap().1.clone();
         let track_type: String = map.get_key_value("Track Type").unwrap().1.clone();
@@ -321,35 +321,3 @@ impl XMLSong {
         Ok(song)
     }
 }
-
-// fn get_folder(file: &PathBuf) -> String {
-//     let mut reader = Reader::from_file(file).unwrap();
-//     reader.trim_text(true);
-//     //count every event, for fun ig?
-//     let mut count = 0;
-//     let mut buf = Vec::new();
-//     let mut folder = String::new();
-//     loop {
-//         match reader.read_event_into(&mut buf) {
-//             Ok(Event::Start(_)) => {
-//                 count += 1;
-//             }
-//             Ok(Event::Text(e)) => {
-//                 if count == 10 {
-//                     folder = String::from(
-//                         e.unescape()
-//                             .unwrap()
-//                             .to_string()
-//                             .strip_prefix("file://localhost/")
-//                             .unwrap(),
-//                     );
-//                     return folder;
-//                 }
-//             }
-//             Err(_e) => {
-//                 panic!("oh no! something happened in the public function `get_reader_from_xml()!`")
-//             }
-//             _ => (),
-//         }
-//     }
-// }

@@ -6,7 +6,7 @@ use walkdir::Error;
 use super::{
     library::{AlbumArt, Song, Tag},
     music_collection::MusicCollection, db_reader::{
-        xml::reader::XmlLibrary,
+        itunes::reader::ITunesLibrary,
         extern_library::ExternalLibrary
     },
 };
@@ -136,7 +136,7 @@ impl Default for Playlist<'_> {
 
 #[test]
 fn list_to_m3u8() {
-    let lib = XmlLibrary::from_file(Path::new(
+    let lib = ITunesLibrary::from_file(Path::new(
         "F:\\Music\\Mp3\\Music Main\\iTunes Music Library.xml",
     ));
     let mut a = Playlist::new();
