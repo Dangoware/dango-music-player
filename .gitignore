@@ -1,6 +1,6 @@
 # Rust binary output dir
 target/
-
+test-config/
 # Rust configuration
 Cargo.lock
 

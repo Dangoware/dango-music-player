@@ -1,7 +1,7 @@
 use std::{
     path::PathBuf,
     fs::{File, OpenOptions, self},
-    io::{Error, Write, Read},
+    io::{Error, Write, Read}, sync::{Arc, RwLock},
 };
 
 use serde::{Serialize, Deserialize};
@@ -9,11 +9,14 @@ use serde_json::to_string_pretty;
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::music_storage::library::{MusicLibrary, self};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigLibrary {
     pub name: String,
     pub path: PathBuf,
-    pub uuid: Uuid
+    pub uuid: Uuid,
+    pub scan_folders: Option<Vec<PathBuf>>,
 }
 
 impl Default for ConfigLibrary {
@@ -22,16 +25,18 @@ impl Default for ConfigLibrary {
             name: String::new(),
             path: PathBuf::from("library"),
             uuid: Uuid::new_v4(),
+            scan_folders: None,
         }
     }
 }
 
 impl ConfigLibrary {
-    pub fn new(path: PathBuf, name: String) -> Self {
+    pub fn new(path: PathBuf, name: String, scan_folders: Option<Vec<PathBuf>>) -> Self {
         ConfigLibrary {
             name,
             path,
             uuid: Uuid::new_v4(),
+            scan_folders,
         }
     }
 
@@ -43,7 +48,7 @@ impl ConfigLibrary {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ConfigLibraries {
     pub default_library: Uuid,
     pub library_folder: PathBuf,
@@ -84,27 +89,11 @@ impl ConfigLibraries {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct Config {
     pub path: PathBuf,
     pub libraries: ConfigLibraries,
     pub volume: f32,
-}
-
-#[test]
-fn config_test() {
-    let _ = Config {
-        path: PathBuf::from("config_test.json"),
-        libraries: ConfigLibraries {
-            libraries: vec![
-                ConfigLibrary::new(PathBuf::from("library1"), String::from("library1")),
-                ConfigLibrary::new(PathBuf::from("library2"), String::from("library2")),
-                ConfigLibrary::new(PathBuf::from("library3"), String::from("library3"))
-            ],
-            ..Default::default()
-        },
-        ..Default::default()
-    }.write_file();
 }
 
 impl Config {
@@ -149,4 +138,50 @@ pub enum ConfigError {
     NoConfigLibrary(Uuid),
     #[error("There is no Default Library for this Config")]
     NoDefaultLibrary
+}
+
+
+#[test]
+fn config_test() {
+    let lib_a = ConfigLibrary::new(PathBuf::from("test-config/library1"), String::from("library1"), None);
+    let lib_b = ConfigLibrary::new(PathBuf::from("test-config/library2"), String::from("library2"), None);
+    let lib_c = ConfigLibrary::new(PathBuf::from("test-config/library3"), String::from("library3"), None);
+    let config = Config {
+        path: PathBuf::from("test-config/config_test.json"),
+        libraries: ConfigLibraries {
+            libraries: vec![
+                lib_a.clone(),
+                lib_b.clone(),
+                lib_c.clone(),
+            ],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    config.write_file();
+    let arc = Arc::new(RwLock::from(config));
+    MusicLibrary::init(arc.clone(), lib_a.uuid.clone()).unwrap();
+    MusicLibrary::init(arc.clone(), lib_b.uuid.clone()).unwrap();
+    MusicLibrary::init(arc.clone(), lib_c.uuid.clone()).unwrap();
+
+}
+
+#[test]
+fn test2() {
+    let config = Config::read_file(PathBuf::from("test-config/config_test.json")).unwrap();
+    let uuid = config.libraries.get_default().unwrap().uuid.clone();
+    let mut lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), uuid).unwrap();
+    lib.scan_folder("test-config/music/").unwrap();
+    lib.save(&config).unwrap();
+    dbg!(&lib);
+    dbg!(&config);
+}
+
+#[test]
+fn test3() {
+    let config = Config::read_file(PathBuf::from("test-config/config_test.json")).unwrap();
+    let uuid = config.libraries.get_default().unwrap().uuid;
+    let mut lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), uuid).unwrap();
+
+    dbg!(lib);
 }
