@@ -1,15 +1,17 @@
-use file_format::{FileFormat, Kind};
+use std::fs::{File, self};
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
-use std::{error::Error, fs};
+use std::error::Error;
+
 use walkdir::WalkDir;
-
+use file_format::{FileFormat, Kind};
 use snap;
-
-use super::library::{AlbumArt, URI};
 use unidecode::unidecode;
 
+use super::library::{AlbumArt, URI};
+
 pub(super) fn normalize(input_string: &str) -> String {
+    // Normalize the string to latin characters... this needs a lot of work
     let mut normalized = unidecode(input_string);
 
     // Remove non alphanumeric characters
@@ -19,25 +21,10 @@ pub(super) fn normalize(input_string: &str) -> String {
     normalized
 }
 
-pub(super) fn read_file<T: for<'de> serde::Deserialize<'de>>(path: PathBuf) -> Result<T, Box<dyn Error>> {
-    // Create a new snap reader over the database file
-    let database = fs::File::open(path)?;
-    let reader = BufReader::new(database);
-    let mut d = snap::read::FrameDecoder::new(reader);
-
-    // Decode the library from the serialized data into the vec
-    let library: T = bincode::serde::decode_from_std_read(
-        &mut d,
-        bincode::config::standard()
-            .with_little_endian()
-            .with_variable_int_encoding(),
-    )?;
-
-    Ok(library)
-}
-
+/// Write any data structure which implements [serde::Serialize]
+/// out to a [bincode] encoded file compressed using [snap]
 pub(super) fn write_file<T: serde::Serialize>(
-    library: &T,
+    library: T,
     path: PathBuf,
 ) -> Result<(), Box<dyn Error>> {
     // Create a temporary name for writing out
@@ -45,7 +32,7 @@ pub(super) fn write_file<T: serde::Serialize>(
     writer_name.set_extension("tmp");
 
     // Create a new BufWriter on the file and a snap frame encoder
-    let writer = BufWriter::new(fs::File::create(&writer_name)?);
+    let writer = BufWriter::new(File::create(&writer_name)?);
     let mut e = snap::write::FrameEncoder::new(writer);
 
     // Write out the data
@@ -59,6 +46,24 @@ pub(super) fn write_file<T: serde::Serialize>(
     fs::rename(writer_name, &path)?;
 
     Ok(())
+}
+
+/// Read a file serialized out with [write_file] and turn it into
+/// the desired structure
+pub(super) fn read_file<T: for<'de> serde::Deserialize<'de>>(path: PathBuf) -> Result<T, Box<dyn Error>> {
+    // Create a new snap reader over the file
+    let file_reader = BufReader::new(File::open(path)?);
+    let mut d = snap::read::FrameDecoder::new(file_reader);
+
+    // Decode the library from the serialized data into the vec
+    let library: T = bincode::serde::decode_from_std_read(
+        &mut d,
+        bincode::config::standard()
+            .with_little_endian()
+            .with_variable_int_encoding(),
+    )?;
+
+    Ok(library)
 }
 
 pub fn find_images(song_path: &Path) -> Result<Vec<AlbumArt>, Box<dyn Error>> {
@@ -85,7 +90,7 @@ pub fn find_images(song_path: &Path) -> Result<Vec<AlbumArt>, Box<dyn Error>> {
             break;
         }
 
-        let image_uri = URI::Local(path.to_path_buf().canonicalize().unwrap());
+        let image_uri = URI::Local(path.to_path_buf().canonicalize()?);
 
         images.push(AlbumArt::External(image_uri));
     }

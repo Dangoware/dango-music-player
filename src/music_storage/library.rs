@@ -323,31 +323,21 @@ pub struct MusicLibrary {
 
 #[test]
 fn library_init() {
-    let uuidv4 = Uuid::new_v4();
-    let a = MusicLibrary::init(Arc::new(RwLock::from(Config::new())), uuidv4).unwrap();
+    let config = Config::read_file(PathBuf::from("config_test.json")).unwrap();
+    let target_uuid = config.libraries.libraries[0].uuid;
+    let a = MusicLibrary::init(Arc::new(RwLock::from(config)), target_uuid).unwrap();
     dbg!(a);
 }
 
 impl MusicLibrary {
-    pub fn new(name: String, uuid: Uuid) -> Self {
+    /// Create a new library from a name and [Uuid]
+    fn new(name: String, uuid: Uuid) -> Self {
         MusicLibrary {
             name,
             uuid,
             library: Vec::new(),
         }
     }
-
-    /*
-    pub fn with_uuid(uuid: Uuid, path: PathBuf) -> Result<Self, Box<dyn Error>> {
-        MusicLibrary {
-            name: String::new(),
-            uuid,
-            library: Vec::new(),
-        };
-
-        todo!()
-    }
-    */
 
     /// Initialize the database
     ///
@@ -357,7 +347,7 @@ impl MusicLibrary {
     pub fn init(config: Arc<RwLock<Config>>, uuid: Uuid) -> Result<Self, Box<dyn Error>> {
         let global_config = &*config.read().unwrap();
 
-        let library: MusicLibrary = match global_config.libraries.uuid_exists(&uuid) {
+        let library: MusicLibrary = match global_config.libraries.get_library(&uuid)?.path.exists() {
             true => read_file(global_config.libraries.get_library(&uuid)?.path)?,
             false => {
                 // If the library does not exist, re-create it
@@ -370,13 +360,24 @@ impl MusicLibrary {
         Ok(library)
     }
 
+    //#[cfg(debug_assertions)] // We probably wouldn't want to use this for real, but maybe it would have some utility?
+    pub fn from_path(path: PathBuf) -> Result<Self, Box<dyn Error>> {
+        let library: MusicLibrary = match path.exists() {
+            true => read_file(path)?,
+            false => {
+                let lib = MusicLibrary::new(String::new(), Uuid::new_v4());
+                write_file(&lib, path)?;
+                lib
+            }
+        };
+        Ok(library)
+    }
+
     /// Serializes the database out to the file specified in the config
     pub fn save(&self, config: &Config) -> Result<(), Box<dyn Error>> {
         let path = config.libraries.get_library(&self.uuid)?.path;
         match path.try_exists() {
-            Ok(_) => {
-                write_file(&self.library, path)?;
-            }
+            Ok(_) => write_file(self, path)?,
             Err(error) => return Err(error.into()),
         }
 
@@ -384,12 +385,12 @@ impl MusicLibrary {
     }
 
     /// Returns the library size in number of tracks
-    pub fn size(&self) -> usize {
+    pub fn len_tracks(&self) -> usize {
         self.library.len()
     }
 
     /// Queries for a [Song] by its [URI], returning a single `Song`
-    /// with the `URI` that matches
+    /// with the `URI` that matches along with its position in the library
     pub fn query_uri(&self, path: &URI) -> Option<(&Song, usize)> {
         let result = self
             .library
@@ -408,7 +409,7 @@ impl MusicLibrary {
         }
     }
 
-    /// Queries for a [Song] by its [PathBuf], returning a `Vec<Song>`
+    /// Queries for a [Song] by its [PathBuf], returning a `Vec<&Song>`
     /// with matching `PathBuf`s
     fn query_path(&self, path: PathBuf) -> Option<Vec<&Song>> {
         let result: Arc<Mutex<Vec<&Song>>> = Arc::new(Mutex::new(Vec::new()));
@@ -428,7 +429,6 @@ impl MusicLibrary {
     pub fn scan_folder(
         &mut self,
         target_path: &str,
-        config: &Config,
     ) -> Result<i32, Box<dyn std::error::Error>> {
         let mut total = 0;
         let mut errors = 0;
@@ -487,9 +487,6 @@ impl MusicLibrary {
                 }
             }
         }
-
-        // Save the database after scanning finishes
-        self.save(config).unwrap();
 
         println!("ERRORS: {}", errors);
 

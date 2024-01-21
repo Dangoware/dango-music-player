@@ -16,10 +16,25 @@ pub struct ConfigLibrary {
     pub uuid: Uuid
 }
 
-impl ConfigLibrary {
-    pub fn new() -> Self {
-        ConfigLibrary::default()
+impl Default for ConfigLibrary {
+    fn default() -> Self {
+        ConfigLibrary {
+            name: String::new(),
+            path: PathBuf::from("library"),
+            uuid: Uuid::new_v4(),
+        }
     }
+}
+
+impl ConfigLibrary {
+    pub fn new(path: PathBuf, name: String) -> Self {
+        ConfigLibrary {
+            name,
+            path,
+            uuid: Uuid::new_v4(),
+        }
+    }
+
     pub fn open(&self) -> Result<File, Error> {
         match File::open(self.path.as_path()) {
             Ok(ok) => Ok(ok),
@@ -28,19 +43,9 @@ impl ConfigLibrary {
     }
 }
 
-impl Default for ConfigLibrary {
-    fn default() -> Self {
-        ConfigLibrary {
-            name: String::default(),
-            path: PathBuf::default(),
-            uuid: Uuid::new_v4()
-        }
-    }
-}
-
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ConfigLibraries {
-    default_library: Uuid,
+    pub default_library: Uuid,
     pub library_folder: PathBuf,
     pub libraries: Vec<ConfigLibrary>,
 }
@@ -83,7 +88,7 @@ impl ConfigLibraries {
 pub struct Config {
     pub path: PathBuf,
     pub libraries: ConfigLibraries,
-    volume: f32,
+    pub volume: f32,
 }
 
 #[test]
@@ -92,9 +97,9 @@ fn config_test() {
         path: PathBuf::from("config_test.json"),
         libraries: ConfigLibraries {
             libraries: vec![
-                ConfigLibrary::default(),
-                ConfigLibrary::default(),
-                ConfigLibrary::default()
+                ConfigLibrary::new(PathBuf::from("library1"), String::from("library1")),
+                ConfigLibrary::new(PathBuf::from("library2"), String::from("library2")),
+                ConfigLibrary::new(PathBuf::from("library3"), String::from("library3"))
             ],
             ..Default::default()
         },
