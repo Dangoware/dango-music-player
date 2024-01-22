@@ -36,3 +36,4 @@ thiserror = "1.0.56"
 font = "0.27.0"
 uuid = { version = "1.6.1", features = ["v4", "serde"]}
 serde_json = "1.0.111"
+discord-presence = "0.5.18"
