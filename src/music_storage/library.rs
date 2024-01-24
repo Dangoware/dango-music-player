@@ -374,7 +374,7 @@ impl MusicLibrary {
     }
 
     /// Serializes the database out to the file specified in the config
-    pub fn save(&self, config: &Config) -> Result<(), Box<dyn Error>> {
+    pub fn save(&self, config: Config) -> Result<(), Box<dyn Error>> {
         let path = config.libraries.get_library(&self.uuid)?.path;
         match path.try_exists() {
             Ok(_) => write_file(self, path)?,
@@ -387,6 +387,11 @@ impl MusicLibrary {
     /// Returns the library size in number of tracks
     pub fn len_tracks(&self) -> usize {
         self.library.len()
+    }
+
+    /// Returns the library size in number of albums
+    pub fn len_albums(&self) -> usize {
+        self.albums().len()
     }
 
     /// Queries for a [Song] by its [URI], returning a single `Song`
@@ -641,7 +646,7 @@ impl MusicLibrary {
                 }
 
                 let duration = match next_track.next() {
-                    Some(future) => match future.indices.get(0) {
+                    Some(future) => match future.indices.first() {
                         Some(val) => val.1 - start,
                         None => Duration::from_secs(0),
                     },
@@ -923,7 +928,7 @@ impl MusicLibrary {
                 },
                 // If the album is not in the list, make a new one and add it
                 None => {
-                    let album_art = result.album_art.get(0);
+                    let album_art = result.album_art.first();
 
                     let new_album = Album {
                         title,

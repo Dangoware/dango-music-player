@@ -1,7 +1,7 @@
 // Crate things
 //use crate::music_controller::config::Config;
 use crate::music_storage::library::URI;
-use crossbeam_channel::bounded;
+use crossbeam_channel::unbounded;
 use std::error::Error;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -23,7 +23,7 @@ pub enum PlayerCmd {
     AboutToFinish,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum PlayerState {
     Playing,
     Paused,
@@ -76,18 +76,29 @@ pub enum PlayerError {
     General,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum PlaybackStats {
+    Idle,
+    Switching,
+    Playing{
+        start: Duration,
+        end:   Duration,
+    }
+}
+
 /// An instance of a music player with a GStreamer backend
 pub struct Player {
-    source: Option<URI>,
+    source:     Option<URI>,
     //pub message_tx: Sender<PlayerCmd>,
     pub message_rx: crossbeam::channel::Receiver<PlayerCmd>,
-    playbin: Arc<RwLock<Element>>,
-    volume: f64,
-    start: Arc<RwLock<Option<Duration>>>,
-    end: Arc<RwLock<Option<Duration>>>,
-    position: Arc<RwLock<Option<Duration>>>,
-    buffer: Arc<RwLock<Option<u8>>>,
-    paused: Arc<RwLock<bool>>,
+
+    playback_tx: crossbeam::channel::Sender<PlaybackStats>,
+    playbin:    Arc<RwLock<Element>>,
+    volume:     f64,
+    start:      Option<Duration>,
+    end:        Option<Duration>,
+    paused:     bool,
+    position:   Arc<RwLock<Option<Duration>>>,
 }
 
 impl Player {
@@ -118,69 +129,58 @@ impl Player {
             .build()
             .ok_or(PlayerError::Build)?;
 
-        playbin
-            .write()
-            .unwrap()
-            .set_property_from_value("flags", &flags);
-
+        playbin.write().unwrap().set_property_from_value("flags", &flags);
         playbin.write().unwrap().set_property("instant-uri", true);
 
         let position = Arc::new(RwLock::new(None));
-        let start = Arc::new(RwLock::new(None));
-        let end: Arc<RwLock<Option<Duration>>> = Arc::new(RwLock::new(None));
-        let buffer = Arc::new(RwLock::new(None));
-        let paused = Arc::new(RwLock::new(false));
 
         // Set up the thread to monitor the position
-        let position_update = position.clone();
-        let start_update = Arc::clone(&start);
-        let end_update = Arc::clone(&end);
-        let (message_tx, message_rx) = bounded(1); //TODO: Maybe figure out a better method than making this bounded
-        std::thread::spawn(move || { //TODO: Figure out how to return errors nicely in threads
+        let (playback_tx, playback_rx) = unbounded();
+        let (stat_tx, stat_rx) = unbounded::<PlaybackStats>();
+        let position_update = Arc::clone(&position);
+        let _playback_monitor = std::thread::spawn(move || { //TODO: Figure out how to return errors nicely in threads
+            let mut stats = PlaybackStats::Idle;
+            let mut pos_temp;
             loop {
-                let mut pos_temp = playbin_arc
+                match stat_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                    Ok(res) => stats = res,
+                    Err(_) => {}
+                };
+
+                pos_temp = playbin_arc
                     .read()
                     .unwrap()
                     .query_position::<ClockTime>()
                     .map(|pos| Duration::nanoseconds(pos.nseconds() as i64));
 
-                if pos_temp.is_some()
-                    && start_update.read().unwrap().is_some()
-                    && end_update.read().unwrap().is_some()
-                {
-                    let atf = end_update.read().unwrap().unwrap() - Duration::milliseconds(250);
-                    if pos_temp.unwrap() >= end_update.read().unwrap().unwrap() {
-                        let _ = message_tx.try_send(PlayerCmd::Eos);
-                        playbin_arc
-                            .write()
-                            .unwrap()
-                            .set_state(gst::State::Ready)
-                            .expect("Unable to set the pipeline state");
-                        *start_update.write().unwrap() = None;
-                        *end_update.write().unwrap() = None;
-                    } else if pos_temp.unwrap() >= atf {
-                        let _ = message_tx.try_send(PlayerCmd::AboutToFinish);
-                    }
+                match stats {
+                    PlaybackStats::Playing{start, end} if pos_temp.is_some() => {
+                        // Check if the current playback position is close to the end
+                        let finish_point = end - Duration::milliseconds(250);
+                        if pos_temp.unwrap() >= end {
+                            let _ = playback_tx.try_send(PlayerCmd::Eos);
+                            playbin_arc
+                                .write()
+                                .unwrap()
+                                .set_state(gst::State::Ready)
+                                .expect("Unable to set the pipeline state");
+                        } else if pos_temp.unwrap() >= finish_point {
+                            let _ = playback_tx.try_send(PlayerCmd::AboutToFinish);
+                        }
 
-                    // This has to be done AFTER the current time in the file
-                    // is calculated, or everything else is wrong
-                    if let Some(time) = *start_update.read().unwrap() {
-                        pos_temp = Some(pos_temp.unwrap() - time)
+                        // This has to be done AFTER the current time in the file
+                        // is calculated, or everything else is wrong
+                        pos_temp = Some(pos_temp.unwrap() - start)
                     }
+                    _ => println!("waiting!")
                 }
 
-                //println!("{:?}", pos_temp);
-
                 *position_update.write().unwrap() = pos_temp;
-
-                std::thread::sleep(std::time::Duration::from_millis(100));
             }
         });
 
         // Set up the thread to monitor bus messages
         let playbin_bus_ctrl = Arc::clone(&playbin);
-        let buffer_bus_ctrl = Arc::clone(&buffer);
-        let paused_bus_ctrl = Arc::clone(&paused);
         let bus_watch = playbin
             .read()
             .unwrap()
@@ -203,17 +203,16 @@ impl Player {
                             .set_state(gst::State::Playing)
                             .unwrap();
                     }
+                    /* TODO: Fix buffering!!
                     gst::MessageView::Buffering(buffering) => {
                         let percent = buffering.percent();
                         if percent < 100 {
-                            *buffer_bus_ctrl.write().unwrap() = Some(percent as u8);
                             playbin_bus_ctrl
                                 .write()
                                 .unwrap()
                                 .set_state(gst::State::Paused)
                                 .unwrap();
-                        } else if !(*paused_bus_ctrl.read().unwrap()) {
-                            *buffer_bus_ctrl.write().unwrap() = None;
+                        } else if !(buffering) {
                             playbin_bus_ctrl
                                 .write()
                                 .unwrap()
@@ -221,6 +220,7 @@ impl Player {
                                 .unwrap();
                         }
                     }
+                    */
                     _ => (),
                 }
                 glib::ControlFlow::Continue
@@ -237,13 +237,13 @@ impl Player {
         Ok(Self {
             source,
             playbin,
-            message_rx,
+            message_rx: playback_rx,
+            playback_tx: stat_tx,
             volume: 1.0,
-            start,
-            end,
-            paused,
+            start: None,
+            end: None,
+            paused: false,
             position,
-            buffer,
         })
     }
 
@@ -257,6 +257,9 @@ impl Player {
 
     /// Set the playback URI
     fn set_source(&mut self, source: &URI) {
+        // Make sure the playback tracker knows the stuff is stopped
+        self.playback_tx.send(PlaybackStats::Switching).unwrap();
+
         let uri = self.playbin.read().unwrap().property_value("current-uri");
         self.source = Some(source.clone());
         match source {
@@ -267,12 +270,17 @@ impl Player {
                     .set_property("uri", source.as_uri());
 
                 // Set the start and end positions of the CUE file
-                *self.start.write().unwrap() = Some(Duration::from_std(*start).unwrap());
-                *self.end.write().unwrap() = Some(Duration::from_std(*end).unwrap());
+                self.start = Some(Duration::from_std(*start).unwrap());
+                self.end = Some(Duration::from_std(*end).unwrap());
 
-                self.play().unwrap();
+                // Send the updated position to the tracker
+                self.playback_tx.send(PlaybackStats::Playing{
+                    start: self.start.unwrap(),
+                    end: self.end.unwrap()
+                }).unwrap();
 
                 // Wait for it to be ready, and then move to the proper position
+                self.play().unwrap();
                 let now = std::time::Instant::now();
                 while now.elapsed() < std::time::Duration::from_millis(20) {
                     if self.seek_to(Duration::from_std(*start).unwrap()).is_ok() {
@@ -297,8 +305,14 @@ impl Player {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
 
-                *self.start.write().unwrap() = Some(Duration::seconds(0));
-                *self.end.write().unwrap() = self.raw_duration();
+                self.start = Some(Duration::seconds(0));
+                self.end = self.raw_duration();
+
+                // Send the updated position to the tracker
+                self.playback_tx.send(PlaybackStats::Playing{
+                    start: self.start.unwrap(),
+                    end: self.end.unwrap()
+                }).unwrap();
             }
         }
     }
@@ -361,13 +375,13 @@ impl Player {
 
     /// Pause, if playing
     pub fn pause(&mut self) -> Result<(), gst::StateChangeError> {
-        *self.paused.write().unwrap() = true;
+        //*self.paused.write().unwrap() = true;
         self.set_state(gst::State::Paused)
     }
 
     /// Resume from being paused
     pub fn resume(&mut self) -> Result<(), gst::StateChangeError> {
-        *self.paused.write().unwrap() = false;
+        //*self.paused.write().unwrap() = false;
         self.set_state(gst::State::Playing)
     }
 
@@ -383,8 +397,8 @@ impl Player {
 
     /// Get the duration of the currently playing track
     pub fn duration(&mut self) -> Option<Duration> {
-        if self.end.read().unwrap().is_some() && self.start.read().unwrap().is_some() {
-            Some(self.end.read().unwrap().unwrap() - self.start.read().unwrap().unwrap())
+        if self.end.is_some() && self.start.is_some() {
+            Some(self.end.unwrap() - self.start.unwrap())
         } else {
             self.raw_duration()
         }
@@ -411,16 +425,16 @@ impl Player {
 
     /// Seek absolutely
     pub fn seek_to(&mut self, target_pos: Duration) -> Result<(), Box<dyn Error>> {
-        let start = if self.start.read().unwrap().is_none() {
+        let start = if self.start.is_none() {
             return Err("Failed to seek: No START time".into());
         } else {
-            self.start.read().unwrap().unwrap()
+            self.start.unwrap()
         };
 
-        let end = if self.end.read().unwrap().is_none() {
+        let end = if self.end.is_none() {
             return Err("Failed to seek: No END time".into());
         } else {
-            self.end.read().unwrap().unwrap()
+            self.end.unwrap()
         };
 
         let adjusted_target = target_pos + start;
@@ -439,10 +453,13 @@ impl Player {
 
     /// Get the current state of the playback
     pub fn state(&mut self) -> PlayerState {
+        self.playbin().unwrap().current_state().into()
+        /*
         match *self.buffer.read().unwrap() {
             None => self.playbin().unwrap().current_state().into(),
             Some(value) => PlayerState::Buffering(value),
         }
+        */
     }
 
     pub fn property(&self, property: &str) -> glib::Value {
@@ -454,10 +471,13 @@ impl Player {
         self.pause()?;
         self.ready()?;
 
+        // Send the updated position to the tracker
+        self.playback_tx.send(PlaybackStats::Idle).unwrap();
+
         // Set all positions to none
         *self.position.write().unwrap() = None;
-        *self.start.write().unwrap() = None;
-        *self.end.write().unwrap() = None;
+        self.start = None;
+        self.end = None;
         Ok(())
     }
 }
