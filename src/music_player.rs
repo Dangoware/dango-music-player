@@ -83,7 +83,8 @@ enum PlaybackStats {
     Playing{
         start: Duration,
         end:   Duration,
-    }
+    },
+    Finished // When this is sent, the thread will die!
 }
 
 /// An instance of a music player with a GStreamer backend
@@ -142,10 +143,10 @@ impl Player {
             let mut stats = PlaybackStats::Idle;
             let mut pos_temp;
             loop {
-                match stat_rx.recv_timeout(std::time::Duration::from_millis(100)) {
-                    Ok(res) => stats = res,
-                    Err(_) => {}
-                };
+                // Check for new messages or updates about how to proceed
+                if let Ok(res) = stat_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                    stats = res
+                }
 
                 pos_temp = playbin_arc
                     .read()
@@ -171,8 +172,13 @@ impl Player {
                         // This has to be done AFTER the current time in the file
                         // is calculated, or everything else is wrong
                         pos_temp = Some(pos_temp.unwrap() - start)
-                    }
-                    _ => println!("waiting!")
+                    },
+                    PlaybackStats::Finished => {
+                        *position_update.write().unwrap() = None;
+                        break
+                    },
+                    PlaybackStats::Idle | PlaybackStats::Switching => println!("waiting!"),
+                    _ => ()
                 }
 
                 *position_update.write().unwrap() = pos_temp;
@@ -483,11 +489,13 @@ impl Player {
 }
 
 impl Drop for Player {
-    /// Cleans up `GStreamer` pipeline when `Backend` is dropped.
+    /// Cleans up the `GStreamer` pipeline and the monitoring
+    /// thread when [Player] is dropped.
     fn drop(&mut self) {
         self.playbin_mut()
             .unwrap()
             .set_state(gst::State::Null)
             .expect("Unable to set the pipeline to the `Null` state");
+        let _ = self.playback_tx.send(PlaybackStats::Finished);
     }
 }

@@ -6,13 +6,13 @@ use std::error::Error;
 use walkdir::WalkDir;
 use file_format::{FileFormat, Kind};
 use snap;
-use unidecode::unidecode;
+use deunicode::deunicode_with_tofu;
 
 use super::library::{AlbumArt, URI};
 
 pub(super) fn normalize(input_string: &str) -> String {
     // Normalize the string to latin characters... this needs a lot of work
-    let mut normalized = unidecode(input_string);
+    let mut normalized = deunicode_with_tofu(input_string, " ");
 
     // Remove non alphanumeric characters
     normalized.retain(|c| c.is_alphanumeric());
