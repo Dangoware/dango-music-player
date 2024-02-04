@@ -13,12 +13,11 @@ categories = []
 
 [dependencies]
 file-format = { version = "0.23.0", features = ["reader-asf", "reader-ebml", "reader-mp4", "reader-rm", "reader-txt", "reader-xml", "serde"] }
-lofty = "0.18.0"
+lofty = "0.18.2"
 serde = { version = "1.0.195", features = ["derive"] }
 walkdir = "2.4.0"
 chrono = { version = "0.4.31", features = ["serde"] }
 bincode = { version = "2.0.0-rc.3", features = ["serde"] }
-unidecode = "0.3.0"
 rayon = "1.8.0"
 log = "0.4"
 base64 = "0.21.5"
@@ -36,3 +35,4 @@ thiserror = "1.0.56"
 font = "0.27.0"
 uuid = { version = "1.6.1", features = ["v4", "serde"]}
 serde_json = "1.0.111"
+deunicode = "1.4.2"
