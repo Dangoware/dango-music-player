@@ -104,7 +104,7 @@ impl<'a> Playlist<'a> {
             .unwrap();
         m3u8.write_to(&mut file).unwrap();
     }
-    pub fn from_file(file: std::fs::File) -> Playlist<'a> {
+    pub fn from_m3u8(file: std::fs::File) -> Playlist<'a> {
         todo!()
     }
 }

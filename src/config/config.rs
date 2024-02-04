@@ -172,7 +172,7 @@ fn test2() {
     let uuid = config.libraries.get_default().unwrap().uuid.clone();
     let mut lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), uuid).unwrap();
     lib.scan_folder("test-config/music/").unwrap();
-    lib.save(&config).unwrap();
+    lib.save(config.clone()).unwrap();
     dbg!(&lib);
     dbg!(&config);
 }
