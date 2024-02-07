@@ -175,6 +175,225 @@ impl Song {
     pub fn remove_tag(&mut self, target_key: &Tag) {
         self.tags.remove(target_key);
     }
+
+    /// Creates a `Song` from a song file
+    pub fn from_file(target_file: &Path) -> Result<Self, Box<dyn Error>> {
+        let normal_options = ParseOptions::new().parsing_mode(lofty::ParsingMode::Relaxed);
+
+        let blank_tag = &lofty::Tag::new(TagType::Id3v2);
+        let tagged_file: lofty::TaggedFile;
+        let mut duration = Duration::from_secs(0);
+        let tag = match Probe::open(target_file)?.options(normal_options).read() {
+            Ok(file) => {
+                tagged_file = file;
+
+                duration = tagged_file.properties().duration();
+
+                // Ensure the tags exist, if not, insert blank data
+                match tagged_file.primary_tag() {
+                    Some(primary_tag) => primary_tag,
+
+                    None => match tagged_file.first_tag() {
+                        Some(first_tag) => first_tag,
+                        None => blank_tag,
+                    },
+                }
+            }
+
+            Err(_) => blank_tag,
+        };
+
+        let mut tags: BTreeMap<Tag, String> = BTreeMap::new();
+        for item in tag.items() {
+            let key = match item.key() {
+                ItemKey::TrackTitle => Tag::Title,
+                ItemKey::TrackNumber => Tag::Track,
+                ItemKey::TrackArtist => Tag::Artist,
+                ItemKey::AlbumArtist => Tag::AlbumArtist,
+                ItemKey::Genre => Tag::Genre,
+                ItemKey::Comment => Tag::Comment,
+                ItemKey::AlbumTitle => Tag::Album,
+                ItemKey::DiscNumber => Tag::Disk,
+                ItemKey::Unknown(unknown)
+                    if unknown == "ACOUSTID_FINGERPRINT" || unknown == "Acoustid Fingerprint" =>
+                {
+                    continue
+                }
+                ItemKey::Unknown(unknown) => Tag::Key(unknown.to_string()),
+                custom => Tag::Key(format!("{:?}", custom)),
+            };
+
+            let value = match item.value() {
+                ItemValue::Text(value) => value.clone(),
+                ItemValue::Locator(value) => value.clone(),
+                ItemValue::Binary(bin) => format!("BIN#{}", general_purpose::STANDARD.encode(bin)),
+            };
+
+            tags.insert(key, value);
+        }
+
+        // Get all the album artwork information from the file
+        let mut album_art: Vec<AlbumArt> = Vec::new();
+        for (i, _art) in tag.pictures().iter().enumerate() {
+            let new_art = AlbumArt::Embedded(i);
+
+            album_art.push(new_art)
+        }
+
+        // Find images around the music file that can be used
+        let mut found_images = find_images(target_file).unwrap();
+        album_art.append(&mut found_images);
+
+        // Get the format as a string
+        let format: Option<FileFormat> = match FileFormat::from_file(target_file) {
+            Ok(fmt) => Some(fmt),
+            Err(_) => None,
+        };
+
+        // TODO: Fix error handling
+        let binding = fs::canonicalize(target_file).unwrap();
+
+        let new_song = Song {
+            location: URI::Local(binding),
+            plays: 0,
+            skips: 0,
+            favorited: false,
+            rating: None,
+            format,
+            duration,
+            play_time: Duration::from_secs(0),
+            last_played: None,
+            date_added: Some(chrono::offset::Utc::now()),
+            date_modified: Some(chrono::offset::Utc::now()),
+            tags,
+            album_art,
+        };
+        Ok(new_song)
+    }
+
+    /// creates a `Vec<Song>` from a cue file
+
+    pub fn from_cue(cuesheet: &Path) -> Result<(Vec<(Self, &PathBuf)>), Box<dyn Error>> {
+        let mut tracks = Vec::new();
+
+        let cue_data = parse_from_file(&cuesheet.to_string_lossy(), false).unwrap();
+
+        // Get album level information
+        let album_title = &cue_data.title;
+        let album_artist = &cue_data.performer;
+
+        let parent_dir = cuesheet.parent().expect("The file has no parent path??");
+        for file in cue_data.files.iter() {
+            let audio_location = &parent_dir.join(file.file.clone());
+
+            if !audio_location.exists() {
+                continue;
+            }
+
+            let next_track = file.tracks.clone();
+            let mut next_track = next_track.iter().skip(1);
+            for (i, track) in file.tracks.iter().enumerate() {
+                // Get the track timing information
+                let pregap = match track.pregap {
+                    Some(pregap) => pregap,
+                    None => Duration::from_secs(0),
+                };
+                let postgap = match track.postgap {
+                    Some(postgap) => postgap,
+                    None => Duration::from_secs(0),
+                };
+
+                let mut start;
+                if track.indices.len() > 1 {
+                    start = track.indices[1].1;
+                } else {
+                    start = track.indices[0].1;
+                }
+                if !start.is_zero() {
+                    start -= pregap;
+                }
+
+                let duration = match next_track.next() {
+                    Some(future) => match future.indices.first() {
+                        Some(val) => val.1 - start,
+                        None => Duration::from_secs(0),
+                    },
+                    None => match lofty::read_from_path(audio_location) {
+                        Ok(tagged_file) => tagged_file.properties().duration() - start,
+
+                        Err(_) => match Probe::open(audio_location)?.read() {
+                            Ok(tagged_file) => tagged_file.properties().duration() - start,
+
+                            Err(_) => Duration::from_secs(0),
+                        },
+                    },
+                };
+                let end = start + duration + postgap;
+
+                // Get the format as a string
+                let format: Option<FileFormat> = match FileFormat::from_file(audio_location) {
+                    Ok(fmt) => Some(fmt),
+                    Err(_) => None,
+                };
+
+                // Get some useful tags
+                let mut tags: BTreeMap<Tag, String> = BTreeMap::new();
+                match album_title {
+                    Some(title) => {
+                        tags.insert(Tag::Album, title.clone());
+                    }
+                    None => (),
+                }
+                match album_artist {
+                    Some(artist) => {
+                        tags.insert(Tag::Artist, artist.clone());
+                    }
+                    None => (),
+                }
+                tags.insert(Tag::Track, track.no.parse().unwrap_or((i + 1).to_string()));
+                match track.title.clone() {
+                    Some(title) => tags.insert(Tag::Title, title),
+                    None => match track.isrc.clone() {
+                        Some(title) => tags.insert(Tag::Title, title),
+                        None => {
+                            let namestr = format!("{} - {}", i, file.file.clone());
+                            tags.insert(Tag::Title, namestr)
+                        }
+                    },
+                };
+                match track.performer.clone() {
+                    Some(artist) => tags.insert(Tag::Artist, artist),
+                    None => None,
+                };
+
+                // Find images around the music file that can be used
+                let album_art = find_images(&audio_location.to_path_buf()).unwrap();
+
+                let new_song = Song {
+                    location: URI::Cue {
+                        location: audio_location.clone(),
+                        index: i,
+                        start,
+                        end,
+                    },
+                    plays: 0,
+                    skips: 0,
+                    favorited: false,
+                    rating: None,
+                    format,
+                    duration,
+                    play_time: Duration::from_secs(0),
+                    last_played: None,
+                    date_added: Some(chrono::offset::Utc::now()),
+                    date_modified: Some(chrono::offset::Utc::now()),
+                    tags,
+                    album_art,
+                };
+                tracks.push((new_song, audio_location));
+            }
+        }
+     Ok((tracks))
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -499,97 +718,8 @@ impl MusicLibrary {
     }
 
     pub fn add_file(&mut self, target_file: &Path) -> Result<(), Box<dyn Error>> {
-        let normal_options = ParseOptions::new().parsing_mode(lofty::ParsingMode::Relaxed);
 
-        let blank_tag = &lofty::Tag::new(TagType::Id3v2);
-        let tagged_file: lofty::TaggedFile;
-        let mut duration = Duration::from_secs(0);
-        let tag = match Probe::open(target_file)?.options(normal_options).read() {
-            Ok(file) => {
-                tagged_file = file;
-
-                duration = tagged_file.properties().duration();
-
-                // Ensure the tags exist, if not, insert blank data
-                match tagged_file.primary_tag() {
-                    Some(primary_tag) => primary_tag,
-
-                    None => match tagged_file.first_tag() {
-                        Some(first_tag) => first_tag,
-                        None => blank_tag,
-                    },
-                }
-            }
-
-            Err(_) => blank_tag,
-        };
-
-        let mut tags: BTreeMap<Tag, String> = BTreeMap::new();
-        for item in tag.items() {
-            let key = match item.key() {
-                ItemKey::TrackTitle => Tag::Title,
-                ItemKey::TrackNumber => Tag::Track,
-                ItemKey::TrackArtist => Tag::Artist,
-                ItemKey::AlbumArtist => Tag::AlbumArtist,
-                ItemKey::Genre => Tag::Genre,
-                ItemKey::Comment => Tag::Comment,
-                ItemKey::AlbumTitle => Tag::Album,
-                ItemKey::DiscNumber => Tag::Disk,
-                ItemKey::Unknown(unknown)
-                    if unknown == "ACOUSTID_FINGERPRINT" || unknown == "Acoustid Fingerprint" =>
-                {
-                    continue
-                }
-                ItemKey::Unknown(unknown) => Tag::Key(unknown.to_string()),
-                custom => Tag::Key(format!("{:?}", custom)),
-            };
-
-            let value = match item.value() {
-                ItemValue::Text(value) => value.clone(),
-                ItemValue::Locator(value) => value.clone(),
-                ItemValue::Binary(bin) => format!("BIN#{}", general_purpose::STANDARD.encode(bin)),
-            };
-
-            tags.insert(key, value);
-        }
-
-        // Get all the album artwork information from the file
-        let mut album_art: Vec<AlbumArt> = Vec::new();
-        for (i, _art) in tag.pictures().iter().enumerate() {
-            let new_art = AlbumArt::Embedded(i);
-
-            album_art.push(new_art)
-        }
-
-        // Find images around the music file that can be used
-        let mut found_images = find_images(target_file).unwrap();
-        album_art.append(&mut found_images);
-
-        // Get the format as a string
-        let format: Option<FileFormat> = match FileFormat::from_file(target_file) {
-            Ok(fmt) => Some(fmt),
-            Err(_) => None,
-        };
-
-        // TODO: Fix error handling
-        let binding = fs::canonicalize(target_file).unwrap();
-
-        let new_song = Song {
-            location: URI::Local(binding),
-            plays: 0,
-            skips: 0,
-            favorited: false,
-            rating: None,
-            format,
-            duration,
-            play_time: Duration::from_secs(0),
-            last_played: None,
-            date_added: Some(chrono::offset::Utc::now()),
-            date_modified: Some(chrono::offset::Utc::now()),
-            tags,
-            album_art,
-        };
-
+        let new_song = Song::from_file(target_file)?;
         match self.add_song(new_song) {
             Ok(_) => (),
             Err(_) => {
@@ -601,137 +731,23 @@ impl MusicLibrary {
     }
 
     pub fn add_cuesheet(&mut self, cuesheet: &Path) -> Result<i32, Box<dyn Error>> {
-        let mut tracks_added = 0;
+        let tracks = Song::from_cue(cuesheet)?;
+        let mut tracks_added = tracks.len() as i32;
 
-        let cue_data = parse_from_file(&cuesheet.to_string_lossy(), false).unwrap();
 
-        // Get album level information
-        let album_title = &cue_data.title;
-        let album_artist = &cue_data.performer;
-
-        let parent_dir = cuesheet.parent().expect("The file has no parent path??");
-        for file in cue_data.files.iter() {
-            let audio_location = &parent_dir.join(file.file.clone());
-
-            if !audio_location.exists() {
-                continue;
-            }
-
+        for (new_song, location) in tracks {
             // Try to remove the original audio file from the db if it exists
-            if self.remove_uri(&URI::Local(audio_location.clone())).is_ok() {
+            if self.remove_uri(&URI::Local(location.clone())).is_ok() {
                 tracks_added -= 1
             }
-
-            let next_track = file.tracks.clone();
-            let mut next_track = next_track.iter().skip(1);
-            for (i, track) in file.tracks.iter().enumerate() {
-                // Get the track timing information
-                let pregap = match track.pregap {
-                    Some(pregap) => pregap,
-                    None => Duration::from_secs(0),
-                };
-                let postgap = match track.postgap {
-                    Some(postgap) => postgap,
-                    None => Duration::from_secs(0),
-                };
-
-                let mut start;
-                if track.indices.len() > 1 {
-                    start = track.indices[1].1;
-                } else {
-                    start = track.indices[0].1;
+            match self.add_song(new_song) {
+                Ok(_) => {},
+                Err(_error) => {
+                    //println!("{}", _error);
+                    continue;
                 }
-                if !start.is_zero() {
-                    start -= pregap;
-                }
-
-                let duration = match next_track.next() {
-                    Some(future) => match future.indices.first() {
-                        Some(val) => val.1 - start,
-                        None => Duration::from_secs(0),
-                    },
-                    None => match lofty::read_from_path(audio_location) {
-                        Ok(tagged_file) => tagged_file.properties().duration() - start,
-
-                        Err(_) => match Probe::open(audio_location)?.read() {
-                            Ok(tagged_file) => tagged_file.properties().duration() - start,
-
-                            Err(_) => Duration::from_secs(0),
-                        },
-                    },
-                };
-                let end = start + duration + postgap;
-
-                // Get the format as a string
-                let format: Option<FileFormat> = match FileFormat::from_file(audio_location) {
-                    Ok(fmt) => Some(fmt),
-                    Err(_) => None,
-                };
-
-                // Get some useful tags
-                let mut tags: BTreeMap<Tag, String> = BTreeMap::new();
-                match album_title {
-                    Some(title) => {
-                        tags.insert(Tag::Album, title.clone());
-                    }
-                    None => (),
-                }
-                match album_artist {
-                    Some(artist) => {
-                        tags.insert(Tag::Artist, artist.clone());
-                    }
-                    None => (),
-                }
-                tags.insert(Tag::Track, track.no.parse().unwrap_or((i + 1).to_string()));
-                match track.title.clone() {
-                    Some(title) => tags.insert(Tag::Title, title),
-                    None => match track.isrc.clone() {
-                        Some(title) => tags.insert(Tag::Title, title),
-                        None => {
-                            let namestr = format!("{} - {}", i, file.file.clone());
-                            tags.insert(Tag::Title, namestr)
-                        }
-                    },
-                };
-                match track.performer.clone() {
-                    Some(artist) => tags.insert(Tag::Artist, artist),
-                    None => None,
-                };
-
-                // Find images around the music file that can be used
-                let album_art = find_images(&audio_location.to_path_buf()).unwrap();
-
-                let new_song = Song {
-                    location: URI::Cue {
-                        location: audio_location.clone(),
-                        index: i,
-                        start,
-                        end,
-                    },
-                    plays: 0,
-                    skips: 0,
-                    favorited: false,
-                    rating: None,
-                    format,
-                    duration,
-                    play_time: Duration::from_secs(0),
-                    last_played: None,
-                    date_added: Some(chrono::offset::Utc::now()),
-                    date_modified: Some(chrono::offset::Utc::now()),
-                    tags,
-                    album_art,
-                };
-
-                match self.add_song(new_song) {
-                    Ok(_) => tracks_added += 1,
-                    Err(_error) => {
-                        //println!("{}", _error);
-                        continue;
-                    }
-                };
-            }
+            };
         }
-
         Ok(tracks_added)
     }
 

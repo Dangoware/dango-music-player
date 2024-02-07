@@ -1,7 +1,9 @@
-use std::path::Path;
+use std::{fs::File, path::{Path, PathBuf}, io::{Read, Error}};
 
+use bincode::config;
 use chrono::Duration;
-use walkdir::Error;
+use uuid::Uuid;
+// use walkdir::Error;
 
 use super::{
     library::{AlbumArt, Song, Tag},
@@ -11,14 +13,14 @@ use super::{
     },
 };
 
-use m3u8_rs::{MediaPlaylist, MediaPlaylistType, MediaSegment};
-// use nom::IResult;
+use m3u8_rs::{MediaPlaylist, MediaPlaylistType, MediaSegment, Playlist as List2, MasterPlaylist};
+
 
 #[derive(Debug, Clone)]
 pub struct Playlist<'a> {
     title: String,
     cover: Option<&'a AlbumArt>,
-    tracks: Vec<Song>,
+    tracks: Vec<Uuid>,
     play_count: i32,
     play_time: Duration,
 }
@@ -32,43 +34,37 @@ impl<'a> Playlist<'a> {
     pub fn play_time(&self) -> chrono::Duration {
         self.play_time
     }
-    pub fn set_tracks(&mut self, songs: Vec<Song>) -> Result<(), Error> {
+    pub fn set_tracks(&mut self, tracks: Vec<Uuid>) {
         self.tracks = songs;
-        Ok(())
     }
-    pub fn add_track(&mut self, song: Song) -> Result<(), Error> {
+    pub fn add_track(&mut self, track: Uuid) -> Result<(), Error> {
         self.tracks.push(song);
         Ok(())
     }
     pub fn remove_track(&mut self, index: i32) -> Result<(), Error> {
-        let bun: usize = index as usize;
-        let mut name = String::new();
-        if self.tracks.len() >= bun {
-            name = String::from(self.tracks[bun].tags.get_key_value(&Tag::Title).unwrap().1);
-            self.tracks.remove(bun);
+        let index = index as usize;
+        if (self.tracks.len() - 1) >= index {
+            self.tracks.remove(index);
         }
-        dbg!(name);
         Ok(())
     }
-    pub fn get_index(&self, song_name: &str) -> Option<usize> {
-        let mut index = 0;
-        if self.contains_value(&Tag::Title, song_name) {
-            for track in &self.tracks {
-                index += 1;
-                if song_name == track.tags.get_key_value(&Tag::Title).unwrap().1 {
-                    dbg!("Index gotted! ", index);
-                    return Some(index);
-                }
-            }
-        }
-        None
-    }
+    // pub fn get_index(&self, song_name: &str) -> Option<usize> {
+    //     let mut index = 0;
+    //     if self.contains_value(&Tag::Title, song_name) {
+    //         for track in &self.tracks {
+    //             index += 1;
+    //             if song_name == track.tags.get_key_value(&Tag::Title).unwrap().1 {
+    //                 dbg!("Index gotted! ", index);
+    //                 return Some(index);
+    //             }
+    //         }
+    //     }
+    //     None
+    // }
     pub fn contains_value(&self, tag: &Tag, value: &str) -> bool {
-        for track in &self.tracks {
-            if value == track.tags.get_key_value(tag).unwrap().1 {
-                return true;
-            }
-        }
+        &self.tracks.iter().for_each(|track| {
+
+        });
         false
     }
     pub fn to_m3u8(&mut self) {
@@ -104,7 +100,28 @@ impl<'a> Playlist<'a> {
             .unwrap();
         m3u8.write_to(&mut file).unwrap();
     }
-    pub fn from_m3u8(file: std::fs::File) -> Playlist<'a> {
+    pub fn from_m3u8(path: &str) -> Result<Playlist<'a>, Error> {
+        let mut file = match File::open(path) {
+            Ok(file) => file,
+            Err(e) => return Err(e),
+        };
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).unwrap();
+
+        let parsed = m3u8_rs::parse_playlist(&bytes);
+
+        let playlist = match parsed {
+            Result::Ok((i, playlist)) => playlist,
+            Result::Err(e) => panic!("Parsing error: \n{}", e),
+        };
+
+        match playlist {
+            List2::MasterPlaylist(_) => panic!(),
+            List2::MediaPlaylist(pl) => {
+                let values = pl.segments.iter().map(|seg| seg.uri.to_owned() ).collect::<Vec<String>>();
+            }
+        }
+
         todo!()
     }
 }

@@ -137,7 +137,11 @@ pub enum ConfigError {
     #[error("No Library Found for {0}!")]
     NoConfigLibrary(Uuid),
     #[error("There is no Default Library for this Config")]
-    NoDefaultLibrary
+    NoDefaultLibrary,
+    //TODO: do something about playlists
+    #[error("Please provide a better m3u8 Playlist")]
+    BadPlaylist,
+
 }
 
 
