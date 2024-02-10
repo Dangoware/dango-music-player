@@ -460,6 +460,14 @@ impl URI {
         };
         path_str.to_string()
     }
+
+    pub fn exists(&self) -> Result<bool, std::io::Error> {
+        match self {
+            URI::Local(loc) => loc.try_exists(),
+            URI::Cue {location, ..} => location.try_exists(),
+            URI::Remote(_, _loc) => todo!(),
+        }
+    }
 }
 
 impl ToString for URI {
@@ -699,7 +707,7 @@ impl MusicLibrary {
                     Ok(_) => total += 1,
                     Err(_error) => {
                         errors += 1;
-                        println!("{}, {:?}: {}", format, target_file.file_name(), _error)
+                        //println!("{}, {:?}: {}", format, target_file.file_name(), _error)
                     } // TODO: Handle more of these errors
                 };
             } else if extension == "cue" {
@@ -707,14 +715,12 @@ impl MusicLibrary {
                     Ok(added) => added,
                     Err(error) => {
                         errors += 1;
-                        println!("{}", error);
+                        //println!("{}", error);
                         0
                     }
                 }
             }
         }
-
-        println!("ERRORS: {}", errors);
 
         Ok(total)
     }
