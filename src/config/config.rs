@@ -92,6 +92,7 @@ impl ConfigLibraries {
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct Config {
     pub path: PathBuf,
+    pub backup_folder: Option<PathBuf>,
     pub libraries: ConfigLibraries,
     pub volume: f32,
 }
@@ -143,7 +144,6 @@ pub enum ConfigError {
     BadPlaylist,
 
 }
-
 
 #[test]
 fn config_test() {

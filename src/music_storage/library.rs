@@ -6,6 +6,7 @@ use crate::config::config::Config;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::ops::ControlFlow::{Break, Continue};
+use std::ops::Deref;
 
 // Files
 use file_format::{FileFormat, Kind};
@@ -273,7 +274,7 @@ impl Song {
 
     /// creates a `Vec<Song>` from a cue file
 
-    pub fn from_cue(cuesheet: &Path) -> Result<(Vec<(Self, &PathBuf)>), Box<dyn Error>> {
+    pub fn from_cue(cuesheet: &Path) -> Result<(Vec<(Self, PathBuf)>), Box<dyn Error>> {
         let mut tracks = Vec::new();
 
         let cue_data = parse_from_file(&cuesheet.to_string_lossy(), false).unwrap();
@@ -285,6 +286,7 @@ impl Song {
         let parent_dir = cuesheet.parent().expect("The file has no parent path??");
         for file in cue_data.files.iter() {
             let audio_location = &parent_dir.join(file.file.clone());
+
 
             if !audio_location.exists() {
                 continue;
@@ -389,7 +391,7 @@ impl Song {
                     tags,
                     album_art,
                 };
-                tracks.push((new_song, audio_location));
+                tracks.push((new_song, audio_location.clone()));
             }
         }
      Ok((tracks))

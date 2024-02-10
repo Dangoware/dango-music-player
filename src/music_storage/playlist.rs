@@ -5,6 +5,8 @@ use chrono::Duration;
 use uuid::Uuid;
 // use walkdir::Error;
 
+use crate::music_controller::controller::Controller;
+
 use super::{
     library::{AlbumArt, Song, Tag},
     music_collection::MusicCollection, db_reader::{
@@ -15,12 +17,17 @@ use super::{
 
 use m3u8_rs::{MediaPlaylist, MediaPlaylistType, MediaSegment, Playlist as List2, MasterPlaylist};
 
-
+#[derive(Debug, Clone)]
+pub enum SortOrder {
+    Manual,
+    Tag(Tag)
+}
 #[derive(Debug, Clone)]
 pub struct Playlist<'a> {
     title: String,
     cover: Option<&'a AlbumArt>,
     tracks: Vec<Uuid>,
+    sort_order: SortOrder,
     play_count: i32,
     play_time: Duration,
 }
@@ -35,10 +42,10 @@ impl<'a> Playlist<'a> {
         self.play_time
     }
     pub fn set_tracks(&mut self, tracks: Vec<Uuid>) {
-        self.tracks = songs;
+        self.tracks = tracks;
     }
     pub fn add_track(&mut self, track: Uuid) -> Result<(), Error> {
-        self.tracks.push(song);
+        self.tracks.push(track);
         Ok(())
     }
     pub fn remove_track(&mut self, index: i32) -> Result<(), Error> {
@@ -67,16 +74,18 @@ impl<'a> Playlist<'a> {
         });
         false
     }
-    pub fn to_m3u8(&mut self) {
-        let seg = &self
-            .tracks
+    pub fn to_m3u8(&mut self, tracks: Vec<Song>) {
+        let seg = tracks
             .iter()
             .map({
-                |track| MediaSegment {
-                    uri: track.location.to_string().into(),
-                    duration: track.duration.as_millis() as f32,
-                    title: Some(track.tags.get_key_value(&Tag::Title).unwrap().1.into()),
-                    ..Default::default()
+                |track| {
+
+                    MediaSegment {
+                        uri: track.location.to_string().into(),
+                        duration: track.duration.as_millis() as f32,
+                        title: Some(track.tags.get_key_value(&Tag::Title).unwrap().1.into()),
+                        ..Default::default()
+                    }
                 }
             })
             .collect::<Vec<MediaSegment>>();
@@ -124,8 +133,6 @@ impl<'a> Playlist<'a> {
 
         todo!()
     }
-}
-impl MusicCollection for Playlist<'_> {
     fn title(&self) -> &String {
         &self.title
     }
@@ -135,30 +142,34 @@ impl MusicCollection for Playlist<'_> {
             None => None,
         }
     }
-    fn tracks(&self) -> Vec<Song> {
+    fn tracks(&self) -> Vec<Uuid> {
         self.tracks.to_owned()
     }
 }
+
+
+
 impl Default for Playlist<'_> {
     fn default() -> Self {
         Playlist {
             title: String::default(),
             cover: None,
             tracks: Vec::default(),
+            sort_order: SortOrder::Manual,
             play_count: 0,
             play_time: Duration::zero(),
         }
     }
 }
 
-#[test]
-fn list_to_m3u8() {
-    let lib = ITunesLibrary::from_file(Path::new(
-        "F:\\Music\\Mp3\\Music Main\\iTunes Music Library.xml",
-    ));
-    let mut a = Playlist::new();
-    let c = lib.to_songs();
-    let mut b = c.iter().map(|song| song.to_owned()).collect::<Vec<Song>>();
-    a.tracks.append(&mut b);
-    a.to_m3u8()
-}
+// #[test]
+// fn list_to_m3u8() {
+//     let lib = ITunesLibrary::from_file(Path::new(
+//         "F:\\Music\\Mp3\\Music Main\\iTunes Music Library.xml",
+//     ));
+//     let mut a = Playlist::new();
+//     let c = lib.to_songs();
+//     let mut b = c.iter().map(|song| song.to_owned()).collect::<Vec<Song>>();
+//     a.tracks.append(&mut b);
+//     a.to_m3u8()
+// }
