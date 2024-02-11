@@ -23,15 +23,15 @@ pub enum SortOrder {
     Tag(Tag)
 }
 #[derive(Debug, Clone)]
-pub struct Playlist<'a> {
+pub struct Playlist {
     title: String,
-    cover: Option<&'a AlbumArt>,
+    cover: Option<AlbumArt>,
     tracks: Vec<Uuid>,
     sort_order: SortOrder,
     play_count: i32,
     play_time: Duration,
 }
-impl<'a> Playlist<'a> {
+impl Playlist {
     pub fn new() -> Self {
         Default::default()
     }
@@ -109,7 +109,7 @@ impl<'a> Playlist<'a> {
             .unwrap();
         m3u8.write_to(&mut file).unwrap();
     }
-    pub fn from_m3u8(path: &str) -> Result<Playlist<'a>, Error> {
+    pub fn from_m3u8(path: &str) -> Result<Playlist, Error> {
         let mut file = match File::open(path) {
             Ok(file) => file,
             Err(e) => return Err(e),
@@ -137,7 +137,7 @@ impl<'a> Playlist<'a> {
         &self.title
     }
     fn cover(&self) -> Option<&AlbumArt> {
-        match self.cover {
+        match &self.cover {
             Some(e) => Some(e),
             None => None,
         }
@@ -149,7 +149,7 @@ impl<'a> Playlist<'a> {
 
 
 
-impl Default for Playlist<'_> {
+impl Default for Playlist {
     fn default() -> Self {
         Playlist {
             title: String::default(),

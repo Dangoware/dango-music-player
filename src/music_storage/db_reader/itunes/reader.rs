@@ -2,17 +2,20 @@ use file_format::FileFormat;
 use lofty::{AudioFile, LoftyError, ParseOptions, Probe, TagType, TaggedFileExt};
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
+use uuid::Uuid;
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::{Arc, RwLock};
 use std::time::Duration as StdDur;
 use std::vec::Vec;
 
 use chrono::prelude::*;
 
+use crate::config::config::{Config, ConfigLibrary};
 use crate::music_storage::db_reader::extern_library::ExternalLibrary;
-use crate::music_storage::library::{AlbumArt, Service, Song, Tag, URI};
+use crate::music_storage::library::{AlbumArt, MusicLibrary, Service, Song, Tag, URI};
 use crate::music_storage::utils;
 
 use urlencoding::decode;
@@ -320,4 +323,20 @@ impl ITunesSong {
         // println!("{:.2?}", song);
         Ok(song)
     }
+}
+
+#[test]
+fn itunes_lib_test() {
+    let mut config = Config::read_file(PathBuf::from("test-config/config_test.json")).unwrap();
+    let config_lib = ConfigLibrary::new(PathBuf::from("test-config/library2"), String::from("library2"), None);
+    config.libraries.libraries.push(config_lib.clone());
+
+    let songs = ITunesLibrary::from_file(Path::new("test-config\\iTunesLib.xml")).to_songs();
+
+    let mut library = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), config_lib.uuid).unwrap();
+
+    songs.iter().for_each(|song| library.add_song(song.to_owned()).unwrap());
+
+    config.write_file().unwrap();
+    library.save(config).unwrap();
 }
