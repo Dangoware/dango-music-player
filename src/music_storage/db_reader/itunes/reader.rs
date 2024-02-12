@@ -170,6 +170,7 @@ impl ExternalLibrary for ITunesLibrary {
 
             let ny: Song = Song {
                 location: sug,
+                uuid: Uuid::new_v4(),
                 plays: track.plays,
                 skips: 0,
                 favorited: track.favorited,

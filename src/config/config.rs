@@ -71,8 +71,10 @@ impl ConfigLibraries {
     }
 
     pub fn get_library(&self, uuid: &Uuid) -> Result<ConfigLibrary, ConfigError> {
+        dbg!(&uuid);
         for library in &self.libraries {
             if &library.uuid == uuid {
+                dbg!(&library.uuid);
                 return Ok(library.to_owned())
             }
         }
@@ -128,8 +130,8 @@ impl Config {
         let mut file: File = File::open(path)?;
         let mut bun: String = String::new();
         _ = file.read_to_string(&mut bun);
-        let ny: Config = serde_json::from_str::<Config>(&bun)?;
-        Ok(ny)
+        let config: Config = serde_json::from_str::<Config>(&bun)?;
+        Ok(config)
     }
 }
 

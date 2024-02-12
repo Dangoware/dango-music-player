@@ -119,6 +119,7 @@ impl ToString for Field {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct Song {
     pub location: URI,
+    pub uuid: Uuid,
     pub plays: i32,
     pub skips: i32,
     pub favorited: bool,
@@ -256,6 +257,7 @@ impl Song {
 
         let new_song = Song {
             location: URI::Local(binding),
+            uuid: Uuid::new_v4(),
             plays: 0,
             skips: 0,
             favorited: false,
@@ -378,6 +380,7 @@ impl Song {
                         start,
                         end,
                     },
+                    uuid: Uuid::new_v4(),
                     plays: 0,
                     skips: 0,
                     favorited: false,
@@ -552,7 +555,7 @@ pub struct MusicLibrary {
 
 #[test]
 fn library_init() {
-    let config = Config::read_file(PathBuf::from("config_test.json")).unwrap();
+    let config = Config::read_file(PathBuf::from("test_config/config_test.json")).unwrap();
     let target_uuid = config.libraries.libraries[0].uuid;
     let a = MusicLibrary::init(Arc::new(RwLock::from(config)), target_uuid).unwrap();
     dbg!(a);
@@ -575,13 +578,14 @@ impl MusicLibrary {
     /// the [MusicLibrary] Vec
     pub fn init(config: Arc<RwLock<Config>>, uuid: Uuid) -> Result<Self, Box<dyn Error>> {
         let global_config = &*config.read().unwrap();
+        let path = global_config.libraries.get_library(&uuid)?.path;
 
-        let library: MusicLibrary = match global_config.libraries.get_library(&uuid)?.path.exists() {
-            true => read_file(global_config.libraries.get_library(&uuid)?.path)?,
+        let library: MusicLibrary = match path.exists() {
+            true => read_file(path)?,
             false => {
                 // If the library does not exist, re-create it
                 let lib = MusicLibrary::new(String::new(), uuid);
-                write_file(&lib, global_config.libraries.get_library(&uuid)?.path)?;
+                write_file(&lib, path)?;
                 lib
             }
         };
@@ -632,6 +636,26 @@ impl MusicLibrary {
             .enumerate()
             .try_for_each(|(i, track)| {
                 if path == &track.location {
+                    return std::ops::ControlFlow::Break((track, i));
+                }
+                Continue(())
+            });
+
+        match result {
+            Break(song) => Some(song),
+            Continue(_) => None,
+        }
+    }
+
+    /// Queries for a [Song] by its [Uuid], returning a single `Song`
+    /// with the `Uuid` that matches along with its position in the library
+    pub fn query_uuid(&self, uuid: &Uuid) -> Option<(&Song, usize)> {
+        let result = self
+            .library
+            .par_iter()
+            .enumerate()
+            .try_for_each(|(i, track)| {
+                if uuid == &track.uuid {
                     return std::ops::ControlFlow::Break((track, i));
                 }
                 Continue(())

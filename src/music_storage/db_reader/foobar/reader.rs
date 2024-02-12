@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::{fs::File, io::Read, path::Path, time::Duration};
 
+use uuid::Uuid;
+
 use super::utils::meta_offset;
 use crate::music_storage::db_reader::common::{get_bytes, get_bytes_vec};
 use crate::music_storage::db_reader::extern_library::ExternalLibrary;
@@ -177,6 +179,7 @@ impl FoobarPlaylistTrack {
 
         Song {
             location,
+            uuid: Uuid::new_v4(),
             plays: 0,
             skips: 0,
             favorited: false,
