@@ -249,6 +249,7 @@ impl Controller {
                     },
                     Enqueue(uri) => {
                         queue.player.enqueue_next(&uri);
+                        // in_thread.send(QueueResponse::Default).unwrap();
                     }
                 }
             }
@@ -273,7 +274,7 @@ impl Controller {
     fn enqueue(&self, index: usize, uri: URI) -> Result<(), Box<dyn Error>> {
         let mail = &self.queue_mail[index];
         mail.send(QueueCommand::Enqueue(uri))?;
-        dbg!(mail.recv()?);
+        // dbg!(mail.recv()?);
         Ok(())
     }
     fn scan_folder(&self, folder: String) -> Result<(), Box<dyn Error>> {
@@ -294,9 +295,12 @@ fn name() {
     sleep(Duration::from_millis(500));
     a.scan_folder("test-config/music/".to_string());
     a.new_queue();
+    a.new_queue();
     let songs = a.get_db_songs();
-    a.enqueue(0, songs[0].location.clone());
+    a.enqueue(0, songs[1].location.clone());
+    a.enqueue(1, songs[2].location.clone());
     a.play(0).unwrap();
+    a.play(1).unwrap();
 
     sleep(Duration::from_secs(10));
 }
