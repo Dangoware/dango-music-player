@@ -239,8 +239,11 @@ impl Controller {
                     Default => {},
                     Test => { in_thread.send(QueueResponse::Test).unwrap() },
                     Play => {
-                        queue.player.play().unwrap();
-                        in_thread.send(QueueResponse::Default).unwrap();
+                        match queue.player.play() {
+                            Ok(_) => in_thread.send(QueueResponse::Default).unwrap(),
+                            Err(_) => unimplemented!()
+                        };
+
                     },
                     Pause => {},
                     SetSongs(songs) => {
@@ -248,7 +251,10 @@ impl Controller {
                         in_thread.send(QueueResponse::Default).unwrap();
                     },
                     Enqueue(uri) => {
-                        queue.player.enqueue_next(&uri);
+                        if uri.exists().unwrap() {
+                            queue.player.enqueue_next(&uri);
+                        }
+
                         // in_thread.send(QueueResponse::Default).unwrap();
                     }
                 }
@@ -295,12 +301,12 @@ fn name() {
     sleep(Duration::from_millis(500));
     a.scan_folder("test-config/music/".to_string());
     a.new_queue();
-    a.new_queue();
+    // a.new_queue();
     let songs = a.get_db_songs();
-    a.enqueue(0, songs[1].location.clone());
-    a.enqueue(1, songs[2].location.clone());
+    a.enqueue(0, songs[4].location.clone());
+    // a.enqueue(1, songs[2].location.clone());
     a.play(0).unwrap();
-    a.play(1).unwrap();
+    // a.play(1).unwrap();
 
     sleep(Duration::from_secs(10));
 }
