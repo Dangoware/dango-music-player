@@ -22,9 +22,7 @@ use crate::music_storage::library::{Tag, URI};
 use crate::music_storage::playlist::Playlist;
 use crate::{
     music_player::Player,
-    music_storage::{
-        library::{MusicLibrary, Song}
-    },
+    music_storage::library::{MusicLibrary, Song},
     config::config::Config,
 };
 
