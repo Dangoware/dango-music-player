@@ -115,6 +115,26 @@ impl ToString for Field {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub enum BannedType {
+    Shuffle,
+    All,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub enum DoNotTrack {
+    // TODO: add services to not track
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+enum SongType {
+    // TODO: add song types
+    Main,
+    Instrumental,
+    Remix,
+    Custom(String)
+}
+
 /// Stores information about a single song
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct Song {
@@ -123,6 +143,7 @@ pub struct Song {
     pub plays: i32,
     pub skips: i32,
     pub favorited: bool,
+    // pub banned: Option<BannedType>,
     pub rating: Option<u8>,
     pub format: Option<FileFormat>,
     pub duration: Duration,
@@ -261,6 +282,7 @@ impl Song {
             plays: 0,
             skips: 0,
             favorited: false,
+            // banned: None,
             rating: None,
             format,
             duration,
@@ -384,6 +406,7 @@ impl Song {
                     plays: 0,
                     skips: 0,
                     favorited: false,
+                    // banned: None,
                     rating: None,
                     format,
                     duration,
@@ -397,7 +420,7 @@ impl Song {
                 tracks.push((new_song, audio_location.clone()));
             }
         }
-     Ok((tracks))
+     Ok(tracks)
     }
 }
 

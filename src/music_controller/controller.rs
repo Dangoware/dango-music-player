@@ -52,12 +52,12 @@ pub struct Controller {
     // queues: Vec<Queue>,
     config: Arc<RwLock<Config>>,
     // library: MusicLibrary,
-    controller_mail: MailMan<ControllerCommand, ControllerResponse>,
-    db_mail: MailMan<DatabaseCommand, DatabaseResponse>,
-    queue_mail: Vec<MailMan<QueueCommand, QueueResponse>>,
+    controller_mail: MailMan<ControllerCmd, ControllerResponse>,
+    db_mail: MailMan<DatabaseCmd, DatabaseResponse>,
+    queue_mail: Vec<MailMan<QueueCmd, QueueResponse>>,
 }
 #[derive(Debug)]
-pub enum ControllerCommand {
+pub enum ControllerCmd {
     Default,
     Test
 }
@@ -65,12 +65,12 @@ pub enum ControllerCommand {
 #[derive(Debug)]
 enum ControllerResponse {
     Empty,
-    QueueMailMan(MailMan<QueueCommand, QueueResponse>),
+    QueueMailMan(MailMan<QueueCmd, QueueResponse>),
 
 }
 
 #[derive(Debug)]
-pub enum DatabaseCommand {
+pub enum DatabaseCmd {
     Default,
     Test,
     GetSongs,
@@ -88,7 +88,7 @@ enum DatabaseResponse {
 }
 
 #[derive(Debug)]
-enum QueueCommand {
+enum QueueCmd {
     Default,
     Test,
     Play,
@@ -128,7 +128,7 @@ impl<T, U> MailMan<T, U> {
     }
 
     pub fn send(&self, mail: T) -> Result<(), Box<dyn Error>> {
-        &self.tx.send(mail).unwrap();
+        self.tx.send(mail).unwrap();
         Ok(())
     }
 
@@ -150,7 +150,7 @@ impl Controller {
 
         let (out_thread_controller, in_thread) = MailMan::double();
         let monitor_thread = spawn(move || {
-            use ControllerCommand::*;
+            use ControllerCmd::*;
             loop {
                 let command = in_thread.recv().unwrap();
 
@@ -166,7 +166,7 @@ impl Controller {
 
         let (out_thread_db, in_thread) = MailMan::double();
         let db_monitor = spawn(move || {
-            use DatabaseCommand::*;
+            use DatabaseCmd::*;
             loop {
                 let command = in_thread.recv().unwrap();
 
@@ -218,7 +218,7 @@ impl Controller {
     }
 
     fn get_db_songs(&self) -> Vec<Song> {
-        self.db_mail.send(DatabaseCommand::GetSongs);
+        self.db_mail.send(DatabaseCmd::GetSongs);
         match self.db_mail.recv().unwrap() {
             DatabaseResponse::Songs(songs) => songs,
             _ => Vec::new()
@@ -227,9 +227,9 @@ impl Controller {
     }
 
     pub fn new_queue(&mut self) {
-        let (out_thread_queue, in_thread) = MailMan::<QueueCommand, QueueResponse>::double();
+        let (out_thread_queue, in_thread) = MailMan::<QueueCmd, QueueResponse>::double();
         let queues_monitor =  spawn(move || {
-            use QueueCommand::*;
+            use QueueCmd::*;
             let mut queue = Queue::new().unwrap();
             loop {
                 let command = in_thread.recv().unwrap();
@@ -263,27 +263,27 @@ impl Controller {
 
     fn play(&self, index: usize) -> Result<(), Box<dyn Error>> {
         let mail = &self.queue_mail[index];
-        mail.send(QueueCommand::Play)?;
+        mail.send(QueueCmd::Play)?;
         dbg!(mail.recv()?);
         Ok(())
     }
 
     fn set_songs(&self, index: usize, songs: Vec<Song>) -> Result<(), Box<dyn Error>> {
         let mail = &self.queue_mail[index];
-        mail.send(QueueCommand::SetSongs(songs))?;
+        mail.send(QueueCmd::SetSongs(songs))?;
         dbg!(mail.recv()?);
         Ok(())
     }
 
     fn enqueue(&self, index: usize, uri: URI) -> Result<(), Box<dyn Error>> {
         let mail = &self.queue_mail[index];
-        mail.send(QueueCommand::Enqueue(uri))?;
+        mail.send(QueueCmd::Enqueue(uri))?;
         // dbg!(mail.recv()?);
         Ok(())
     }
     fn scan_folder(&self, folder: String) -> Result<(), Box<dyn Error>> {
         let mail = &self.db_mail;
-        mail.send(DatabaseCommand::ReadFolder(folder))?;
+        mail.send(DatabaseCmd::ReadFolder(folder))?;
         dbg!(mail.recv()?);
         Ok(())
     }

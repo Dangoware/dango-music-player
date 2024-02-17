@@ -183,6 +183,7 @@ impl FoobarPlaylistTrack {
             plays: 0,
             skips: 0,
             favorited: false,
+            // banned: None,
             rating: None,
             format: None,
             duration: self.duration,

@@ -4,7 +4,7 @@ use std::{
     io::{Error, Write, Read}, sync::{Arc, RwLock},
 };
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
 use thiserror::Error;
 use uuid::Uuid;
@@ -126,6 +126,23 @@ impl Config {
         Ok(())
     }
 
+    pub fn save_backup(&self) -> Result<(), Box<dyn std::error::Error>> {
+        match &self.backup_folder {
+            Some(path) => {
+                let mut writer = path.clone();
+                writer.set_extension("tmp");
+                let mut file = OpenOptions::new().create(true).truncate(true).read(true).write(true).open(&writer)?;
+                let config = to_string_pretty(self)?;
+                // dbg!(&config);
+
+                file.write_all(config.as_bytes())?;
+                fs::rename(writer, self.path.as_path())?;
+                Ok(())
+            },
+            None => Err(ConfigError::NoBackupLibrary.into())
+        }
+    }
+
     pub fn read_file(path: PathBuf) -> Result<Self, Error> {
         let mut file: File = File::open(path)?;
         let mut bun: String = String::new();
@@ -144,6 +161,8 @@ pub enum ConfigError {
     //TODO: do something about playlists
     #[error("Please provide a better m3u8 Playlist")]
     BadPlaylist,
+    #[error("No backup Config folder present")]
+    NoBackupLibrary,
 
 }
 
@@ -166,16 +185,16 @@ fn config_test() {
     };
     config.write_file();
     let arc = Arc::new(RwLock::from(config));
-    MusicLibrary::init(arc.clone(), lib_a.uuid.clone()).unwrap();
-    MusicLibrary::init(arc.clone(), lib_b.uuid.clone()).unwrap();
-    MusicLibrary::init(arc.clone(), lib_c.uuid.clone()).unwrap();
+    MusicLibrary::init(arc.clone(), lib_a.uuid).unwrap();
+    MusicLibrary::init(arc.clone(), lib_b.uuid).unwrap();
+    MusicLibrary::init(arc.clone(), lib_c.uuid).unwrap();
 
 }
 
 #[test]
 fn test2() {
     let config = Config::read_file(PathBuf::from("test-config/config_test.json")).unwrap();
-    let uuid = config.libraries.get_default().unwrap().uuid.clone();
+    let uuid = config.libraries.get_default().unwrap().uuid;
     let mut lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), uuid).unwrap();
     lib.scan_folder("test-config/music/").unwrap();
     lib.save(config.clone()).unwrap();
@@ -187,7 +206,7 @@ fn test2() {
 fn test3() {
     let config = Config::read_file(PathBuf::from("test-config/config_test.json")).unwrap();
     let uuid = config.libraries.get_default().unwrap().uuid;
-    let mut lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), uuid).unwrap();
+    let lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), uuid).unwrap();
 
     dbg!(lib);
 }

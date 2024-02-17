@@ -15,7 +15,7 @@ use chrono::prelude::*;
 
 use crate::config::config::{Config, ConfigLibrary};
 use crate::music_storage::db_reader::extern_library::ExternalLibrary;
-use crate::music_storage::library::{AlbumArt, MusicLibrary, Service, Song, Tag, URI};
+use crate::music_storage::library::{AlbumArt, MusicLibrary, Service, Song, Tag, URI, BannedType};
 use crate::music_storage::utils;
 
 use urlencoding::decode;
@@ -149,7 +149,7 @@ impl ExternalLibrary for ITunesLibrary {
                 continue;
             }
 
-            let sug: URI = if track.location.contains("file://localhost/") {
+            let location: URI = if track.location.contains("file://localhost/") {
                 URI::Local(PathBuf::from(
                     decode(track.location.strip_prefix("file://localhost/").unwrap())
                         .unwrap()
@@ -169,11 +169,16 @@ impl ExternalLibrary for ITunesLibrary {
             let play_time_ = StdDur::from_secs(track.plays as u64 * dur.as_secs());
 
             let ny: Song = Song {
-                location: sug,
+                location,
                 uuid: Uuid::new_v4(),
                 plays: track.plays,
                 skips: 0,
                 favorited: track.favorited,
+                // banned: if track.banned {
+                //     Some(BannedType::All)
+                // }else {
+                //     None
+                // },
                 rating: track.rating,
                 format: match FileFormat::from_file(PathBuf::from(&loc)) {
                     Ok(e) => Some(e),
