@@ -68,6 +68,8 @@ pub enum PlayerError {
     Factory(#[from] glib::BoolError),
     #[error("could not change playback state")]
     StateChange(#[from] gst::StateChangeError),
+    #[error("the file or source is not found")]
+    NotFound,
     #[error("failed to build gstreamer item")]
     Build,
     #[error("poison error")]
@@ -257,12 +259,17 @@ impl Player {
         &self.source
     }
 
-    pub fn enqueue_next(&mut self, next_track: &URI) {
-        self.set_source(next_track);
+    pub fn enqueue_next(&mut self, next_track: &URI) -> Result<(), PlayerError> {
+        self.set_source(next_track)
     }
 
     /// Set the playback URI
-    fn set_source(&mut self, source: &URI) {
+    fn set_source(&mut self, source: &URI) -> Result<(), PlayerError> {
+        if !source.exists().is_ok_and(|x| x) {
+            // If the source doesn't exist, gstreamer will crash!
+            return Err(PlayerError::NotFound)
+        }
+
         // Make sure the playback tracker knows the stuff is stopped
         self.playback_tx.send(PlaybackStats::Switching).unwrap();
 
@@ -290,7 +297,7 @@ impl Player {
                 let now = std::time::Instant::now();
                 while now.elapsed() < std::time::Duration::from_millis(20) {
                     if self.seek_to(Duration::from_std(*start).unwrap()).is_ok() {
-                        return;
+                        return Ok(());
                     }
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
@@ -321,6 +328,8 @@ impl Player {
                 }).unwrap();
             }
         }
+
+        Ok(())
     }
 
     /// Gets a mutable reference to the playbin element

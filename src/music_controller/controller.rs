@@ -249,9 +249,7 @@ impl Controller {
                         in_thread.send(QueueResponse::Default).unwrap();
                     },
                     Enqueue(uri) => {
-                        if uri.exists().unwrap() {
-                            queue.player.enqueue_next(&uri);
-                        }
+                        queue.player.enqueue_next(&uri).unwrap();
 
                         // in_thread.send(QueueResponse::Default).unwrap();
                     }
