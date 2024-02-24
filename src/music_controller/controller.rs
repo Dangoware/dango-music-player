@@ -41,6 +41,7 @@ impl Queue {
             }
         )
     }
+
     fn set_tracks(&mut self, tracks: Vec<Song>) {
         let mut tracks = tracks;
         self.songs.clear();
@@ -73,6 +74,7 @@ enum ControllerResponse {
 pub enum DatabaseCmd {
     Default,
     Test,
+    SaveLibrary,
     GetSongs,
     QueryUuid(Uuid),
     QueryUuids(Vec<Uuid>),
@@ -85,6 +87,7 @@ enum DatabaseResponse {
     Empty,
     Song(Song),
     Songs(Vec<Song>),
+    Library(MusicLibrary),
 }
 
 #[derive(Debug)]
@@ -96,12 +99,14 @@ enum QueueCmd {
     SetSongs(Vec<Song>),
     // SetLocation(URI),
     Enqueue(URI),
+    SetVolume(f64),
 }
 
 #[derive(Debug)]
 enum QueueResponse {
     Default,
     Test,
+    Index(i32),
 }
 
 #[derive(Debug)]
@@ -145,9 +150,10 @@ impl Controller {
         let config = Config::read_file(config_path)?;
         let uuid = config.libraries.get_default()?.uuid;
 
-        let config = Arc::new(RwLock::from(config));
-        let mut lib = MusicLibrary::init(config.clone(), uuid)?;
+        let config_ = Arc::new(RwLock::from(config));
+        let mut lib = MusicLibrary::init(config_.clone(), uuid)?;
 
+        let config = config_.clone();
         let (out_thread_controller, in_thread) = MailMan::double();
         let monitor_thread = spawn(move || {
             use ControllerCmd::*;
@@ -163,7 +169,7 @@ impl Controller {
             }
         });
 
-
+        let config = config_.clone();
         let (out_thread_db, in_thread) = MailMan::double();
         let db_monitor = spawn(move || {
             use DatabaseCmd::*;
@@ -178,6 +184,10 @@ impl Controller {
                     GetSongs => {
                         let songs = lib.query_tracks(&String::from(""), &(vec![Tag::Title]), &(vec![Tag::Title])).unwrap().iter().cloned().cloned().collect();
                         in_thread.send(DatabaseResponse::Songs(songs)).unwrap();
+                    },
+                    SaveLibrary => {
+                        //TODO: make this send lib ref to the function to save instead
+                        lib.save(config.read().unwrap().to_owned()).unwrap();
                     },
                     QueryUuid(uuid) => {
                         match lib.query_uuid(&uuid) {
@@ -209,7 +219,7 @@ impl Controller {
         Ok(
             Controller {
                 // queues: Vec::new(),
-                config,
+                config: config_.clone(),
                 controller_mail: out_thread_controller,
                 db_mail: out_thread_db,
                 queue_mail: Vec::new(),
@@ -217,16 +227,27 @@ impl Controller {
         )
     }
 
-    fn get_db_songs(&self) -> Vec<Song> {
+    fn lib_get_songs(&self) -> Vec<Song> {
         self.db_mail.send(DatabaseCmd::GetSongs);
         match self.db_mail.recv().unwrap() {
             DatabaseResponse::Songs(songs) => songs,
             _ => Vec::new()
         }
-
     }
 
-    pub fn new_queue(&mut self) {
+    fn lib_scan_folder(&self, folder: String) -> Result<(), Box<dyn Error>> {
+        let mail = &self.db_mail;
+        mail.send(DatabaseCmd::ReadFolder(folder))?;
+        dbg!(mail.recv()?);
+        Ok(())
+    }
+
+    pub fn lib_save(&self) -> Result<(), Box<dyn Error>> {
+        self.db_mail.send(DatabaseCmd::SaveLibrary);
+        Ok(())
+    }
+
+    pub fn q_new(&mut self) -> Result<usize, Box<dyn Error>> {
         let (out_thread_queue, in_thread) = MailMan::<QueueCmd, QueueResponse>::double();
         let queues_monitor =  spawn(move || {
             use QueueCmd::*;
@@ -239,11 +260,16 @@ impl Controller {
                     Play => {
                         match queue.player.play() {
                             Ok(_) => in_thread.send(QueueResponse::Default).unwrap(),
-                            Err(_) => unimplemented!()
+                            Err(_) => todo!()
                         };
 
                     },
-                    Pause => {},
+                    Pause => {
+                        match queue.player.pause() {
+                            Ok(_) => in_thread.send(QueueResponse::Default).unwrap(),
+                            Err(_) => todo!()
+                        }
+                    },
                     SetSongs(songs) => {
                         queue.set_tracks(songs);
                         in_thread.send(QueueResponse::Default).unwrap();
@@ -252,57 +278,84 @@ impl Controller {
                         queue.player.enqueue_next(&uri).unwrap();
 
                         // in_thread.send(QueueResponse::Default).unwrap();
+                    },
+                    SetVolume(vol) => {
+                        queue.player.set_volume(vol);
                     }
                 }
             }
         });
         self.queue_mail.push(out_thread_queue);
+        Ok((self.queue_mail.len() - 1))
     }
 
-    fn play(&self, index: usize) -> Result<(), Box<dyn Error>> {
+    fn q_play(&self, index: usize) -> Result<(), Box<dyn Error>> {
         let mail = &self.queue_mail[index];
         mail.send(QueueCmd::Play)?;
         dbg!(mail.recv()?);
         Ok(())
     }
 
-    fn set_songs(&self, index: usize, songs: Vec<Song>) -> Result<(), Box<dyn Error>> {
+    fn q_pause(&self, index: usize) -> Result<(), Box<dyn Error>> {
+        let mail = &self.queue_mail[index];
+        mail.send(QueueCmd::Pause)?;
+        dbg!(mail.recv()?);
+        Ok(())
+    }
+
+    pub fn q_set_volume(&self, index: usize, volume: f64) -> Result<(), Box<dyn Error>> {
+        let mail = &self.queue_mail[index];
+        mail.send(QueueCmd::SetVolume(volume))?;
+        Ok(())
+    }
+
+    fn q_set_songs(&self, index: usize, songs: Vec<Song>) -> Result<(), Box<dyn Error>> {
         let mail = &self.queue_mail[index];
         mail.send(QueueCmd::SetSongs(songs))?;
         dbg!(mail.recv()?);
         Ok(())
     }
 
-    fn enqueue(&self, index: usize, uri: URI) -> Result<(), Box<dyn Error>> {
+    fn q_enqueue(&self, index: usize, uri: URI) -> Result<(), Box<dyn Error>> {
         let mail = &self.queue_mail[index];
         mail.send(QueueCmd::Enqueue(uri))?;
         // dbg!(mail.recv()?);
         Ok(())
     }
-    fn scan_folder(&self, folder: String) -> Result<(), Box<dyn Error>> {
-        let mail = &self.db_mail;
-        mail.send(DatabaseCmd::ReadFolder(folder))?;
-        dbg!(mail.recv()?);
-        Ok(())
-    }
+
 
 }
 
 #[test]
-fn name() {
+fn play_test() {
     let mut a = match Controller::start("test-config/config_test.json".to_string()) {
         Ok(c) => c,
         Err(e) => panic!("{e}")
     };
     sleep(Duration::from_millis(500));
-    a.scan_folder("test-config/music/".to_string());
-    a.new_queue();
+
+    let i = a.q_new().unwrap();
+    a.q_set_volume(i, 0.04);
     // a.new_queue();
-    let songs = a.get_db_songs();
-    a.enqueue(0, songs[4].location.clone());
+    let songs = a.lib_get_songs();
+    a.q_enqueue(i, songs[2].location.clone());
     // a.enqueue(1, songs[2].location.clone());
-    a.play(0).unwrap();
+    a.q_play(i).unwrap();
     // a.play(1).unwrap();
 
     sleep(Duration::from_secs(10));
+    a.q_pause(i);
+    sleep(Duration::from_secs(10));
+    a.q_play(i);
+    sleep(Duration::from_secs(1000));
+}
+
+#[test]
+fn test_() {
+    let a = match Controller::start("test-config/config_test.json".to_string()) {
+        Ok(c) => c,
+        Err(e) => panic!("{e}")
+    };
+    a.lib_scan_folder("F:/Music/Mp3".to_string());
+    a.lib_save();
 }
