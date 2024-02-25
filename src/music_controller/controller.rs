@@ -24,30 +24,8 @@ use crate::{
     music_player::Player,
     music_storage::library::{MusicLibrary, Song},
     config::config::Config,
+    music_controller::queue::Queue,
 };
-
-struct Queue {
-    player: Player,
-    name: String,
-    songs: Vec<Song>,
-}
-impl Queue {
-    fn new() -> Result<Self, Box<dyn Error>> {
-        Ok(
-            Queue {
-            player: Player::new()?,
-            name: String::new(),
-            songs: Vec::new()
-            }
-        )
-    }
-
-    fn set_tracks(&mut self, tracks: Vec<Song>) {
-        let mut tracks = tracks;
-        self.songs.clear();
-        self.songs.append(&mut tracks);
-    }
-}
 
 pub struct Controller {
     // queues: Vec<Queue>,

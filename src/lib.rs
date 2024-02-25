@@ -13,6 +13,7 @@ pub mod music_storage {
 pub mod music_controller{
     pub mod controller;
     pub mod connections;
+    pub mod queue;
 }
 
 pub mod music_player;
