@@ -27,6 +27,8 @@ use crate::{
     music_controller::queue::Queue,
 };
 
+use super::queue::{QueueItem, QueueState};
+
 pub struct Controller {
     // queues: Vec<Queue>,
     config: Arc<RwLock<Config>>,
@@ -74,7 +76,7 @@ enum QueueCmd {
     Test,
     Play,
     Pause,
-    SetSongs(Vec<Song>),
+    // SetSongs(Vec<QueueItem<QueueState>>),
     // SetLocation(URI),
     Enqueue(URI),
     SetVolume(f64),
@@ -248,10 +250,10 @@ impl Controller {
                             Err(_) => todo!()
                         }
                     },
-                    SetSongs(songs) => {
-                        queue.set_tracks(songs);
-                        in_thread.send(QueueResponse::Default).unwrap();
-                    },
+                    // SetSongs(songs) => {
+                    //     queue.set_tracks(songs);
+                    //     in_thread.send(QueueResponse::Default).unwrap();
+                    // },
                     Enqueue(uri) => {
                         queue.player.enqueue_next(&uri).unwrap();
 
@@ -287,12 +289,12 @@ impl Controller {
         Ok(())
     }
 
-    fn q_set_songs(&self, index: usize, songs: Vec<Song>) -> Result<(), Box<dyn Error>> {
-        let mail = &self.queue_mail[index];
-        mail.send(QueueCmd::SetSongs(songs))?;
-        dbg!(mail.recv()?);
-        Ok(())
-    }
+    // fn q_set_songs(&self, index: usize, songs: Vec<QueueItem<QueueState>>) -> Result<(), Box<dyn Error>> {
+    //     let mail = &self.queue_mail[index];
+    //     mail.send(QueueCmd::SetSongs(songs))?;
+    //     dbg!(mail.recv()?);
+    //     Ok(())
+    // }
 
     fn q_enqueue(&self, index: usize, uri: URI) -> Result<(), Box<dyn Error>> {
         let mail = &self.queue_mail[index];

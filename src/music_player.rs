@@ -90,6 +90,7 @@ enum PlaybackStats {
 }
 
 /// An instance of a music player with a GStreamer backend
+#[derive(Debug)]
 pub struct Player {
     source:     Option<URI>,
     //pub message_tx: Sender<PlayerCmd>,
