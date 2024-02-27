@@ -24,6 +24,7 @@ pub enum SortOrder {
 }
 #[derive(Debug, Clone)]
 pub struct Playlist {
+    uuid: Uuid,
     title: String,
     cover: Option<AlbumArt>,
     tracks: Vec<Uuid>,
@@ -152,6 +153,7 @@ impl Playlist {
 impl Default for Playlist {
     fn default() -> Self {
         Playlist {
+            uuid: Uuid::new_v4(),
             title: String::default(),
             cover: None,
             tracks: Vec::default(),
