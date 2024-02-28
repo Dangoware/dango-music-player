@@ -515,7 +515,7 @@ pub enum Service {
     None,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Album<'a> {
     title: &'a String,
     artist: Option<&'a String>,
