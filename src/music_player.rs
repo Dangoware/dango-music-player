@@ -180,7 +180,7 @@ impl Player {
                         *position_update.write().unwrap() = None;
                         break
                     },
-                    PlaybackStats::Idle | PlaybackStats::Switching => println!("waiting!"),
+                    PlaybackStats::Idle | PlaybackStats::Switching => {},
                     _ => ()
                 }
 
