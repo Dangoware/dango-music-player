@@ -332,10 +332,10 @@ fn item_add_test() {
 #[test]
 fn test_() {
     let mut q = Queue::new().unwrap();
-    for _ in 0..1 {
+    for _ in 0..400 {
         q.items.push(QueueItem { item: QueueItemType::Song(Uuid::new_v4()), state: QueueState::Played, source: QueueSource::File, by_human: false });
     }
-    for _ in 0..2 {
+    for _ in 0..50000 {
         q.add_item(QueueItemType::Song(Uuid::new_v4()), QueueSource::Library, true).unwrap();
     }
     q.add_item_next(QueueItemType::Test, QueueSource::File);
