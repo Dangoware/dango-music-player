@@ -74,12 +74,9 @@ pub fn find_images(song_path: &Path) -> Result<Vec<AlbumArt>, Box<dyn Error>> {
         .follow_links(true)
         .into_iter()
         .filter_map(|e| e.ok())
+        .filter(|e| e.depth() < 3) // Don't recurse very deep
     {
-        if target_file.depth() >= 3 {
-            // Don't recurse very deep
-            break;
-        }
-
+        println!("{:?}", target_file);
         let path = target_file.path();
         if !path.is_file() {
             continue;
@@ -87,7 +84,7 @@ pub fn find_images(song_path: &Path) -> Result<Vec<AlbumArt>, Box<dyn Error>> {
 
         let format = FileFormat::from_file(path)?.kind();
         if format != Kind::Image {
-            break;
+            continue;
         }
 
         let image_uri = URI::Local(path.to_path_buf().canonicalize()?);

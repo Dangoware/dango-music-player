@@ -274,7 +274,7 @@ impl Song {
 
     /// creates a `Vec<Song>` from a cue file
 
-    pub fn from_cue(cuesheet: &Path) -> Result<(Vec<(Self, PathBuf)>), Box<dyn Error>> {
+    pub fn from_cue(cuesheet: &Path) -> Result<Vec<(Self, PathBuf)>, Box<dyn Error>> {
         let mut tracks = Vec::new();
 
         let cue_data = parse_from_file(&cuesheet.to_string_lossy(), false).unwrap();
