@@ -1,7 +1,3 @@
-use std::{marker::PhantomData, fs::File, path::PathBuf};
-
-use font::Font;
-
 pub enum Setting {
     String {
         name: String,

@@ -2,32 +2,22 @@
 //! player. It manages queues, playback, library access, and
 //! other functions
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 use crossbeam_channel::{Sender, Receiver};
-// use std::sync::mpsc;
 use crossbeam_channel;
-use gstreamer::format::Default;
-use gstreamer::query::Uri;
-use std::thread::{self, sleep, spawn};
+use std::thread::spawn;
 
 use std::error::Error;
 use crossbeam_channel::unbounded;
-use rayon::iter::Rev;
 use uuid::Uuid;
 
-use crate::config;
 use crate::music_storage::library::{Tag, URI};
-use crate::music_storage::playlist::Playlist;
 use crate::{
-    music_player::Player,
     music_storage::library::{MusicLibrary, Song},
     config::config::Config,
     music_controller::queue::Queue,
 };
-
-use super::queue::{QueueItem, QueueState};
 
 pub struct Controller {
     // queues: Vec<Queue>,
@@ -266,7 +256,7 @@ impl Controller {
             }
         });
         self.queue_mail.push(out_thread_queue);
-        Ok((self.queue_mail.len() - 1))
+        Ok(self.queue_mail.len() - 1)
     }
 
     fn q_play(&self, index: usize) -> Result<(), Box<dyn Error>> {
@@ -306,36 +296,43 @@ impl Controller {
 
 }
 
-#[test]
-fn play_test() {
-    let mut a = match Controller::start("test-config/config_test.json".to_string()) {
-        Ok(c) => c,
-        Err(e) => panic!("{e}")
-    };
-    sleep(Duration::from_millis(500));
+#[cfg(test)]
+mod tests {
+    use std::{thread::sleep, time::Duration};
 
-    let i = a.q_new().unwrap();
-    a.q_set_volume(i, 0.04);
-    // a.new_queue();
-    let songs = a.lib_get_songs();
-    a.q_enqueue(i, songs[2].location.clone());
-    // a.enqueue(1, songs[2].location.clone());
-    a.q_play(i).unwrap();
-    // a.play(1).unwrap();
+    use super::Controller;
 
-    sleep(Duration::from_secs(10));
-    a.q_pause(i);
-    sleep(Duration::from_secs(10));
-    a.q_play(i);
-    sleep(Duration::from_secs(1000));
-}
+    #[test]
+    fn play_test() {
+        let mut a = match Controller::start("test-config/config_test.json".to_string()) {
+            Ok(c) => c,
+            Err(e) => panic!("{e}")
+        };
+        sleep(Duration::from_millis(500));
 
-#[test]
-fn test_() {
-    let a = match Controller::start("test-config/config_test.json".to_string()) {
-        Ok(c) => c,
-        Err(e) => panic!("{e}")
-    };
-    a.lib_scan_folder("F:/Music/Mp3".to_string());
-    a.lib_save();
+        let i = a.q_new().unwrap();
+        a.q_set_volume(i, 0.04);
+        // a.new_queue();
+        let songs = a.lib_get_songs();
+        a.q_enqueue(i, songs[2].location.clone());
+        // a.enqueue(1, songs[2].location.clone());
+        a.q_play(i).unwrap();
+        // a.play(1).unwrap();
+
+        sleep(Duration::from_secs(10));
+        a.q_pause(i);
+        sleep(Duration::from_secs(10));
+        a.q_play(i);
+        sleep(Duration::from_secs(1000));
+    }
+
+    #[test]
+    fn test_() {
+        let a = match Controller::start("test-config/config_test.json".to_string()) {
+            Ok(c) => c,
+            Err(e) => panic!("{e}")
+        };
+        a.lib_scan_folder("F:/Music/Mp3".to_string());
+        a.lib_save();
+    }
 }

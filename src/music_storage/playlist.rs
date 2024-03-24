@@ -1,21 +1,10 @@
-use std::{fs::File, path::{Path, PathBuf}, io::{Read, Error}};
+use std::{fs::File, io::{Read, Error}};
 
-use bincode::config;
 use chrono::Duration;
 use uuid::Uuid;
-// use walkdir::Error;
+use super::library::{AlbumArt, Song, Tag};
 
-use crate::music_controller::controller::Controller;
-
-use super::{
-    library::{AlbumArt, Song, Tag},
-    music_collection::MusicCollection, db_reader::{
-        itunes::reader::ITunesLibrary,
-        extern_library::ExternalLibrary
-    },
-};
-
-use m3u8_rs::{MediaPlaylist, MediaPlaylistType, MediaSegment, Playlist as List2, MasterPlaylist};
+use m3u8_rs::{MediaPlaylist, MediaPlaylistType, MediaSegment, Playlist as List2};
 
 #[derive(Debug, Clone)]
 pub enum SortOrder {

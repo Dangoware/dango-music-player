@@ -1,8 +1,12 @@
-use font::opentype::tables::font_variations::InstanceFlags;
 use uuid::Uuid;
-
-use crate::{music_player::Player, music_storage::library::{Album, MusicLibrary, Song, URI}};
-use std::{error::Error, ops::Add, path::Path, sync::{Arc, RwLock}, thread::sleep, time::Duration};
+use crate::{
+    music_player::Player,
+    music_storage::library::{Album, MusicLibrary, URI}
+};
+use std::{
+    error::Error,
+    sync::{Arc, RwLock}
+};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum QueueState {
@@ -169,7 +173,7 @@ impl<'a> Queue<'a> {
         let empty = self.is_empty();
 
         self.items.insert(
-            (ind + if !empty && ind_ == None { 1 } else { 2 }),
+            ind + if !empty && ind_ == None { 1 } else { 2 },
             QueueItem {
                 item,
                 state: if empty {
@@ -282,8 +286,6 @@ impl<'a> Queue<'a> {
     pub fn prev() {}
 
     pub fn enqueue_item(&mut self, item: QueueItem, lib: Arc<RwLock<MusicLibrary>>) -> Result<(), Box<dyn Error>> {
-        use QueueItemType::*;
-
         if let Some(uri) = item.item.get_uri(lib) {
             self.player.enqueue_next(&uri)?;
         }else {

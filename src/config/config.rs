@@ -1,15 +1,13 @@
 use std::{
     path::PathBuf,
     fs::{File, OpenOptions, self},
-    io::{Error, Write, Read}, sync::{Arc, RwLock},
+    io::{Error, Write, Read},
 };
 
 use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
 use thiserror::Error;
 use uuid::Uuid;
-
-use crate::music_storage::library::{MusicLibrary, self};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigLibrary {
@@ -166,47 +164,54 @@ pub enum ConfigError {
 
 }
 
-#[test]
-fn config_test() {
-    let lib_a = ConfigLibrary::new(PathBuf::from("test-config/library1"), String::from("library1"), None);
-    let lib_b = ConfigLibrary::new(PathBuf::from("test-config/library2"), String::from("library2"), None);
-    let lib_c = ConfigLibrary::new(PathBuf::from("test-config/library3"), String::from("library3"), None);
-    let config = Config {
-        path: PathBuf::from("test-config/config_test.json"),
-        libraries: ConfigLibraries {
-            libraries: vec![
-                lib_a.clone(),
-                lib_b.clone(),
-                lib_c.clone(),
-            ],
+#[cfg(test)]
+mod tests {
+    use std::{path::PathBuf, sync::{Arc, RwLock}};
+    use crate::music_storage::library::MusicLibrary;
+    use super::{Config, ConfigLibraries, ConfigLibrary};
+
+    #[test]
+    fn config_test() {
+        let lib_a = ConfigLibrary::new(PathBuf::from("test-config/library1"), String::from("library1"), None);
+        let lib_b = ConfigLibrary::new(PathBuf::from("test-config/library2"), String::from("library2"), None);
+        let lib_c = ConfigLibrary::new(PathBuf::from("test-config/library3"), String::from("library3"), None);
+        let config = Config {
+            path: PathBuf::from("test-config/config_test.json"),
+            libraries: ConfigLibraries {
+                libraries: vec![
+                    lib_a.clone(),
+                    lib_b.clone(),
+                    lib_c.clone(),
+                ],
+                ..Default::default()
+            },
             ..Default::default()
-        },
-        ..Default::default()
-    };
-    config.write_file();
-    let arc = Arc::new(RwLock::from(config));
-    MusicLibrary::init(arc.clone(), lib_a.uuid).unwrap();
-    MusicLibrary::init(arc.clone(), lib_b.uuid).unwrap();
-    MusicLibrary::init(arc.clone(), lib_c.uuid).unwrap();
+        };
+        config.write_file();
+        let arc = Arc::new(RwLock::from(config));
+        MusicLibrary::init(arc.clone(), lib_a.uuid).unwrap();
+        MusicLibrary::init(arc.clone(), lib_b.uuid).unwrap();
+        MusicLibrary::init(arc.clone(), lib_c.uuid).unwrap();
 
-}
+    }
 
-#[test]
-fn test2() {
-    let config = Config::read_file(PathBuf::from("test-config/config_test.json")).unwrap();
-    let uuid = config.libraries.get_default().unwrap().uuid;
-    let mut lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), uuid).unwrap();
-    lib.scan_folder("test-config/music/").unwrap();
-    lib.save(config.clone()).unwrap();
-    dbg!(&lib);
-    dbg!(&config);
-}
+    #[test]
+    fn test2() {
+        let config = Config::read_file(PathBuf::from("test-config/config_test.json")).unwrap();
+        let uuid = config.libraries.get_default().unwrap().uuid;
+        let mut lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), uuid).unwrap();
+        lib.scan_folder("test-config/music/").unwrap();
+        lib.save(config.clone()).unwrap();
+        dbg!(&lib);
+        dbg!(&config);
+    }
 
-#[test]
-fn test3() {
-    let config = Config::read_file(PathBuf::from("test-config/config_test.json")).unwrap();
-    let uuid = config.libraries.get_default().unwrap().uuid;
-    let lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), uuid).unwrap();
+    #[test]
+    fn test3() {
+        let config = Config::read_file(PathBuf::from("test-config/config_test.json")).unwrap();
+        let uuid = config.libraries.get_default().unwrap().uuid;
+        let lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), uuid).unwrap();
 
-    dbg!(lib);
+        dbg!(lib);
+    }
 }

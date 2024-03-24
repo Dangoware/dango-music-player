@@ -1,16 +1,16 @@
-use std::any::Any;
 use std::fs::{File, self};
 use std::io::{BufReader, BufWriter};
-use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::error::Error;
-
 use walkdir::WalkDir;
 use file_format::{FileFormat, Kind};
 use snap;
 use deunicode::deunicode_with_tofu;
 
 use super::library::{AlbumArt, URI};
+
+#[cfg(target_family = "windows")]
+use std::os::windows::fs::MetadataExt;
 
 pub(super) fn normalize(input_string: &str) -> String {
     // Normalize the string to latin characters... this needs a lot of work

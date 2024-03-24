@@ -1,4 +1,4 @@
-#![allow(unused)]
+#[allow(dead_code)]
 
 pub mod music_storage {
     pub mod library;

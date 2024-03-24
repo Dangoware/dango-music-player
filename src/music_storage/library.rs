@@ -5,9 +5,7 @@ use crate::config::config::Config;
 // Various std things
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::io::BufWriter;
 use std::ops::ControlFlow::{Break, Continue};
-use std::ops::Deref;
 
 // Files
 use file_format::{FileFormat, Kind};
@@ -15,11 +13,12 @@ use glib::filename_to_uri;
 use image::guess_format;
 use lofty::{AudioFile, ItemKey, ItemValue, ParseOptions, Probe, TagType, TaggedFileExt};
 use rcue::parser::parse_from_file;
-use tempfile::tempfile;
 use uuid::Uuid;
-use std::fs::{self, OpenOptions};
+use std::fs;
+use tempfile::TempDir;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
+use image::ImageFormat::*;
 
 // Time
 use chrono::{serde::ts_milliseconds_option, DateTime, Utc};
@@ -163,11 +162,8 @@ pub struct Song {
 
 #[test]
 fn get_art_test() {
-    use urlencoding::decode;
-
     let s = Song::from_file(Path::new("F:\\Music\\Mp3\\ななひら\\Colory Starry\\05 - Fly Away!.mp3")).unwrap();
-    s.open_album_art(0).inspect_err(|e| println!("{e:?}"));
-
+    s.open_album_art(0).inspect_err(|e| println!("{e:?}")).unwrap();
 }
 
 impl Song {
@@ -440,22 +436,24 @@ impl Song {
         use urlencoding::decode;
 
         if index >= self.album_art.len() {
-            return Err("index out of bounds?".into());
+            return Err("Index out of bounds".into());
         }
 
-        let uri: String = match &self.album_art[index] {
+        let uri = match &self.album_art[index] {
             AlbumArt::External(uri) => {
-                decode(match uri.as_uri().strip_prefix("file:///") { Some(e) => e, None => return Err("Invalid path?".into()) })?.into_owned()
+                PathBuf::from(decode(match uri.as_uri().strip_prefix("file:///") {
+                    Some(e) => e,
+                    None => return Err("Invalid path?".into())
+                })?.to_owned().to_string())
             },
             AlbumArt::Embedded(_) => {
-
                 let normal_options = ParseOptions::new().parsing_mode(lofty::ParsingMode::Relaxed);
                 let blank_tag = &lofty::Tag::new(TagType::Id3v2);
                 let tagged_file: lofty::TaggedFile;
 
-                let uri = dbg!(urlencoding::decode(self.location.as_uri().strip_prefix("file:///").unwrap())?.into_owned());
+                let uri = urlencoding::decode(self.location.as_uri().strip_prefix("file://").unwrap())?.into_owned();
 
-                let tag = match Probe::open(uri)?.options(normal_options).read() {
+                let tag = match Probe::open(uri).unwrap().options(normal_options).read() {
                     Ok(file) => {
                         tagged_file = file;
 
@@ -476,26 +474,22 @@ impl Song {
                 let format = dbg!(guess_format(data)?);
                 let img = image::load_from_memory(data)?;
 
-                let mut location = String::new();
-                let i: u32 = 0;
-                loop {
-                    use image::ImageFormat::*;
-                    //TODO: create a place for temporary images
-                    let fmt = match format {
-                        Jpeg => "jpeg",
-                        Png => "png",
-                        _ => todo!(),
-                    };
-
-                    location = format!("./test-config/images/tempcover{i}.{fmt}.tmp");
-                    break;
+                let tmp_dir = TempDir::new()?;
+                let fmt = match format {
+                    Jpeg => "jpeg",
+                    Png => "png",
+                    _ => todo!(),
                 };
-                img.save_with_format(&location, format)?;
 
-                location.to_string()
+                let file_path = tmp_dir.path().join(format!("{}.{fmt}", self.uuid));
+
+                open(&file_path).unwrap();
+                img.save_with_format(&file_path, format).unwrap();
+
+                file_path
             },
         };
-        open(uri)?;
+        dbg!(open(uri)?);
 
         Ok(())
     }
