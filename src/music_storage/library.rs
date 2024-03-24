@@ -5,16 +5,19 @@ use crate::config::config::Config;
 // Various std things
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::io::BufWriter;
 use std::ops::ControlFlow::{Break, Continue};
 use std::ops::Deref;
 
 // Files
 use file_format::{FileFormat, Kind};
 use glib::filename_to_uri;
+use image::guess_format;
 use lofty::{AudioFile, ItemKey, ItemValue, ParseOptions, Probe, TagType, TaggedFileExt};
 use rcue::parser::parse_from_file;
+use tempfile::tempfile;
 use uuid::Uuid;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -158,6 +161,15 @@ pub struct Song {
     pub tags: BTreeMap<Tag, String>,
 }
 
+#[test]
+fn get_art_test() {
+    use urlencoding::decode;
+
+    let s = Song::from_file(Path::new("F:\\Music\\Mp3\\ななひら\\Colory Starry\\05 - Fly Away!.mp3")).unwrap();
+    s.open_album_art(0).inspect_err(|e| println!("{e:?}"));
+
+}
+
 impl Song {
     /// Get a tag's value
     ///
@@ -298,7 +310,7 @@ impl Song {
 
     /// creates a `Vec<Song>` from a cue file
 
-    pub fn from_cue(cuesheet: &Path) -> Result<(Vec<(Self, PathBuf)>), Box<dyn Error>> {
+    pub fn from_cue(cuesheet: &Path) -> Result<Vec<(Self, PathBuf)>, Box<dyn Error>> {
         let mut tracks = Vec::new();
 
         let cue_data = parse_from_file(&cuesheet.to_string_lossy(), false).unwrap();
@@ -422,6 +434,71 @@ impl Song {
         }
      Ok(tracks)
     }
+
+    pub fn open_album_art(&self, index: usize) -> Result<(), Box<dyn Error>> {
+        use opener::open;
+        use urlencoding::decode;
+
+        if index >= self.album_art.len() {
+            return Err("index out of bounds?".into());
+        }
+
+        let uri: String = match &self.album_art[index] {
+            AlbumArt::External(uri) => {
+                decode(match uri.as_uri().strip_prefix("file:///") { Some(e) => e, None => return Err("Invalid path?".into()) })?.into_owned()
+            },
+            AlbumArt::Embedded(_) => {
+
+                let normal_options = ParseOptions::new().parsing_mode(lofty::ParsingMode::Relaxed);
+                let blank_tag = &lofty::Tag::new(TagType::Id3v2);
+                let tagged_file: lofty::TaggedFile;
+
+                let uri = dbg!(urlencoding::decode(self.location.as_uri().strip_prefix("file:///").unwrap())?.into_owned());
+
+                let tag = match Probe::open(uri)?.options(normal_options).read() {
+                    Ok(file) => {
+                        tagged_file = file;
+
+                        match tagged_file.primary_tag() {
+                            Some(primary_tag) => primary_tag,
+
+                            None => match tagged_file.first_tag() {
+                                Some(first_tag) => first_tag,
+                                None => blank_tag,
+                            },
+                        }
+                    }
+
+                    Err(_) => blank_tag,
+                };
+
+                let data = tag.pictures()[index].data();
+                let format = dbg!(guess_format(data)?);
+                let img = image::load_from_memory(data)?;
+
+                let mut location = String::new();
+                let i: u32 = 0;
+                loop {
+                    use image::ImageFormat::*;
+                    //TODO: create a place for temporary images
+                    let fmt = match format {
+                        Jpeg => "jpeg",
+                        Png => "png",
+                        _ => todo!(),
+                    };
+
+                    location = format!("./test-config/images/tempcover{i}.{fmt}.tmp");
+                    break;
+                };
+                img.save_with_format(&location, format)?;
+
+                location.to_string()
+            },
+        };
+        open(uri)?;
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -526,7 +603,7 @@ pub struct Album<'a> {
 #[allow(clippy::len_without_is_empty)]
 impl Album<'_> {
     //returns the Album title
-    fn title(&self) -> &String {
+    pub fn title(&self) -> &String {
         self.title
     }
 

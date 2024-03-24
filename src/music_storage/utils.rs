@@ -1,5 +1,7 @@
+use std::any::Any;
 use std::fs::{File, self};
 use std::io::{BufReader, BufWriter};
+use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::error::Error;
 
@@ -74,20 +76,22 @@ pub fn find_images(song_path: &Path) -> Result<Vec<AlbumArt>, Box<dyn Error>> {
         .follow_links(true)
         .into_iter()
         .filter_map(|e| e.ok())
+        .filter(|e| e.depth() < 3) // Don't recurse very deep
     {
-        if target_file.depth() >= 3 {
-            // Don't recurse very deep
-            break;
-        }
-
+        // println!("{:?}", target_file);
         let path = target_file.path();
-        if !path.is_file() {
+        if !path.is_file() || !path.exists() {
             continue;
         }
 
         let format = FileFormat::from_file(path)?.kind();
         if format != Kind::Image {
-            break;
+            continue;
+        }
+
+        #[cfg(target_family = "windows")]
+        if (4 & path.metadata().unwrap().file_attributes()) == 4  {
+            continue;
         }
 
         let image_uri = URI::Local(path.to_path_buf().canonicalize()?);
