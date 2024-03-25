@@ -5,7 +5,9 @@ use crate::config::config::Config;
 // Various std things
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::io::Write;
 use std::ops::ControlFlow::{Break, Continue};
+use std::thread::sleep;
 
 // Files
 use file_format::{FileFormat, Kind};
@@ -14,7 +16,7 @@ use image::guess_format;
 use lofty::{AudioFile, ItemKey, ItemValue, ParseOptions, Probe, TagType, TaggedFileExt};
 use rcue::parser::parse_from_file;
 use uuid::Uuid;
-use std::fs;
+use std::fs::{self, File};
 use tempfile::TempDir;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -160,11 +162,6 @@ pub struct Song {
     pub tags: BTreeMap<Tag, String>,
 }
 
-#[test]
-fn get_art_test() {
-    let s = Song::from_file(Path::new("F:\\Music\\Mp3\\ななひら\\Colory Starry\\05 - Fly Away!.mp3")).unwrap();
-    s.open_album_art(0).inspect_err(|e| println!("{e:?}")).unwrap();
-}
 
 impl Song {
     /// Get a tag's value
@@ -431,7 +428,7 @@ impl Song {
      Ok(tracks)
     }
 
-    pub fn open_album_art(&self, index: usize) -> Result<(), Box<dyn Error>> {
+    pub fn open_album_art(&self, index: usize, temp_dir: &TempDir) -> Result<(), Box<dyn Error>> {
         use opener::open;
         use urlencoding::decode;
 
@@ -451,9 +448,21 @@ impl Song {
                 let blank_tag = &lofty::Tag::new(TagType::Id3v2);
                 let tagged_file: lofty::TaggedFile;
 
-                let uri = urlencoding::decode(self.location.as_uri().strip_prefix("file://").unwrap())?.into_owned();
+                #[cfg(windows)]
+                let uri = urlencoding::decode(
+                    match self.location.as_uri().strip_prefix("file:///") {
+                        Some(str) => str,
+                        None => return Err("invalid path.. again?".into())
+                })?.into_owned();
 
-                let tag = match Probe::open(uri).unwrap().options(normal_options).read() {
+                #[cfg(unix)]
+                let uri = urlencoding::decode(
+                    match self.location.as_uri().strip_prefix("file://") {
+                        Some(str) => str,
+                        None => return Err("invalid path.. again?".into())
+                })?.into_owned();
+
+                let tag = match Probe::open(uri)?.options(normal_options).read() {
                     Ok(file) => {
                         tagged_file = file;
 
@@ -471,26 +480,16 @@ impl Song {
                 };
 
                 let data = tag.pictures()[index].data();
-                let format = dbg!(guess_format(data)?);
-                let img = image::load_from_memory(data)?;
 
-                let tmp_dir = TempDir::new()?;
-                let fmt = match format {
-                    Jpeg => "jpeg",
-                    Png => "png",
-                    _ => todo!(),
-                };
+                let fmt = FileFormat::from_bytes(data);
+                let file_path = temp_dir.path().join(format!("{}_{index}.{}", self.uuid, fmt.extension()));
 
-                let file_path = tmp_dir.path().join(format!("{}.{fmt}", self.uuid));
-
-                open(&file_path).unwrap();
-                img.save_with_format(&file_path, format).unwrap();
+                File::create(&file_path)?.write_all(data)?;
 
                 file_path
             },
         };
-        dbg!(open(uri)?);
-
+        dbg!(open(dbg!(uri))?);
         Ok(())
     }
 }
@@ -556,6 +555,14 @@ impl URI {
             URI::Remote(_, location) => location.clone(),
         };
         path_str.to_string()
+    }
+
+    pub fn as_path(&self) -> Result<&PathBuf, Box<dyn Error>> {
+        if let Self::Local(path) = self {
+            Ok(path)
+        }else {
+            Err("This URI is not local!".into())
+        }
     }
 
     pub fn exists(&self) -> Result<bool, std::io::Error> {
@@ -1130,5 +1137,27 @@ impl MusicLibrary {
             .collect();
 
         Ok(albums)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::{path::Path, thread::sleep, time::{Duration, Instant}};
+
+    use tempfile::TempDir;
+
+    use super::Song;
+
+
+    #[test]
+    fn get_art_test() {
+        let s = Song::from_file(Path::new(".\\test-config\\music\\Snail_s House - Hot Milk.mp3")).unwrap();
+        let dir = &TempDir::new().unwrap();
+
+        let now = Instant::now();
+        _ = s.open_album_art(0, dir).inspect_err(|e| println!("{e:?}"));
+        println!("{}ms", now.elapsed().as_millis() );
+
+        sleep(Duration::from_secs(1));
     }
 }

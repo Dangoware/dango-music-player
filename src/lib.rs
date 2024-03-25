@@ -1,5 +1,3 @@
-#[allow(dead_code)]
-
 pub mod music_storage {
     pub mod library;
     pub mod music_collection;
