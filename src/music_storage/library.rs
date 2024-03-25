@@ -12,7 +12,6 @@ use std::thread::sleep;
 // Files
 use file_format::{FileFormat, Kind};
 use glib::filename_to_uri;
-use image::guess_format;
 use lofty::{AudioFile, ItemKey, ItemValue, ParseOptions, Probe, TagType, TaggedFileExt};
 use rcue::parser::parse_from_file;
 use uuid::Uuid;
@@ -20,7 +19,6 @@ use std::fs::{self, File};
 use tempfile::TempDir;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
-use image::ImageFormat::*;
 
 // Time
 use chrono::{serde::ts_milliseconds_option, DateTime, Utc};
