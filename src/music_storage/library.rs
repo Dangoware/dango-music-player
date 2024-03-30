@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::io::Write;
 use std::ops::ControlFlow::{Break, Continue};
-use std::thread::sleep;
+
 
 // Files
 use file_format::{FileFormat, Kind};
@@ -426,6 +426,8 @@ impl Song {
      Ok(tracks)
     }
 
+    /// Takes the AlbumArt[index] and opens it in the native file viewer
+
     pub fn open_album_art(&self, index: usize, temp_dir: &TempDir) -> Result<(), Box<dyn Error>> {
         use opener::open;
         use urlencoding::decode;
@@ -446,14 +448,14 @@ impl Song {
                 let blank_tag = &lofty::Tag::new(TagType::Id3v2);
                 let tagged_file: lofty::TaggedFile;
 
-                #[cfg(windows)]
+                #[cfg(target_family = "windows")]
                 let uri = urlencoding::decode(
                     match self.location.as_uri().strip_prefix("file:///") {
                         Some(str) => str,
                         None => return Err("invalid path.. again?".into())
                 })?.into_owned();
 
-                #[cfg(unix)]
+                #[cfg(target_family = "unix")]
                 let uri = urlencoding::decode(
                     match self.location.as_uri().strip_prefix("file://") {
                         Some(str) => str,
@@ -1149,13 +1151,14 @@ mod test {
 
     #[test]
     fn get_art_test() {
-        let s = Song::from_file(Path::new(".\\test-config\\music\\Snail_s House - Hot Milk.mp3")).unwrap();
+        let s = Song::from_file(Path::new("")).unwrap();
         let dir = &TempDir::new().unwrap();
 
         let now = Instant::now();
         _ = s.open_album_art(0, dir).inspect_err(|e| println!("{e:?}"));
+        _ = s.open_album_art(1, dir).inspect_err(|e| println!("{e:?}"));
         println!("{}ms", now.elapsed().as_millis() );
 
-        sleep(Duration::from_secs(1));
+        sleep(Duration::from_secs(20));
     }
 }
