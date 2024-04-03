@@ -176,14 +176,15 @@ pub struct FoobarPlaylistTrack {
 impl FoobarPlaylistTrack {
     fn find_song(&self) -> Song {
         let location = URI::Local(self.file_name.clone().into());
+        let internal_tags = Vec::new();
 
         Song {
-            location,
+            location: vec![location],
             uuid: Uuid::new_v4(),
             plays: 0,
             skips: 0,
             favorited: false,
-            // banned: None,
+            banned: None,
             rating: None,
             format: None,
             duration: self.duration,
@@ -193,6 +194,7 @@ impl FoobarPlaylistTrack {
             date_modified: None,
             album_art: Vec::new(),
             tags: BTreeMap::new(),
+            internal_tags,
         }
     }
 }

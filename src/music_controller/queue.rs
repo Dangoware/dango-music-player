@@ -57,14 +57,14 @@ impl QueueItemType<'_> {
         match self {
             Song(uuid) => {
                 if let Some((song, _))  = lib.query_uuid(uuid) {
-                    Some(song.location.clone())
+                    Some(song.primary_uri().unwrap().0.clone()) // TODO: error handle these better
                 }else {
                     Option::None
                 }
             },
             Album{album, shuffled, current: (disc, index), ..} => {
                 if !shuffled {
-                    Some(album.track(*disc as usize, *index as usize).unwrap().location.clone())
+                    Some(album.track(*disc as usize, *index as usize).unwrap().primary_uri().unwrap().0.clone())
                 }else {
                     todo!()
                 }
@@ -302,23 +302,22 @@ impl<'a> Queue<'a> {
         let item = self.items[0].clone();
         let uri: URI = match &self.items[1].item {
             QueueItemType::Song(uuid) => {
-                // TODO:  Refactor later for  multiple URIs
                 match &lib.read().unwrap().query_uuid(uuid) {
-                    Some(song) => song.0.location.clone(),
+                    Some(song) => song.0.primary_uri()?.0.clone(),
                     None => return Err("Uuid does not exist!".into()),
                 }
             },
             QueueItemType::Album { album, current, ..} => {
                 let (disc, track) = (current.0 as usize, current.1 as usize);
                 match album.track(disc, track) {
-                    Some(track) => track.location.clone(),
+                    Some(track) => track.primary_uri()?.0.clone(),
                     None => return Err(format!("Track in Album {} at disc {} track {} does not exist!", album.title(), disc, track).into())
                 }
             },
             QueueItemType::Playlist { current, .. } => {
                 // TODO:  Refactor later for  multiple URIs
                 match &lib.read().unwrap().query_uuid(current) {
-                    Some(song) => song.0.location.clone(),
+                    Some(song) => song.0.primary_uri()?.0.clone(),
                     None => return Err("Uuid does not exist!".into()),
                 }
             },

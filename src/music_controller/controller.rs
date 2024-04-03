@@ -314,7 +314,7 @@ mod tests {
         a.q_set_volume(i, 0.04);
         // a.new_queue();
         let songs = a.lib_get_songs();
-        a.q_enqueue(i, songs[2].location.clone());
+        a.q_enqueue(i, songs[2].primary_uri().unwrap().0.clone());
         // a.enqueue(1, songs[2].location.clone());
         a.q_play(i).unwrap();
         // a.play(1).unwrap();
