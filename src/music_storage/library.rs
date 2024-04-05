@@ -686,6 +686,7 @@ impl MusicLibrary {
             false => {
                 // If the library does not exist, re-create it
                 let lib = MusicLibrary::new(String::new(), uuid);
+
                 write_file(&lib, path)?;
                 lib
             }

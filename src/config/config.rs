@@ -69,10 +69,10 @@ impl ConfigLibraries {
     }
 
     pub fn get_library(&self, uuid: &Uuid) -> Result<ConfigLibrary, ConfigError> {
-        dbg!(&uuid);
+
         for library in &self.libraries {
+            // dbg!(&library.uuid, &uuid);
             if &library.uuid == uuid {
-                dbg!(&library.uuid);
                 return Ok(library.to_owned())
             }
         }
@@ -148,6 +148,13 @@ impl Config {
         let config: Config = serde_json::from_str::<Config>(&bun)?;
         Ok(config)
     }
+
+    pub fn push_library(&mut self, lib: ConfigLibrary) {
+        if self.libraries.libraries.is_empty() {
+            self.libraries.default_library = lib.uuid;
+        }
+        self.libraries.libraries.push(lib);
+    }
 }
 
 #[derive(Error, Debug)]
@@ -165,45 +172,42 @@ pub enum ConfigError {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::{path::PathBuf, sync::{Arc, RwLock}};
     use crate::music_storage::library::MusicLibrary;
     use super::{Config, ConfigLibraries, ConfigLibrary};
 
-    #[test]
-    fn config_test() {
-        let lib_a = ConfigLibrary::new(PathBuf::from("test-config/library1"), String::from("library1"), None);
-        let lib_b = ConfigLibrary::new(PathBuf::from("test-config/library2"), String::from("library2"), None);
-        let lib_c = ConfigLibrary::new(PathBuf::from("test-config/library3"), String::from("library3"), None);
-        let config = Config {
+    pub fn new_config_lib() -> (Config, MusicLibrary) {
+        let lib = ConfigLibrary::new(PathBuf::from("test-config/library"), String::from("library"), None);
+        let mut config = Config {
             path: PathBuf::from("test-config/config_test.json"),
-            libraries: ConfigLibraries {
-                libraries: vec![
-                    lib_a.clone(),
-                    lib_b.clone(),
-                    lib_c.clone(),
-                ],
-                ..Default::default()
-            },
             ..Default::default()
         };
-        config.write_file();
-        let arc = Arc::new(RwLock::from(config));
-        MusicLibrary::init(arc.clone(), lib_a.uuid).unwrap();
-        MusicLibrary::init(arc.clone(), lib_b.uuid).unwrap();
-        MusicLibrary::init(arc.clone(), lib_c.uuid).unwrap();
 
-    }
+        config.push_library(lib);
+        config.write_file().unwrap();
 
-    #[test]
-    fn test2() {
-        let config = Config::read_file(PathBuf::from("test-config/config_test.json")).unwrap();
-        let uuid = config.libraries.get_default().unwrap().uuid;
-        let mut lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), uuid).unwrap();
+        let mut lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), dbg!(config.libraries.default_library)).unwrap();
         lib.scan_folder("test-config/music/").unwrap();
         lib.save(config.clone()).unwrap();
-        dbg!(&lib);
-        dbg!(&config);
+
+        (config, lib)
+    }
+
+    pub fn read_config_lib() -> (Config, MusicLibrary) {
+        let config = Config::read_file(PathBuf::from("test-config/config_test.json")).unwrap();
+
+        // dbg!(&config);
+
+        let mut lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), config.libraries.get_default().unwrap().uuid).unwrap();
+
+
+        lib.scan_folder("test-config/music/").unwrap();
+
+        lib.save(config.clone()).unwrap();
+
+
+        (config, lib)
     }
 
     #[test]
