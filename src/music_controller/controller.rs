@@ -6,12 +6,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use crossbeam_channel::{Sender, Receiver};
 use crossbeam_channel;
+use listenbrainz::ListenBrainz;
 use std::thread::spawn;
 
 use std::error::Error;
 use crossbeam_channel::unbounded;
 use uuid::Uuid;
 
+use crate::music_controller::queue::{QueueItem, QueueItemType};
 use crate::music_storage::library::{Tag, URI};
 use crate::{
     music_storage::library::{MusicLibrary, Song},
@@ -21,27 +23,27 @@ use crate::{
 
 pub struct Controller {
     // queues: Vec<Queue>,
-    config: Arc<RwLock<Config>>,
+    pub config: Arc<RwLock<Config>>,
     // library: MusicLibrary,
-    controller_mail: MailMan<ControllerCmd, ControllerResponse>,
-    db_mail: MailMan<DatabaseCmd, DatabaseResponse>,
-    queue_mail: Vec<MailMan<QueueCmd, QueueResponse>>,
+    pub(super) controller_mail: MailMan<ControllerCmd, ControllerResponse>,
+    pub(super) db_mail: MailMan<DatabaseCmd, DatabaseResponse>,
+    pub(super) queue_mail: Vec<MailMan<QueueCmd, QueueResponse>>,
 }
 #[derive(Debug)]
-pub enum ControllerCmd {
+pub(super)  enum ControllerCmd {
     Default,
     Test
 }
 
 #[derive(Debug)]
-enum ControllerResponse {
+pub(super) enum ControllerResponse {
     Empty,
     QueueMailMan(MailMan<QueueCmd, QueueResponse>),
 
 }
 
 #[derive(Debug)]
-pub enum DatabaseCmd {
+pub(super) enum DatabaseCmd {
     Default,
     Test,
     SaveLibrary,
@@ -49,11 +51,10 @@ pub enum DatabaseCmd {
     QueryUuid(Uuid),
     QueryUuids(Vec<Uuid>),
     ReadFolder(String),
-
 }
 
 #[derive(Debug)]
-enum DatabaseResponse {
+pub(super) enum DatabaseResponse {
     Empty,
     Song(Song),
     Songs(Vec<Song>),
@@ -61,7 +62,7 @@ enum DatabaseResponse {
 }
 
 #[derive(Debug)]
-enum QueueCmd {
+pub(super) enum QueueCmd {
     Default,
     Test,
     Play,
@@ -73,25 +74,26 @@ enum QueueCmd {
 }
 
 #[derive(Debug)]
-enum QueueResponse {
+pub(super) enum QueueResponse {
     Default,
     Test,
     Index(i32),
+    Uuid(Uuid),
 }
 
 #[derive(Debug)]
-struct MailMan<T, U> {
+pub(super) struct MailMan<T: Send, U: Send> {
     pub tx: Sender<T>,
     rx: Receiver<U>
 }
 
-impl<T> MailMan<T, T> {
+impl<T: Send> MailMan<T, T> {
     pub fn new() -> Self {
         let (tx, rx) = unbounded::<T>();
         MailMan { tx, rx }
     }
 }
-impl<T, U> MailMan<T, U> {
+impl<T: Send, U: Send> MailMan<T, U> {
     pub fn double() -> (MailMan<T, U>, MailMan<U, T>) {
         let (tx, rx) = unbounded::<T>();
         let (tx1, rx1) = unbounded::<U>();
@@ -108,14 +110,16 @@ impl<T, U> MailMan<T, U> {
     }
 
     pub fn recv(&self) -> Result<U, Box<dyn Error>> {
-        let u = self.rx.recv().unwrap();
+        let u = self.rx.recv()?;
         Ok(u)
     }
 }
 
 #[allow(unused_variables)]
 impl Controller {
-    pub fn start(config_path: String) -> Result<Self, Box<dyn Error>> {
+    pub fn start<P>(config_path: P) -> Result<Self, Box<dyn Error>>
+    where std::path::PathBuf: std::convert::From<P>
+    {
         let config_path = PathBuf::from(config_path);
         let config = Config::read_file(config_path)?;
         let uuid = config.libraries.get_default()?.uuid;
@@ -185,7 +189,6 @@ impl Controller {
         });
 
 
-
         Ok(
             Controller {
                 // queues: Vec::new(),
@@ -197,7 +200,7 @@ impl Controller {
         )
     }
 
-    fn lib_get_songs(&self) -> Vec<Song> {
+    pub fn lib_get_songs(&self) -> Vec<Song> {
         self.db_mail.send(DatabaseCmd::GetSongs);
         match self.db_mail.recv().unwrap() {
             DatabaseResponse::Songs(songs) => songs,
@@ -205,7 +208,7 @@ impl Controller {
         }
     }
 
-    fn lib_scan_folder(&self, folder: String) -> Result<(), Box<dyn Error>> {
+    pub fn lib_scan_folder(&self, folder: String) -> Result<(), Box<dyn Error>> {
         let mail = &self.db_mail;
         mail.send(DatabaseCmd::ReadFolder(folder))?;
         dbg!(mail.recv()?);
@@ -259,14 +262,14 @@ impl Controller {
         Ok(self.queue_mail.len() - 1)
     }
 
-    fn q_play(&self, index: usize) -> Result<(), Box<dyn Error>> {
+    pub fn q_play(&self, index: usize) -> Result<(), Box<dyn Error>> {
         let mail = &self.queue_mail[index];
         mail.send(QueueCmd::Play)?;
         dbg!(mail.recv()?);
         Ok(())
     }
 
-    fn q_pause(&self, index: usize) -> Result<(), Box<dyn Error>> {
+    pub fn q_pause(&self, index: usize) -> Result<(), Box<dyn Error>> {
         let mail = &self.queue_mail[index];
         mail.send(QueueCmd::Pause)?;
         dbg!(mail.recv()?);
@@ -286,7 +289,7 @@ impl Controller {
     //     Ok(())
     // }
 
-    fn q_enqueue(&self, index: usize, uri: URI) -> Result<(), Box<dyn Error>> {
+    pub fn q_enqueue(&self, index: usize, uri: URI) -> Result<(), Box<dyn Error>> {
         let mail = &self.queue_mail[index];
         mail.send(QueueCmd::Enqueue(uri))?;
         // dbg!(mail.recv()?);

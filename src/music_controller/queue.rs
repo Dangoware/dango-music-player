@@ -89,10 +89,10 @@ pub enum PlayerLocation {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct QueueItem<'a> {
-    item: QueueItemType<'a>,
-    state: QueueState,
-    source: PlayerLocation,
-    by_human: bool
+    pub(super) item: QueueItemType<'a>,
+    pub(super) state: QueueState,
+    pub(super) source: PlayerLocation,
+    pub(super) by_human: bool
 }
 impl QueueItem<'_> {
     fn new() -> Self {

@@ -90,11 +90,18 @@ impl ConfigLibraries {
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
+pub struct ConfigConnections {
+    pub listenbrainz_token: Option<String>
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct Config {
     pub path: PathBuf,
     pub backup_folder: Option<PathBuf>,
     pub libraries: ConfigLibraries,
     pub volume: f32,
+    pub connections: ConfigConnections,
 }
 
 impl Config {
@@ -212,10 +219,10 @@ pub mod tests {
 
     #[test]
     fn test3() {
-        let config = Config::read_file(PathBuf::from("test-config/config_test.json")).unwrap();
-        let uuid = config.libraries.get_default().unwrap().uuid;
-        let lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), uuid).unwrap();
+        let (config, lib) = read_config_lib();
 
-        dbg!(lib);
+        _ = config.write_file();
+
+        dbg!(config);
     }
 }

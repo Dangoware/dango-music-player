@@ -1,18 +1,21 @@
 use std::{fs::File, io::Read, path:: PathBuf, sync::{Arc, RwLock}};
 use std::error::Error;
 
-use chrono::Duration;
+use std::time::Duration;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use super::library::{AlbumArt, MusicLibrary, Song, Tag, URI};
 
 use m3u8_rs::{MediaPlaylist, MediaPlaylistType, MediaSegment, Playlist as List2};
 
-#[derive(Debug, Clone)]
+use rayon::prelude::*;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SortOrder {
     Manual,
-    Tag(Tag)
+    Tag(Vec<Tag>)
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Playlist {
     uuid: Uuid,
     title: String,
@@ -29,8 +32,23 @@ impl Playlist {
     pub fn play_count(&self) -> i32 {
         self.play_count
     }
-    pub fn play_time(&self) -> chrono::Duration {
+    pub fn play_time(&self) -> Duration {
         self.play_time
+    }
+
+    fn title(&self) -> &String {
+        &self.title
+    }
+
+    fn cover(&self) -> Option<&AlbumArt> {
+        match &self.cover {
+            Some(e) => Some(e),
+            None => None,
+        }
+    }
+
+    fn tracks(&self) -> Vec<Uuid> {
+        self.tracks.to_owned()
     }
     pub fn set_tracks(&mut self, tracks: Vec<Uuid>) {
         self.tracks = tracks;
@@ -73,6 +91,15 @@ impl Playlist {
         }
 
         false
+    }
+
+    pub fn to_file(&self, path: &str) -> Result<(), Box<dyn Error>> {
+        super::utils::write_file(self, PathBuf::from(path))?;
+        Ok(())
+    }
+
+    pub fn from_file(path: &str) -> Result<Playlist, Box<dyn Error>> {
+        super::utils::read_file(PathBuf::from(path))
     }
 
     pub fn to_m3u8(&mut self, lib: Arc<RwLock<MusicLibrary>>, location: &str) -> Result<(), Box<dyn Error>> {
@@ -174,20 +201,70 @@ impl Playlist {
             }
         }
     }
-    fn title(&self) -> &String {
-        &self.title
-    }
-    fn cover(&self) -> Option<&AlbumArt> {
-        match &self.cover {
-            Some(e) => Some(e),
-            None => None,
+
+
+    pub fn out_tracks(&self, lib: Arc<RwLock<MusicLibrary>>) -> (Vec<Song>, Vec<&Uuid>) {
+        let lib = lib.read().unwrap();
+        let mut songs = vec![];
+        let mut invalid_uuids = vec![];
+
+        for uuid in &self.tracks {
+            if let Some((track, _)) = lib.query_uuid(uuid) {
+                songs.push(track.to_owned());
+            }else {
+                invalid_uuids.push(uuid);
+            }
         }
-    }
-    fn tracks(&self) -> Vec<Uuid> {
-        self.tracks.to_owned()
+
+        if let SortOrder::Tag(sort_by) = &self.sort_order {
+            println!("sorting by: {:?}", sort_by);
+
+            songs.par_sort_by(|a, b| {
+                for (i, sort_option) in sort_by.iter().enumerate() {
+                    dbg!(&i);
+                    let tag_a = match sort_option {
+                        Tag::Field(field_selection) => match a.get_field(field_selection.as_str()) {
+                            Some(field_value) => field_value.to_string(),
+                            None => continue,
+                        },
+                        _ => match a.get_tag(sort_option) {
+                            Some(tag_value) => tag_value.to_owned(),
+                            None => continue,
+                        },
+                    };
+
+                    let tag_b = match sort_option {
+                        Tag::Field(field_selection) => match b.get_field(field_selection) {
+                            Some(field_value) => field_value.to_string(),
+                            None => continue,
+                        },
+                        _ => match b.get_tag(sort_option) {
+                            Some(tag_value) => tag_value.to_owned(),
+                            None => continue,
+                        },
+                    };
+                    dbg!(&i);
+
+                    if let (Ok(num_a), Ok(num_b)) = (tag_a.parse::<i32>(), tag_b.parse::<i32>()) {
+                        // If parsing succeeds, compare as numbers
+                        return dbg!(num_a.cmp(&num_b));
+                    } else {
+                        // If parsing fails, compare as strings
+                        return dbg!(tag_a.cmp(&tag_b));
+                    }
+                }
+
+                // If all tags are equal, sort by Track number
+                let path_a = PathBuf::from(a.get_field("location").unwrap().to_string());
+                let path_b = PathBuf::from(b.get_field("location").unwrap().to_string());
+
+                path_a.file_name().cmp(&path_b.file_name())
+            })
+        }
+
+        (songs, invalid_uuids)
     }
 }
-
 
 
 impl Default for Playlist {
@@ -199,7 +276,7 @@ impl Default for Playlist {
             tracks: Vec::default(),
             sort_order: SortOrder::Manual,
             play_count: 0,
-            play_time: Duration::zero(),
+            play_time: Duration::from_millis(0),
         }
     }
 }
@@ -207,7 +284,7 @@ impl Default for Playlist {
 #[cfg(test)]
 mod test_super {
     use super::*;
-    use crate::config::config::tests::read_config_lib;
+    use crate::{config::config::tests::read_config_lib, music_storage::playlist};
 
     #[test]
     fn list_to_m3u8() {
@@ -219,11 +296,24 @@ mod test_super {
         _ = playlist.to_m3u8(Arc::new(RwLock::from(lib)), ".\\test-config\\playlists\\playlist.m3u8");
     }
 
-    #[test]
-    fn m3u8_to_list() {
+
+    fn m3u8_to_list() -> Playlist {
         let (_, lib) = read_config_lib();
         let arc = Arc::new(RwLock::from(lib));
         let playlist = Playlist::from_m3u8(".\\test-config\\playlists\\playlist.m3u8", arc).unwrap();
-        dbg!(playlist);
+
+        playlist.to_file(".\\test-config\\playlists\\playlist");
+        dbg!(playlist)
+    }
+
+    #[test]
+    fn out_queue_sort() {
+        let (_, lib) = read_config_lib();
+        let mut list = m3u8_to_list();
+        list.sort_order = SortOrder::Tag(vec![Tag::Album]);
+
+        let songs = &list.out_tracks(Arc::new(RwLock::from(lib)));
+
+        dbg!(songs);
     }
 }
