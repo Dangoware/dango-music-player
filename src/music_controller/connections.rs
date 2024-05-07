@@ -3,6 +3,7 @@ use std::{
     error::Error,
 };
 
+use discord_rpc_client::Client;
 use listenbrainz::ListenBrainz;
 use uuid::Uuid;
 
@@ -64,6 +65,13 @@ impl Controller {
 
         client.listen(artist, track, release)?;
         Ok(())
+    }
+
+    pub fn discord_song_change(client: &mut Client,song: Song) {
+        client.set_activity(|a| {
+            a.state(format!("Listening to {}", song.get_tag(&Tag::Title).unwrap()))
+            .into()
+        });
     }
 }
 

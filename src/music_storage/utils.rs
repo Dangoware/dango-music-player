@@ -25,12 +25,12 @@ pub(super) fn normalize(input_string: &str) -> String {
 
 /// Write any data structure which implements [serde::Serialize]
 /// out to a [bincode] encoded file compressed using [snap]
-pub(super) fn write_file<T: serde::Serialize>(
+pub(super) fn write_file<T: serde::Serialize, U: std::convert::AsRef<Path>+std::convert::AsRef<std::ffi::OsStr>+Clone>(
     library: T,
-    path: PathBuf,
+    path: U,
 ) -> Result<(), Box<dyn Error>> {
     // Create a temporary name for writing out
-    let mut writer_name = path.clone();
+    let mut writer_name = PathBuf::from(&path);
     writer_name.set_extension("tmp");
 
     // Create a new BufWriter on the file and a snap frame encoder

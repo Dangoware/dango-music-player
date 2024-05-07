@@ -66,7 +66,7 @@ impl QueueItemType<'_> {
                 if !shuffled {
                     Some(album.track(*disc as usize, *index as usize).unwrap().location.clone())
                 }else {
-                    todo!()
+                    todo!() //what to do for non shuffled album
                 }
             },
             ExternalSong(uri) => { Some(uri.clone()) },

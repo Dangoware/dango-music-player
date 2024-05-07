@@ -38,3 +38,4 @@ deunicode = "1.4.2"
 opener = { version = "0.7.0", features = ["reveal"] }
 tempfile = "3.10.1"
 listenbrainz = "0.7.0"
+discord-rpc-client = "0.4.0"
