@@ -1,8 +1,5 @@
 use uuid::Uuid;
-use crate::{
-    music_player::{Player, PlayerError},
-    music_storage::library::{Album, MusicLibrary, URI}
-};
+use crate::music_storage::library::{MusicLibrary, Song, URI};
 use std::{
     error::Error,
     sync::{Arc, RwLock}
@@ -27,54 +24,6 @@ pub enum QueueState {
     NoState,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
-pub enum QueueItemType<'a> {
-    Song(Uuid),
-    ExternalSong(URI),
-    Album{
-        album: Album<'a>,
-        shuffled: bool,
-        order: Option<Vec<Uuid>>,
-        // disc #, track #
-        current: (i32, i32)
-    },
-    Playlist {
-        uuid: Uuid,
-        shuffled: bool,
-        order: Option<Vec<Uuid>>,
-        current: Uuid
-    },
-    None,
-    Test
-}
-
-impl QueueItemType<'_> {
-    fn get_uri(&self, lib: Arc<RwLock<MusicLibrary>>) -> Option<URI> {
-        use QueueItemType::*;
-
-        let lib = lib.read().unwrap();
-        match self {
-            Song(uuid) => {
-                if let Some((song, _))  = lib.query_uuid(uuid) {
-                    Some(song.location.clone())
-                }else {
-                    Option::None
-                }
-            },
-            Album{album, shuffled, current: (disc, index), ..} => {
-                if !shuffled {
-                    Some(album.track(*disc as usize, *index as usize).unwrap().location.clone())
-                }else {
-                    todo!() //what to do for non shuffled album
-                }
-            },
-            ExternalSong(uri) => { Some(uri.clone()) },
-            _ => { Option::None }
-        }
-    }
-}
-
 // TODO: move this to a different location to be used elsewhere
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -88,16 +37,16 @@ pub enum PlayerLocation {
 
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub struct QueueItem<'a> {
-    pub(super) item: QueueItemType<'a>,
+pub struct QueueItem {
+    pub(super) item: Song,
     pub(super) state: QueueState,
     pub(super) source: PlayerLocation,
     pub(super) by_human: bool
 }
-impl QueueItem<'_> {
-    fn new() -> Self {
+impl From<Song> for QueueItem {
+    fn from(song: Song) -> Self {
         QueueItem {
-            item: QueueItemType::None,
+            item: song,
             state: QueueState::NoState,
             source: PlayerLocation::Library,
             by_human: false
@@ -107,15 +56,14 @@ impl QueueItem<'_> {
 
 
 #[derive(Debug)]
-pub struct Queue<'a> {
-    pub player: Player,
-    pub name: String,
-    pub items: Vec<QueueItem<'a>>,
-    pub played: Vec<QueueItem<'a>>,
-    pub loop_: bool
+pub struct Queue {
+    pub items: Vec<QueueItem>,
+    pub played: Vec<QueueItem>,
+    pub loop_: bool,
+    pub shuffle: bool
 }
 
-impl<'a> Queue<'a> {
+impl Queue {
     fn has_addhere(&self) -> bool {
         for item in &self.items {
             if item.state == QueueState::AddHere {
@@ -126,28 +74,26 @@ impl<'a> Queue<'a> {
     }
 
     fn dbg_items(&self) {
-        dbg!(self.items.iter().map(|item| item.item.clone() ).collect::<Vec<QueueItemType>>(), self.items.len());
+        dbg!(self.items.iter().map(|item| item.item.clone() ).collect::<Vec<Song>>(), self.items.len());
     }
 
-    pub fn new() -> Result<Self, PlayerError> {
-        Ok(
-            Queue {
-            player: Player::new()?,
-            name: String::new(),
-            items: Vec::new(),
-            played: Vec::new(),
-            loop_: false,
-            }
-        )
+    pub fn new() -> Self {
+        //TODO: Make the queue take settings from config/state if applicable
+        Queue {
+        items: Vec::new(),
+        played: Vec::new(),
+        loop_: false,
+        shuffle: false,
+        }
     }
 
-    pub fn set_items(&mut self, tracks: Vec<QueueItem<'a>>) {
+    pub fn set_items(&mut self, tracks: Vec<QueueItem>) {
         let mut tracks = tracks;
         self.items.clear();
         self.items.append(&mut tracks);
     }
 
-    pub fn add_item(&mut self, item: QueueItemType<'a>, source: PlayerLocation, by_human: bool) {
+    pub fn add_item(&mut self, item: Song, source: PlayerLocation, by_human: bool) {
         let mut i: usize = 0;
 
         self.items = self.items.iter().enumerate().map(|(j, item_)| {
@@ -168,7 +114,7 @@ impl<'a> Queue<'a> {
         });
     }
 
-    pub fn add_item_next(&mut self, item: QueueItemType<'a>, source: PlayerLocation) {
+    pub fn add_item_next(&mut self, item: Song, source: PlayerLocation) {
         use QueueState::*;
         let empty = self.items.is_empty();
 
@@ -176,14 +122,14 @@ impl<'a> Queue<'a> {
             (if empty { 0 } else { 1 }),
             QueueItem {
                 item,
-                state: if (self.items.get(1).is_none() || (!self.has_addhere() && self.items.get(1).is_some()) || empty) { AddHere } else { NoState },
+                state: if (self.items.get(1).is_none() || !self.has_addhere() && self.items.get(1).is_some()) || empty { AddHere } else { NoState },
                 source,
                 by_human: true
             }
         )
     }
 
-    pub fn add_multi(&mut self, items: Vec<QueueItemType>, source: PlayerLocation, by_human: bool) {
+    pub fn add_multi(&mut self, items: Vec<Song>, source: PlayerLocation, by_human: bool) {
 
     }
 
@@ -239,14 +185,10 @@ impl<'a> Queue<'a> {
         use QueueState::*;
 
         let empty = self.items.is_empty();
-        let nothing_error = Err(QueueError::EmptyQueue);
-        let index = if !empty { index } else { return nothing_error; };
+
+        let index = if !empty { index } else { return Err(QueueError::EmptyQueue); };
 
         if !empty && index < self.items.len() {
-            let position = self.player.position();
-            if position.is_some_and(|dur| !dur.is_zero() ) {
-                self.played.push(self.items[0].clone());
-            }
 
             let to_item = self.items[index].clone();
 
@@ -263,13 +205,13 @@ impl<'a> Queue<'a> {
                     }
                 // dbg!(&to_item.item, &self.items[ind].item);
                 }else if empty {
-                    return nothing_error;
+                    return Err(QueueError::EmptyQueue);
                 }else {
                     break;
                 }
             }
         }else {
-            return Err(QueueError::EmptyQueue.into());
+            return Err(QueueError::EmptyQueue);
         }
         Ok(())
     }
@@ -287,9 +229,7 @@ impl<'a> Queue<'a> {
     }
 
     #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self, lib: Arc<RwLock<MusicLibrary>>) -> Result<OutQueue, Box<dyn Error>> {
-
-
+    pub fn next(&mut self) -> Result<&QueueItem, Box<dyn Error>> {
 
         if self.items.is_empty() {
             if self.loop_ {
@@ -300,119 +240,21 @@ impl<'a> Queue<'a> {
         }
         // TODO: add an algorithm to detect if the song should be skipped
         let item = self.items[0].clone();
-        let uri: URI = match &self.items[1].item {
-            QueueItemType::Song(uuid) => {
-                // TODO:  Refactor later for  multiple URIs
-                match &lib.read().unwrap().query_uuid(uuid) {
-                    Some(song) => song.0.location.clone(),
-                    None => return Err("Uuid does not exist!".into()),
-                }
-            },
-            QueueItemType::Album { album, current, ..} => {
-                let (disc, track) = (current.0 as usize, current.1 as usize);
-                match album.track(disc, track) {
-                    Some(track) => track.location.clone(),
-                    None => return Err(format!("Track in Album {} at disc {} track {} does not exist!", album.title(), disc, track).into())
-                }
-            },
-            QueueItemType::Playlist { current, .. } => {
-                // TODO:  Refactor later for  multiple URIs
-                match &lib.read().unwrap().query_uuid(current) {
-                    Some(song) => song.0.location.clone(),
-                    None => return Err("Uuid does not exist!".into()),
-                }
-            },
-            _ => todo!()
-        };
-        if !self.player.is_paused() {
-            self.player.enqueue_next(&uri)?;
-            self.player.play()?
-        }
+
         if self.items[0].state == QueueState::AddHere || !self.has_addhere() {
             self.items[1].state = QueueState::AddHere;
         }
         self.played.push(item);
         self.items.remove(0);
 
-        Ok(todo!())
+        Ok(&self.items[1])
     }
 
     pub fn prev() {}
 
-    pub fn enqueue_item(&mut self, item: QueueItem, lib: Arc<RwLock<MusicLibrary>>) -> Result<(), Box<dyn Error>> {
-        if let Some(uri) = item.item.get_uri(lib) {
-            self.player.enqueue_next(&uri)?;
-        }else {
-            return Err("this item does not exist!".into());
-        }
-        Ok(())
-    }
     pub fn check_played(&mut self) {
         while self.played.len() > 50 {
             self.played.remove(0);
         }
     }
-}
-
-pub struct OutQueue {
-
-}
-
-pub enum OutQueueItem {
-
-}
-
-
-#[test]
-fn item_add_test() {
-    let mut q = Queue::new().unwrap();
-
-    for _ in 0..5 {
-        // dbg!("tick!");
-        q.add_item(QueueItemType::Song(Uuid::new_v4()), PlayerLocation::Library, true);
-        // dbg!(&q.items, &q.items.len());
-    }
-
-    for _ in 0..1 {
-    q.remove_item(0).inspect_err(|e| println!("{e:?}"));
-    }
-    for _ in 0..2 {
-        q.items.push(QueueItem { item: QueueItemType::Test, state: QueueState::NoState, source: PlayerLocation::Library, by_human: false });
-    }
-    dbg!(5);
-
-    q.add_item_next(QueueItemType::Test, PlayerLocation::Test);
-    dbg!(6);
-
-    dbg!(&q.items, &q.items.len());
-}
-
-#[test]
-fn test_() {
-    let mut q = Queue::new().unwrap();
-    for _ in 0..400 {
-        q.items.push(QueueItem { item: QueueItemType::Song(Uuid::new_v4()), state: QueueState::NoState, source: PlayerLocation::File, by_human: false });
-    }
-    for _ in 0..50000 {
-        q.add_item(QueueItemType::Song(Uuid::new_v4()), PlayerLocation::Library, true);
-    }
-    // q.add_item_next(QueueItemType::Test, PlayerLocation::File);
-
-    // dbg!(&q.items, &q.items.len());
-
-}
-
-#[test]
-fn move_test() {
-    let mut q = Queue::new().unwrap();
-
-    for _ in 0..5 {
-        q.add_item(QueueItemType::Song(Uuid::new_v4()), PlayerLocation::Library, true);
-    }
-    // q.add_item(QueueItemType::Test, QueueSource::Library, true).unwrap();
-    dbg!(&q.items, &q.items.len());
-
-    q.move_to(3).inspect_err(|e| {dbg!(e);});
-    dbg!(&q.items, &q.items.len());
-    // q.dbg_items();
 }

@@ -8,13 +8,16 @@ pub mod music_storage {
     pub mod db_reader;
 }
 
-pub mod music_controller{
+pub mod music_controller {
     pub mod controller;
     pub mod connections;
     pub mod queue;
 }
 
-pub mod music_player;
+pub mod music_player {
+    pub mod gstreamer;
+    pub mod player;
+}
 #[allow(clippy::module_inception)]
 pub mod config {
     pub mod config;
