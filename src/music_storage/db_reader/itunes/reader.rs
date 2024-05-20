@@ -2,6 +2,7 @@ use file_format::FileFormat;
 use lofty::{AudioFile, LoftyError, ParseOptions, Probe, TagType, TaggedFileExt};
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
+use uuid::Uuid;
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -12,7 +13,7 @@ use std::vec::Vec;
 use chrono::prelude::*;
 
 use crate::music_storage::db_reader::extern_library::ExternalLibrary;
-use crate::music_storage::library::{AlbumArt, Service, Song, Tag, URI};
+use crate::music_storage::library::{AlbumArt, BannedType, Service, Song, Tag, URI};
 use crate::music_storage::utils;
 
 use urlencoding::decode;
@@ -146,7 +147,7 @@ impl ExternalLibrary for ITunesLibrary {
                 continue;
             }
 
-            let sug: URI = if track.location.contains("file://localhost/") {
+            let location: URI = if track.location.contains("file://localhost/") {
                 URI::Local(PathBuf::from(
                     decode(track.location.strip_prefix("file://localhost/").unwrap())
                         .unwrap()
@@ -165,11 +166,19 @@ impl ExternalLibrary for ITunesLibrary {
             };
             let play_time_ = StdDur::from_secs(track.plays as u64 * dur.as_secs());
 
+            let internal_tags = Vec::new(); // TODO: handle internal tags generation
+
             let ny: Song = Song {
-                location: sug,
+                location: vec![location],
+                uuid: Uuid::new_v4(),
                 plays: track.plays,
                 skips: 0,
                 favorited: track.favorited,
+                banned: if track.banned {
+                        Some(BannedType::All)
+                    }else {
+                        None
+                    },
                 rating: track.rating,
                 format: match FileFormat::from_file(PathBuf::from(&loc)) {
                     Ok(e) => Some(e),
@@ -185,6 +194,7 @@ impl ExternalLibrary for ITunesLibrary {
                     Err(_) => Vec::new(),
                 },
                 tags: tags_,
+                internal_tags,
             };
             // dbg!(&ny.tags);
             bun.push(ny);
@@ -319,5 +329,30 @@ impl ITunesSong {
         }
         // println!("{:.2?}", song);
         Ok(song)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{path::{Path, PathBuf}, sync::{Arc, RwLock}};
+
+    use crate::{config::config::{Config, ConfigLibrary}, music_storage::{db_reader::extern_library::ExternalLibrary, library::MusicLibrary}};
+
+    use super::ITunesLibrary;
+
+    #[test]
+    fn itunes_lib_test() {
+        let mut config = Config::read_file(PathBuf::from("test-config/config_test.json")).unwrap();
+        let config_lib = ConfigLibrary::new(PathBuf::from("test-config/library2"), String::from("library2"), None);
+        config.libraries.libraries.push(config_lib.clone());
+
+        let songs = ITunesLibrary::from_file(Path::new("test-config\\iTunesLib.xml")).to_songs();
+
+        let mut library = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), config_lib.uuid).unwrap();
+
+        songs.iter().for_each(|song| library.add_song(song.to_owned()).unwrap());
+
+        config.write_file().unwrap();
+        library.save(config).unwrap();
     }
 }

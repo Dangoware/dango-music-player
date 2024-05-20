@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::{fs::File, io::Read, path::Path, time::Duration};
 
+use uuid::Uuid;
+
 use super::utils::meta_offset;
 use crate::music_storage::db_reader::common::{get_bytes, get_bytes_vec};
 use crate::music_storage::db_reader::extern_library::ExternalLibrary;
@@ -174,12 +176,15 @@ pub struct FoobarPlaylistTrack {
 impl FoobarPlaylistTrack {
     fn find_song(&self) -> Song {
         let location = URI::Local(self.file_name.clone().into());
+        let internal_tags = Vec::new();
 
         Song {
-            location,
+            location: vec![location],
+            uuid: Uuid::new_v4(),
             plays: 0,
             skips: 0,
             favorited: false,
+            banned: None,
             rating: None,
             format: None,
             duration: self.duration,
@@ -189,6 +194,7 @@ impl FoobarPlaylistTrack {
             date_modified: None,
             album_art: Vec::new(),
             tags: BTreeMap::new(),
+            internal_tags,
         }
     }
 }

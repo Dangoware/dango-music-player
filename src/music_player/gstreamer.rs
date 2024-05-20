@@ -15,8 +15,10 @@ use gstreamer::prelude::*;
 use chrono::Duration;
 use thiserror::Error;
 
+use super::player::{Player, PlayerError};
+
 #[derive(Debug)]
-pub enum PlayerCmd {
+pub enum GstCmd {
     Play,
     Pause,
     Eos,
@@ -24,7 +26,7 @@ pub enum PlayerCmd {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum PlayerState {
+pub enum GstState {
     Playing,
     Paused,
     Ready,
@@ -33,7 +35,7 @@ pub enum PlayerState {
     VoidPending,
 }
 
-impl From<gst::State> for PlayerState {
+impl From<gst::State> for GstState {
     fn from(value: gst::State) -> Self {
         match value {
             gst::State::VoidPending => Self::VoidPending,
@@ -45,7 +47,7 @@ impl From<gst::State> for PlayerState {
     }
 }
 
-impl TryInto<gst::State> for PlayerState {
+impl TryInto<gst::State> for GstState {
     fn try_into(self) -> Result<gst::State, Box<dyn Error>> {
         match self {
             Self::VoidPending => Ok(gst::State::VoidPending),
@@ -60,22 +62,6 @@ impl TryInto<gst::State> for PlayerState {
     type Error = Box<dyn Error>;
 }
 
-#[derive(Error, Debug)]
-pub enum PlayerError {
-    #[error("player initialization failed")]
-    Init(#[from] glib::Error),
-    #[error("element factory failed to create playbin3")]
-    Factory(#[from] glib::BoolError),
-    #[error("could not change playback state")]
-    StateChange(#[from] gst::StateChangeError),
-    #[error("failed to build gstreamer item")]
-    Build,
-    #[error("poison error")]
-    Poison,
-    #[error("general player error")]
-    General,
-}
-
 #[derive(Debug, PartialEq, Eq)]
 enum PlaybackStats {
     Idle,
@@ -88,10 +74,11 @@ enum PlaybackStats {
 }
 
 /// An instance of a music player with a GStreamer backend
-pub struct Player {
+#[derive(Debug)]
+pub struct GStreamer {
     source:     Option<URI>,
     //pub message_tx: Sender<PlayerCmd>,
-    pub message_rx: crossbeam::channel::Receiver<PlayerCmd>,
+    pub message_rx: crossbeam::channel::Receiver<GstCmd>,
 
     playback_tx: crossbeam::channel::Sender<PlaybackStats>,
     playbin:    Arc<RwLock<Element>>,
@@ -102,7 +89,7 @@ pub struct Player {
     position:   Arc<RwLock<Option<Duration>>>,
 }
 
-impl Player {
+impl GStreamer {
     pub fn new() -> Result<Self, PlayerError> {
         // Initialize GStreamer, maybe figure out how to nicely fail here
         gst::init()?;
@@ -159,14 +146,14 @@ impl Player {
                         // Check if the current playback position is close to the end
                         let finish_point = end - Duration::milliseconds(250);
                         if pos_temp.unwrap() >= end {
-                            let _ = playback_tx.try_send(PlayerCmd::Eos);
+                            let _ = playback_tx.try_send(GstCmd::Eos);
                             playbin_arc
                                 .write()
                                 .unwrap()
                                 .set_state(gst::State::Ready)
                                 .expect("Unable to set the pipeline state");
                         } else if pos_temp.unwrap() >= finish_point {
-                            let _ = playback_tx.try_send(PlayerCmd::AboutToFinish);
+                            let _ = playback_tx.try_send(GstCmd::AboutToFinish);
                         }
 
                         // This has to be done AFTER the current time in the file
@@ -177,7 +164,7 @@ impl Player {
                         *position_update.write().unwrap() = None;
                         break
                     },
-                    PlaybackStats::Idle | PlaybackStats::Switching => println!("waiting!"),
+                    PlaybackStats::Idle | PlaybackStats::Switching => {},
                     _ => ()
                 }
 
@@ -257,12 +244,17 @@ impl Player {
         &self.source
     }
 
-    pub fn enqueue_next(&mut self, next_track: &URI) {
-        self.set_source(next_track);
+    pub fn enqueue_next(&mut self, next_track: &URI) -> Result<(), PlayerError> {
+        self.set_source(next_track)
     }
 
     /// Set the playback URI
-    fn set_source(&mut self, source: &URI) {
+    fn set_source(&mut self, source: &URI) -> Result<(), PlayerError> {
+        if !source.exists().is_ok_and(|x| x) {
+            // If the source doesn't exist, gstreamer will crash!
+            return Err(PlayerError::NotFound)
+        }
+
         // Make sure the playback tracker knows the stuff is stopped
         self.playback_tx.send(PlaybackStats::Switching).unwrap();
 
@@ -290,7 +282,7 @@ impl Player {
                 let now = std::time::Instant::now();
                 while now.elapsed() < std::time::Duration::from_millis(20) {
                     if self.seek_to(Duration::from_std(*start).unwrap()).is_ok() {
-                        return;
+                        return Ok(());
                     }
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
@@ -321,6 +313,8 @@ impl Player {
                 }).unwrap();
             }
         }
+
+        Ok(())
     }
 
     /// Gets a mutable reference to the playbin element
@@ -458,7 +452,7 @@ impl Player {
     }
 
     /// Get the current state of the playback
-    pub fn state(&mut self) -> PlayerState {
+    pub fn state(&mut self) -> GstState {
         self.playbin().unwrap().current_state().into()
         /*
         match *self.buffer.read().unwrap() {
@@ -488,7 +482,9 @@ impl Player {
     }
 }
 
-impl Drop for Player {
+// impl Player for GStreamer {}
+
+impl Drop for GStreamer {
     /// Cleans up the `GStreamer` pipeline and the monitoring
     /// thread when [Player] is dropped.
     fn drop(&mut self) {
