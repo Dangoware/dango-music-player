@@ -6,7 +6,6 @@ use crate::config::config::Config;
 // Various std things
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::io::Write;
 use std::ops::ControlFlow::{Break, Continue};
 
 // Files
@@ -14,9 +13,8 @@ use file_format::{FileFormat, Kind};
 use glib::filename_to_uri;
 use lofty::{AudioFile, ItemKey, ItemValue, ParseOptions, Probe, TagType, TaggedFileExt};
 use rcue::parser::parse_from_file;
-use std::fs::{self, File};
+use std::fs;
 use std::path::{Path, PathBuf};
-use tempfile::TempDir;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -144,20 +142,15 @@ pub enum DoNotTrack {
     Discord,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum SongType {
     // TODO: add MORE?! song types
+    #[default]
     Main,
     Instrumental,
     Remix,
     Custom(String),
-}
-
-impl Default for SongType {
-    fn default() -> Self {
-        SongType::Main
-    }
 }
 
 /// Stores information about a single song
@@ -1127,17 +1120,11 @@ impl MusicLibrary {
 #[cfg(test)]
 mod test {
     use std::{
-        path::{Path, PathBuf},
+        path::PathBuf,
         sync::{Arc, RwLock},
-        thread::sleep,
-        time::{Duration, Instant},
     };
 
-    use tempfile::TempDir;
-
     use crate::{config::config::Config, music_storage::library::MusicLibrary};
-
-    use super::Song;
 
     #[test]
     fn library_init() {

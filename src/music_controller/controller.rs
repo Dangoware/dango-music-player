@@ -4,29 +4,24 @@
 
 use crossbeam_channel;
 use crossbeam_channel::{Receiver, Sender};
-use listenbrainz::ListenBrainz;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use std::thread::spawn;
 
 use crossbeam_channel::unbounded;
 use std::error::Error;
 use uuid::Uuid;
 
-use crate::music_controller::queue::QueueItem;
-use crate::music_player::gstreamer::GStreamer;
-use crate::music_storage::library::{Tag, URI};
+use crate::music_player::player::Player;
+use crate::music_storage::library::URI;
 use crate::{
-    config::config::Config,
-    music_controller::queue::Queue,
-    music_storage::library::{MusicLibrary, Song},
+    config::config::Config, music_controller::queue::Queue, music_storage::library::MusicLibrary,
 };
 
-pub struct Controller {
+pub struct Controller<P: Player> {
     pub queue: Queue,
     pub config: Arc<RwLock<Config>>,
     pub library: MusicLibrary,
-    player_mail: MailMan<PlayerCmd, PlayerRes>,
+    pub player: P,
 }
 
 #[derive(Debug)]
@@ -69,10 +64,10 @@ enum PlayerRes {
 }
 
 #[allow(unused_variables)]
-impl Controller {
-    pub fn start<P>(config_path: P) -> Result<Self, Box<dyn Error>>
+impl<P> Controller<P> {
+    pub fn start<T>(config_path: T) -> Result<Self, Box<dyn Error>>
     where
-        std::path::PathBuf: std::convert::From<P>,
+        std::path::PathBuf: std::convert::From<T>,
     {
         let config_path = PathBuf::from(config_path);
 
@@ -84,26 +79,11 @@ impl Controller {
 
         let (player_mail, in_thread) = MailMan::<PlayerCmd, PlayerRes>::double();
 
-        spawn(move || {
-            let mut player = GStreamer::new().unwrap();
-
-            while true {
-                match in_thread.recv().unwrap() {
-                    PlayerCmd::Test(uri) => {
-                        &player.set_volume(0.04);
-                        _ = &player.enqueue_next(&uri).unwrap();
-                        _ = &player.play();
-                        in_thread.send(PlayerRes::Test).unwrap();
-                    }
-                }
-            }
-        });
-
         Ok(Controller {
             queue: Queue::new(),
             config: config_.clone(),
             library,
-            player_mail,
+            player: P::new(),
         })
     }
 

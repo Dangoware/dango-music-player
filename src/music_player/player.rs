@@ -1,9 +1,8 @@
 use chrono::Duration;
-use thiserror::Error;
 use gstreamer as gst;
+use thiserror::Error;
 
 use crate::music_storage::library::URI;
-
 
 #[derive(Error, Debug)]
 pub enum PlayerError {
@@ -24,6 +23,7 @@ pub enum PlayerError {
 }
 
 pub trait Player {
+    fn new() -> Self;
     fn source(&self) -> &Option<URI>;
 
     fn enqueue_next(&mut self, next_track: &URI) -> Result<(), PlayerError>;
@@ -53,5 +53,4 @@ pub trait Player {
     fn seek_by(&mut self, seek_amount: Duration) -> Result<(), PlayerError>;
 
     fn seek_to(&mut self, target_pos: Duration) -> Result<(), PlayerError>;
-
 }
