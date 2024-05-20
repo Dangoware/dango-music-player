@@ -1,4 +1,3 @@
-use std::default;
 use std::error::Error;
 use std::{
     fs::File,
@@ -60,66 +59,50 @@ impl Playlist {
         self.play_time
     }
 
-    fn title(&self) -> &String {
+    pub fn title(&self) -> &String {
         &self.title
     }
 
-    fn cover(&self) -> Option<&AlbumArt> {
+    pub fn cover(&self) -> Option<&AlbumArt> {
         match &self.cover {
             Some(e) => Some(e),
             None => None,
         }
     }
 
-    fn tracks(&self) -> Vec<Uuid> {
+    pub fn tracks(&self) -> Vec<Uuid> {
         self.tracks.to_owned()
     }
+
     pub fn set_tracks(&mut self, tracks: Vec<Uuid>) {
         self.tracks = tracks;
     }
+
     pub fn add_track(&mut self, track: Uuid) {
         self.tracks.push(track);
     }
+
     pub fn remove_track(&mut self, index: i32) {
         let index = index as usize;
         if (self.tracks.len() - 1) >= index {
             self.tracks.remove(index);
         }
     }
-    // pub fn get_index(&self, song_name: &str) -> Option<usize> {
-    //     let mut index = 0;
-    //     if self.contains_value(&Tag::Title, song_name) {
-    //         for track in &self.tracks {
-    //             index += 1;
-    //             if song_name == track.tags.get_key_value(&Tag::Title).unwrap().1 {
-    //                 dbg!("Index gotted! ", index);
-    //                 return Some(index);
-    //             }
-    //         }
-    //     }
-    //     None
-    // }
-    pub fn contains_value(
-        &self,
-        tag: &Tag,
-        value: &String,
-        lib: Arc<RwLock<MusicLibrary>>,
-    ) -> bool {
-        let lib = lib.read().unwrap();
-        let items = match lib.query_tracks(value, &vec![tag.to_owned()], &vec![tag.to_owned()]) {
-            Some(e) => e,
-            None => return false,
-        };
-
-        for item in items {
-            for uuid in &self.tracks {
-                if uuid == &item.uuid {
-                    return true;
+    pub fn get_index(&self, uuid: Uuid) -> Option<usize> {
+        let mut i = 0;
+        if self.contains(uuid) {
+            for track in &self.tracks {
+                i += 1;
+                if &uuid == track {
+                    dbg!("Index gotted! ", i);
+                    return Some(i);
                 }
             }
         }
-
-        false
+        None
+    }
+    pub fn contains(&self, uuid: Uuid) -> bool {
+        self.get_index(uuid).is_some()
     }
 
     pub fn to_file(&self, path: &str) -> Result<(), Box<dyn Error>> {
