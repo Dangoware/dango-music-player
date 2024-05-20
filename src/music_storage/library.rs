@@ -1140,19 +1140,6 @@ mod test {
     use super::Song;
 
     #[test]
-    fn get_art_test() {
-        let s = Song::from_file(Path::new("")).unwrap();
-        let dir = &TempDir::new().unwrap();
-
-        let now = Instant::now();
-        _ = s.open_album_art(0, dir).inspect_err(|e| println!("{e:?}"));
-        _ = s.open_album_art(1, dir).inspect_err(|e| println!("{e:?}"));
-        println!("{}ms", now.elapsed().as_millis());
-
-        sleep(Duration::from_secs(20));
-    }
-
-    #[test]
     fn library_init() {
         let config = Config::read_file(PathBuf::from("test_config/config_test.json")).unwrap();
         let target_uuid = config.libraries.libraries[0].uuid;
