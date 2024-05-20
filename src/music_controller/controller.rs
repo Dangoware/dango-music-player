@@ -107,7 +107,8 @@ impl Controller {
         })
     }
 
-    pub fn q_add(&self, item: Uuid, source: super::queue::PlayerLocation, by_human: bool) {
+    pub fn q_add(&mut self, item: &Uuid, source: super::queue::PlayerLocation, by_human: bool) {
+        let item = self.library.query_uuid(item).unwrap().0.to_owned();
         self.queue.add_item(item, source, by_human)
     }
 }

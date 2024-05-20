@@ -9,16 +9,15 @@ use std::error::Error;
 use std::io::Write;
 use std::ops::ControlFlow::{Break, Continue};
 
-
 // Files
 use file_format::{FileFormat, Kind};
 use glib::filename_to_uri;
 use lofty::{AudioFile, ItemKey, ItemValue, ParseOptions, Probe, TagType, TaggedFileExt};
 use rcue::parser::parse_from_file;
-use uuid::Uuid;
 use std::fs::{self, File};
-use tempfile::TempDir;
 use std::path::{Path, PathBuf};
+use tempfile::TempDir;
+use uuid::Uuid;
 use walkdir::WalkDir;
 
 // Time
@@ -152,7 +151,7 @@ pub enum SongType {
     Main,
     Instrumental,
     Remix,
-    Custom(String)
+    Custom(String),
 }
 
 impl Default for SongType {
@@ -182,9 +181,8 @@ pub struct Song {
     pub date_modified: Option<DateTime<Utc>>,
     pub album_art: Vec<AlbumArt>,
     pub tags: BTreeMap<Tag, String>,
-    pub internal_tags: Vec<InternalTag>
+    pub internal_tags: Vec<InternalTag>,
 }
-
 
 impl Song {
     /// Get a tag's value
@@ -342,7 +340,6 @@ impl Song {
         for file in cue_data.files.iter() {
             let audio_location = &parent_dir.join(file.file.clone());
 
-
             if !audio_location.exists() {
                 continue;
             }
@@ -447,80 +444,12 @@ impl Song {
                     date_modified: Some(chrono::offset::Utc::now()),
                     tags,
                     album_art,
-                    internal_tags: Vec::new()
+                    internal_tags: Vec::new(),
                 };
                 tracks.push((new_song, audio_location.clone()));
             }
         }
-     Ok(tracks)
-    }
-
-    /// Takes the AlbumArt[index] and opens it in the native file viewer
-
-    pub fn open_album_art(&self, index: usize, temp_dir: &TempDir) -> Result<(), Box<dyn Error>> {
-        use opener::open;
-        use urlencoding::decode;
-
-        if index >= self.album_art.len() {
-            return Err("Index out of bounds".into());
-        }
-
-        let uri = match &self.album_art[index] {
-            AlbumArt::External(uri) => {
-                PathBuf::from(decode(match uri.as_uri().strip_prefix("file:///") {
-                    Some(e) => e,
-                    None => return Err("Invalid path?".into())
-                })?.to_owned().to_string())
-            },
-            AlbumArt::Embedded(_) => {
-                let normal_options = ParseOptions::new().parsing_mode(lofty::ParsingMode::Relaxed);
-                let blank_tag = &lofty::Tag::new(TagType::Id3v2);
-                let tagged_file: lofty::TaggedFile;
-
-                // TODO: add support for other URI types... or don't
-                #[cfg(target_family = "windows")]
-                let uri = urlencoding::decode(
-                    match self.primary_uri()?.0.as_uri().strip_prefix("file:///") {
-                        Some(str) => str,
-                        None => return Err("invalid path.. again?".into())
-                })?.into_owned();
-
-                #[cfg(target_family = "unix")]
-                let uri = urlencoding::decode(
-                    match self.primary_uri()?.as_uri().strip_prefix("file://") {
-                        Some(str) => str,
-                        None => return Err("invalid path.. again?".into())
-                })?.into_owned();
-
-                let tag = match Probe::open(uri)?.options(normal_options).read() {
-                    Ok(file) => {
-                        tagged_file = file;
-
-                        match tagged_file.primary_tag() {
-                            Some(primary_tag) => primary_tag,
-
-                            None => match tagged_file.first_tag() {
-                                Some(first_tag) => first_tag,
-                                None => blank_tag,
-                            },
-                        }
-                    }
-
-                    Err(_) => blank_tag,
-                };
-
-                let data = tag.pictures()[index].data();
-
-                let fmt = FileFormat::from_bytes(data);
-                let file_path = temp_dir.path().join(format!("{}_{index}.{}", self.uuid, fmt.extension()));
-
-                File::create(&file_path)?.write_all(data)?;
-
-                file_path
-            },
-        };
-        dbg!(open(dbg!(uri))?);
-        Ok(())
+        Ok(tracks)
     }
 
     /// Returns a reference to the first valid URI in the song, and any invalid URIs that come before it, or errors if there are no valid URIs
@@ -533,13 +462,20 @@ impl Song {
             if uri.exists()? {
                 valid_uri = Some(uri);
                 break;
-            }else {
+            } else {
                 invalid_uris.push(uri);
             }
         }
         match valid_uri {
-            Some(uri) => Ok((uri, if !invalid_uris.is_empty() { Some(invalid_uris) } else { None } )),
-            None => Err("No valid URIs for this song".into())
+            Some(uri) => Ok((
+                uri,
+                if !invalid_uris.is_empty() {
+                    Some(invalid_uris)
+                } else {
+                    None
+                },
+            )),
+            None => Err("No valid URIs for this song".into()),
         }
     }
 }
@@ -610,7 +546,7 @@ impl URI {
     pub fn as_path(&self) -> Result<&PathBuf, Box<dyn Error>> {
         if let Self::Local(path) = self {
             Ok(path)
-        }else {
+        } else {
             Err("This URI is not local!".into())
         }
     }
@@ -618,7 +554,7 @@ impl URI {
     pub fn exists(&self) -> Result<bool, std::io::Error> {
         match self {
             URI::Local(loc) => loc.try_exists(),
-            URI::Cue {location, ..} => location.try_exists(),
+            URI::Cue { location, .. } => location.try_exists(),
             URI::Remote(_, _loc) => todo!(),
         }
     }
@@ -703,7 +639,7 @@ pub struct MusicLibrary {
     pub uuid: Uuid,
     pub library: Vec<Song>,
     pub playlists: PlaylistFolder,
-    pub backup_songs: Vec<Song> // maybe move this to the config instead?
+    pub backup_songs: Vec<Song>, // maybe move this to the config instead?
 }
 
 impl MusicLibrary {
@@ -823,7 +759,8 @@ impl MusicLibrary {
     fn query_path(&self, path: PathBuf) -> Option<Vec<&Song>> {
         let result: Arc<Mutex<Vec<&Song>>> = Arc::new(Mutex::new(Vec::new()));
         self.library.par_iter().for_each(|track| {
-            if path == track.primary_uri().unwrap().0.path() { //TODO: make this also not unwrap
+            if path == track.primary_uri().unwrap().0.path() {
+                //TODO: make this also not unwrap
                 result.clone().lock().unwrap().push(track);
             }
         });
@@ -835,10 +772,7 @@ impl MusicLibrary {
     }
 
     /// Finds all the audio files within a specified folder
-    pub fn scan_folder(
-        &mut self,
-        target_path: &str,
-    ) -> Result<i32, Box<dyn std::error::Error>> {
+    pub fn scan_folder(&mut self, target_path: &str) -> Result<i32, Box<dyn std::error::Error>> {
         let mut total = 0;
         let mut errors = 0;
         for target_file in WalkDir::new(target_path)
@@ -901,7 +835,6 @@ impl MusicLibrary {
     }
 
     pub fn add_file(&mut self, target_file: &Path) -> Result<(), Box<dyn Error>> {
-
         let new_song = Song::from_file(target_file)?;
         match self.add_song(new_song) {
             Ok(_) => (),
@@ -917,14 +850,13 @@ impl MusicLibrary {
         let tracks = Song::from_cue(cuesheet)?;
         let mut tracks_added = tracks.len() as i32;
 
-
         for (new_song, location) in tracks {
             // Try to remove the original audio file from the db if it exists
             if self.remove_uri(&URI::Local(location.clone())).is_ok() {
                 tracks_added -= 1
             }
             match self.add_song(new_song) {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(_error) => {
                     //println!("{}", _error);
                     continue;
@@ -1194,14 +1126,18 @@ impl MusicLibrary {
 
 #[cfg(test)]
 mod test {
-    use std::{path::{Path, PathBuf}, sync::{Arc, RwLock}, thread::sleep, time::{Duration, Instant}};
+    use std::{
+        path::{Path, PathBuf},
+        sync::{Arc, RwLock},
+        thread::sleep,
+        time::{Duration, Instant},
+    };
 
     use tempfile::TempDir;
 
     use crate::{config::config::Config, music_storage::library::MusicLibrary};
 
     use super::Song;
-
 
     #[test]
     fn get_art_test() {
@@ -1211,7 +1147,7 @@ mod test {
         let now = Instant::now();
         _ = s.open_album_art(0, dir).inspect_err(|e| println!("{e:?}"));
         _ = s.open_album_art(1, dir).inspect_err(|e| println!("{e:?}"));
-        println!("{}ms", now.elapsed().as_millis() );
+        println!("{}ms", now.elapsed().as_millis());
 
         sleep(Duration::from_secs(20));
     }
