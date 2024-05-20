@@ -1,7 +1,7 @@
 use std::{
+    fs::{self, File, OpenOptions},
+    io::{Error, Read, Write},
     path::PathBuf,
-    fs::{File, OpenOptions, self},
-    io::{Error, Write, Read},
 };
 
 use serde::{Deserialize, Serialize};
@@ -41,7 +41,7 @@ impl ConfigLibrary {
     pub fn open(&self) -> Result<File, Error> {
         match File::open(self.path.as_path()) {
             Ok(ok) => Ok(ok),
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         }
     }
 }
@@ -62,18 +62,17 @@ impl ConfigLibraries {
     pub fn get_default(&self) -> Result<&ConfigLibrary, ConfigError> {
         for library in &self.libraries {
             if library.uuid == self.default_library {
-                return Ok(library)
+                return Ok(library);
             }
         }
         Err(ConfigError::NoDefaultLibrary)
     }
 
     pub fn get_library(&self, uuid: &Uuid) -> Result<ConfigLibrary, ConfigError> {
-
         for library in &self.libraries {
             // dbg!(&library.uuid, &uuid);
             if &library.uuid == uuid {
-                return Ok(library.to_owned())
+                return Ok(library.to_owned());
             }
         }
         Err(ConfigError::NoConfigLibrary(*uuid))
@@ -82,7 +81,7 @@ impl ConfigLibraries {
     pub fn uuid_exists(&self, uuid: &Uuid) -> bool {
         for library in &self.libraries {
             if &library.uuid == uuid {
-                return true
+                return true;
             }
         }
         false
@@ -91,7 +90,7 @@ impl ConfigLibraries {
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ConfigConnections {
-    pub listenbrainz_token: Option<String>
+    pub listenbrainz_token: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
@@ -122,7 +121,12 @@ impl Config {
     pub fn write_file(&self) -> Result<(), Error> {
         let mut writer = self.path.clone();
         writer.set_extension("tmp");
-        let mut file = OpenOptions::new().create(true).truncate(true).read(true).write(true).open(&writer)?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .read(true)
+            .write(true)
+            .open(&writer)?;
         let config = to_string_pretty(self)?;
         // dbg!(&config);
 
@@ -136,15 +140,20 @@ impl Config {
             Some(path) => {
                 let mut writer = path.clone();
                 writer.set_extension("tmp");
-                let mut file = OpenOptions::new().create(true).truncate(true).read(true).write(true).open(&writer)?;
+                let mut file = OpenOptions::new()
+                    .create(true)
+                    .truncate(true)
+                    .read(true)
+                    .write(true)
+                    .open(&writer)?;
                 let config = to_string_pretty(self)?;
                 // dbg!(&config);
 
                 file.write_all(config.as_bytes())?;
                 fs::rename(writer, self.path.as_path())?;
                 Ok(())
-            },
-            None => Err(ConfigError::NoBackupLibrary.into())
+            }
+            None => Err(ConfigError::NoBackupLibrary.into()),
         }
     }
 
@@ -175,17 +184,23 @@ pub enum ConfigError {
     BadPlaylist,
     #[error("No backup Config folder present")]
     NoBackupLibrary,
-
 }
 
 #[cfg(test)]
 pub mod tests {
-    use std::{path::PathBuf, sync::{Arc, RwLock}};
+    use super::{Config, ConfigLibrary};
     use crate::music_storage::library::MusicLibrary;
-    use super::{Config, ConfigLibraries, ConfigLibrary};
+    use std::{
+        path::PathBuf,
+        sync::{Arc, RwLock},
+    };
 
     pub fn new_config_lib() -> (Config, MusicLibrary) {
-        let lib = ConfigLibrary::new(PathBuf::from("test-config/library"), String::from("library"), None);
+        let lib = ConfigLibrary::new(
+            PathBuf::from("test-config/library"),
+            String::from("library"),
+            None,
+        );
         let mut config = Config {
             path: PathBuf::from("test-config/config_test.json"),
             ..Default::default()
@@ -194,7 +209,11 @@ pub mod tests {
         config.push_library(lib);
         config.write_file().unwrap();
 
-        let mut lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), dbg!(config.libraries.default_library)).unwrap();
+        let mut lib = MusicLibrary::init(
+            Arc::new(RwLock::from(config.clone())),
+            dbg!(config.libraries.default_library),
+        )
+        .unwrap();
         lib.scan_folder("test-config/music/").unwrap();
         lib.save(config.clone()).unwrap();
 
@@ -206,20 +225,22 @@ pub mod tests {
 
         // dbg!(&config);
 
-        let mut lib = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), config.libraries.get_default().unwrap().uuid).unwrap();
-
+        let mut lib = MusicLibrary::init(
+            Arc::new(RwLock::from(config.clone())),
+            config.libraries.get_default().unwrap().uuid,
+        )
+        .unwrap();
 
         lib.scan_folder("test-config/music/").unwrap();
 
         lib.save(config.clone()).unwrap();
-
 
         (config, lib)
     }
 
     #[test]
     fn test3() {
-        let (config, lib) = read_config_lib();
+        let (config, _) = read_config_lib();
 
         _ = config.write_file();
 

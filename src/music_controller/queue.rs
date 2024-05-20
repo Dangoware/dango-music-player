@@ -1,8 +1,5 @@
-use crate::music_storage::library::{MusicLibrary, Song, URI};
-use std::{
-    error::Error,
-    sync::{Arc, RwLock},
-};
+use crate::music_storage::library::Song;
+use std::error::Error;
 use uuid::Uuid;
 
 use thiserror::Error;
@@ -53,7 +50,7 @@ impl From<Song> for QueueItem {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Queue {
     pub items: Vec<QueueItem>,
     pub played: Vec<QueueItem>,
@@ -79,16 +76,6 @@ impl Queue {
                 .collect::<Vec<Song>>(),
             self.items.len()
         );
-    }
-
-    pub fn new() -> Self {
-        //TODO: Make the queue take settings from config/state if applicable
-        Queue {
-            items: Vec::new(),
-            played: Vec::new(),
-            loop_: false,
-            shuffle: false,
-        }
     }
 
     pub fn set_items(&mut self, tracks: Vec<QueueItem>) {
@@ -131,7 +118,7 @@ impl Queue {
         let empty = self.items.is_empty();
 
         self.items.insert(
-            (if empty { 0 } else { 1 }),
+            if empty { 0 } else { 1 },
             QueueItem {
                 item,
                 state: if (self.items.get(1).is_none()

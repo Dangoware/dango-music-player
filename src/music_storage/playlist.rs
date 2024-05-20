@@ -1,3 +1,4 @@
+use std::default;
 use std::error::Error;
 use std::{
     fs::File,
@@ -26,6 +27,7 @@ pub enum SortOrder {
 
 nest! {
     #[derive(Debug, Clone, Deserialize, Serialize)]*
+    #[derive(Default)]
     pub struct PlaylistFolder {
         name: String,
         items: Vec<
@@ -34,15 +36,6 @@ nest! {
                 List(Playlist)
             }
         >
-    }
-}
-
-impl PlaylistFolder {
-    pub fn new() -> Self {
-        PlaylistFolder {
-            name: String::new(),
-            items: Vec::new(),
-        }
     }
 }
 
@@ -233,7 +226,7 @@ impl Playlist {
                 #[cfg(target_family = "windows")]
                 {
                     playlist.title = path
-                        .split("\\")
+                        .split('\\')
                         .last()
                         .unwrap_or_default()
                         .strip_suffix(".m3u8")
@@ -339,7 +332,7 @@ impl Default for Playlist {
 #[cfg(test)]
 mod test_super {
     use super::*;
-    use crate::{config::config::tests::read_config_lib, music_storage::playlist};
+    use crate::config::config::tests::read_config_lib;
 
     #[test]
     fn list_to_m3u8() {
@@ -360,7 +353,7 @@ mod test_super {
         let playlist =
             Playlist::from_m3u8(".\\test-config\\playlists\\playlist.m3u8", arc).unwrap();
 
-        playlist.to_file(".\\test-config\\playlists\\playlist");
+        _ = playlist.to_file(".\\test-config\\playlists\\playlist");
         dbg!(playlist)
     }
 

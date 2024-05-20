@@ -642,7 +642,7 @@ impl MusicLibrary {
             name,
             uuid,
             library: Vec::new(),
-            playlists: PlaylistFolder::new(),
+            playlists: PlaylistFolder::default(),
             backup_songs: Vec::new(),
         }
     }

@@ -12,7 +12,6 @@ use std::error::Error;
 use uuid::Uuid;
 
 use crate::music_player::player::Player;
-use crate::music_storage::library::URI;
 use crate::{
     config::config::Config, music_controller::queue::Queue, music_storage::library::MusicLibrary,
 };
@@ -21,7 +20,7 @@ pub struct Controller<P: Player> {
     pub queue: Queue,
     pub config: Arc<RwLock<Config>>,
     pub library: MusicLibrary,
-    pub player: P,
+    pub player: Box<P>,
 }
 
 #[derive(Debug)]
@@ -55,19 +54,12 @@ impl<T: Send, U: Send> MailMan<T, U> {
     }
 }
 
-enum PlayerCmd {
-    Test(URI),
-}
-
-enum PlayerRes {
-    Test,
-}
-
 #[allow(unused_variables)]
-impl<P> Controller<P> {
+impl<P: Player> Controller<P> {
     pub fn start<T>(config_path: T) -> Result<Self, Box<dyn Error>>
     where
         std::path::PathBuf: std::convert::From<T>,
+        P: Player,
     {
         let config_path = PathBuf::from(config_path);
 
@@ -77,13 +69,11 @@ impl<P> Controller<P> {
         let config_ = Arc::new(RwLock::from(config));
         let library = MusicLibrary::init(config_.clone(), uuid)?;
 
-        let (player_mail, in_thread) = MailMan::<PlayerCmd, PlayerRes>::double();
-
         Ok(Controller {
-            queue: Queue::new(),
+            queue: Queue::default(),
             config: config_.clone(),
             library,
-            player: P::new(),
+            player: Box::new(P::new()),
         })
     }
 
@@ -94,27 +84,4 @@ impl<P> Controller<P> {
 }
 
 #[cfg(test)]
-mod test_super {
-    use std::{thread::sleep, time::Duration};
-
-    use super::Controller;
-
-    #[test]
-    fn play_test() {
-        let mut a = match Controller::start("test-config/config_test.json".to_string()) {
-            Ok(c) => c,
-            Err(e) => panic!("{e}"),
-        };
-        sleep(Duration::from_millis(500));
-    }
-
-    #[test]
-    fn test_() {
-        let c = Controller::start(
-            "F:\\Dangoware\\Dango Music Player\\dmp-core\\test-config\\config_test.json",
-        )
-        .unwrap();
-
-        sleep(Duration::from_secs(60));
-    }
-}
+mod test_super {}
