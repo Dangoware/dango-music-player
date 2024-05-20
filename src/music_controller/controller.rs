@@ -73,7 +73,7 @@ impl<P: Player> Controller<P> {
             queue: Queue::default(),
             config: config_.clone(),
             library,
-            player: Box::new(P::new()),
+            player: Box::new(P::new()?),
         })
     }
 

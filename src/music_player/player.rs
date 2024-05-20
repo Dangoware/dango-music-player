@@ -1,17 +1,16 @@
 use chrono::Duration;
-use gstreamer as gst;
 use thiserror::Error;
 
 use crate::music_storage::library::URI;
 
 #[derive(Error, Debug)]
 pub enum PlayerError {
-    #[error("player initialization failed")]
-    Init(#[from] glib::Error),
-    #[error("element factory failed to create playbin3")]
-    Factory(#[from] glib::BoolError),
+    #[error("player initialization failed: {0}")]
+    Init(String),
     #[error("could not change playback state")]
-    StateChange(#[from] gst::StateChangeError),
+    StateChange(String),
+    #[error("seeking failed: {0}")]
+    Seek(String),
     #[error("the file or source is not found")]
     NotFound,
     #[error("failed to build gstreamer item")]
@@ -19,11 +18,31 @@ pub enum PlayerError {
     #[error("poison error")]
     Poison,
     #[error("general player error")]
-    General,
+    General(String),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum PlayerState {
+    Playing,
+    Paused,
+    Ready,
+    Buffering(u8),
+    Null,
+    VoidPending,
+}
+
+#[derive(Debug)]
+pub enum PlayerCommand {
+    Play,
+    Pause,
+    EndOfStream,
+    AboutToFinish,
 }
 
 pub trait Player {
-    fn new() -> Self;
+    /// Create a new player
+    fn new() -> Result<Self, PlayerError> where Self: Sized;
+
     fn source(&self) -> &Option<URI>;
 
     fn enqueue_next(&mut self, next_track: &URI) -> Result<(), PlayerError>;
@@ -48,9 +67,9 @@ pub trait Player {
 
     fn duration(&mut self) -> Option<Duration>;
 
-    fn raw_duration(&self) -> Option<Duration>;
-
     fn seek_by(&mut self, seek_amount: Duration) -> Result<(), PlayerError>;
 
     fn seek_to(&mut self, target_pos: Duration) -> Result<(), PlayerError>;
+
+    fn message_channel(&self) -> &crossbeam::channel::Receiver<PlayerCommand>;
 }
