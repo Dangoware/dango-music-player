@@ -1,9 +1,9 @@
-use uuid::Uuid;
 use crate::music_storage::library::{MusicLibrary, Song, URI};
 use std::{
     error::Error,
-    sync::{Arc, RwLock}
+    sync::{Arc, RwLock},
 };
+use uuid::Uuid;
 
 use thiserror::Error;
 
@@ -12,8 +12,7 @@ pub enum QueueError {
     #[error("Index out of bounds! Index {0} is over len {1}")]
     OutOfBounds(usize, usize),
     #[error("The Queue is empty!")]
-    EmptyQueue
-
+    EmptyQueue,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -32,7 +31,7 @@ pub enum PlayerLocation {
     Library,
     Playlist(Uuid),
     File,
-    Custom
+    Custom,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,7 +40,7 @@ pub struct QueueItem {
     pub(super) item: Song,
     pub(super) state: QueueState,
     pub(super) source: PlayerLocation,
-    pub(super) by_human: bool
+    pub(super) by_human: bool,
 }
 impl From<Song> for QueueItem {
     fn from(song: Song) -> Self {
@@ -49,41 +48,46 @@ impl From<Song> for QueueItem {
             item: song,
             state: QueueState::NoState,
             source: PlayerLocation::Library,
-            by_human: false
+            by_human: false,
         }
     }
 }
-
 
 #[derive(Debug)]
 pub struct Queue {
     pub items: Vec<QueueItem>,
     pub played: Vec<QueueItem>,
     pub loop_: bool,
-    pub shuffle: bool
+    pub shuffle: bool,
 }
 
 impl Queue {
     fn has_addhere(&self) -> bool {
         for item in &self.items {
             if item.state == QueueState::AddHere {
-                return true
+                return true;
             }
         }
         false
     }
 
     fn dbg_items(&self) {
-        dbg!(self.items.iter().map(|item| item.item.clone() ).collect::<Vec<Song>>(), self.items.len());
+        dbg!(
+            self.items
+                .iter()
+                .map(|item| item.item.clone())
+                .collect::<Vec<Song>>(),
+            self.items.len()
+        );
     }
 
     pub fn new() -> Self {
         //TODO: Make the queue take settings from config/state if applicable
         Queue {
-        items: Vec::new(),
-        played: Vec::new(),
-        loop_: false,
-        shuffle: false,
+            items: Vec::new(),
+            played: Vec::new(),
+            loop_: false,
+            shuffle: false,
         }
     }
 
@@ -96,22 +100,30 @@ impl Queue {
     pub fn add_item(&mut self, item: Song, source: PlayerLocation, by_human: bool) {
         let mut i: usize = 0;
 
-        self.items = self.items.iter().enumerate().map(|(j, item_)| {
-            let mut item_ = item_.to_owned();
-            // get the index of the current AddHere item and give it to i
-            if item_.state == QueueState::AddHere {
-                i = j;
-                item_.state = QueueState::NoState;
-            }
-            item_
-        }).collect::<Vec<QueueItem>>();
+        self.items = self
+            .items
+            .iter()
+            .enumerate()
+            .map(|(j, item_)| {
+                let mut item_ = item_.to_owned();
+                // get the index of the current AddHere item and give it to i
+                if item_.state == QueueState::AddHere {
+                    i = j;
+                    item_.state = QueueState::NoState;
+                }
+                item_
+            })
+            .collect::<Vec<QueueItem>>();
 
-        self.items.insert(i + if self.items.is_empty() { 0 } else { 1 }, QueueItem {
-            item,
-            state: QueueState::AddHere,
-            source,
-            by_human
-        });
+        self.items.insert(
+            i + if self.items.is_empty() { 0 } else { 1 },
+            QueueItem {
+                item,
+                state: QueueState::AddHere,
+                source,
+                by_human,
+            },
+        );
     }
 
     pub fn add_item_next(&mut self, item: Song, source: PlayerLocation) {
@@ -122,19 +134,23 @@ impl Queue {
             (if empty { 0 } else { 1 }),
             QueueItem {
                 item,
-                state: if (self.items.get(1).is_none() || !self.has_addhere() && self.items.get(1).is_some()) || empty { AddHere } else { NoState },
+                state: if (self.items.get(1).is_none()
+                    || !self.has_addhere() && self.items.get(1).is_some())
+                    || empty
+                {
+                    AddHere
+                } else {
+                    NoState
+                },
                 source,
-                by_human: true
-            }
+                by_human: true,
+            },
         )
     }
 
-    pub fn add_multi(&mut self, items: Vec<Song>, source: PlayerLocation, by_human: bool) {
-
-    }
+    pub fn add_multi(&mut self, items: Vec<Song>, source: PlayerLocation, by_human: bool) {}
 
     pub fn remove_item(&mut self, remove_index: usize) -> Result<(), QueueError> {
-
         // dbg!(/*&remove_index, self.current_index(), &index,*/ &self.items[remove_index]);
 
         if remove_index < self.items.len() {
@@ -145,7 +161,7 @@ impl Queue {
             self.items[remove_index].state = QueueState::NoState;
             self.items.remove(remove_index);
             Ok(())
-        }else {
+        } else {
             Err(QueueError::EmptyQueue)
         }
     }
@@ -160,11 +176,11 @@ impl Queue {
 
         if !empty && index < self.items.len() {
             let i = self.items[index].clone();
-            self.items.retain(|item| *item == i );
+            self.items.retain(|item| *item == i);
             self.items[0].state = AddHere;
-        }else if empty {
+        } else if empty {
             return Err("Queue is empty!".into());
-        }else {
+        } else {
             return Err("index out of bounds!".into());
         }
         Ok(())
@@ -179,17 +195,19 @@ impl Queue {
         self.played.clear();
     }
 
-
     // TODO: uh, fix this?
     fn move_to(&mut self, index: usize) -> Result<(), QueueError> {
         use QueueState::*;
 
         let empty = self.items.is_empty();
 
-        let index = if !empty { index } else { return Err(QueueError::EmptyQueue); };
+        let index = if !empty {
+            index
+        } else {
+            return Err(QueueError::EmptyQueue);
+        };
 
         if !empty && index < self.items.len() {
-
             let to_item = self.items[index].clone();
 
             loop {
@@ -201,16 +219,18 @@ impl Queue {
                         self.items[1].state = AddHere;
                     }
                     if let Err(e) = self.remove_item(0) {
-                        dbg!(&e); self.dbg_items(); return Err(e);
+                        dbg!(&e);
+                        self.dbg_items();
+                        return Err(e);
                     }
                 // dbg!(&to_item.item, &self.items[ind].item);
-                }else if empty {
+                } else if empty {
                     return Err(QueueError::EmptyQueue);
-                }else {
+                } else {
                     break;
                 }
             }
-        }else {
+        } else {
             return Err(QueueError::EmptyQueue);
         }
         Ok(())
@@ -230,17 +250,15 @@ impl Queue {
 
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<&QueueItem, Box<dyn Error>> {
-
         if self.items.is_empty() {
             if self.loop_ {
                 return Err(QueueError::EmptyQueue.into()); // TODO: add function to loop the queue
-            }else {
+            } else {
                 return Err(QueueError::EmptyQueue.into());
             }
         }
         // TODO: add an algorithm to detect if the song should be skipped
         let item = self.items[0].clone();
-
         if self.items[0].state == QueueState::AddHere || !self.has_addhere() {
             self.items[1].state = QueueState::AddHere;
         }

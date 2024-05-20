@@ -13,7 +13,7 @@ use std::vec::Vec;
 use chrono::prelude::*;
 
 use crate::music_storage::db_reader::extern_library::ExternalLibrary;
-use crate::music_storage::library::{AlbumArt, Service, Song, Tag, URI};
+use crate::music_storage::library::{AlbumArt, BannedType, Service, Song, Tag, URI};
 use crate::music_storage::utils;
 
 use urlencoding::decode;
@@ -166,17 +166,19 @@ impl ExternalLibrary for ITunesLibrary {
             };
             let play_time_ = StdDur::from_secs(track.plays as u64 * dur.as_secs());
 
+            let internal_tags = Vec::new(); // TODO: handle internal tags generation
+
             let ny: Song = Song {
-                location,
+                location: vec![location],
                 uuid: Uuid::new_v4(),
                 plays: track.plays,
                 skips: 0,
                 favorited: track.favorited,
-                // banned: if track.banned {
-                //     Some(BannedType::All)
-                // }else {
-                //     None
-                // },
+                banned: if track.banned {
+                        Some(BannedType::All)
+                    }else {
+                        None
+                    },
                 rating: track.rating,
                 format: match FileFormat::from_file(PathBuf::from(&loc)) {
                     Ok(e) => Some(e),
@@ -192,6 +194,7 @@ impl ExternalLibrary for ITunesLibrary {
                     Err(_) => Vec::new(),
                 },
                 tags: tags_,
+                internal_tags,
             };
             // dbg!(&ny.tags);
             bun.push(ny);

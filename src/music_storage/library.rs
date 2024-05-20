@@ -1,3 +1,4 @@
+use super::playlist::PlaylistFolder;
 // Crate things
 use super::utils::{find_images, normalize, read_file, write_file};
 use crate::config::config::Config;
@@ -117,35 +118,58 @@ impl ToString for Field {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum InternalTag {
+    DoNotTrack(DoNotTrack),
+    SongType(SongType),
+    SongLink(Uuid, SongType),
+    // Volume Adjustment from -100% to 100%
+    VolumeAdjustment(i8),
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[non_exhaustive]
 pub enum BannedType {
     Shuffle,
     All,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum DoNotTrack {
     // TODO: add services to not track
+    LastFM,
+    LibreFM,
+    MusicBrainz,
+    Discord,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-enum SongType {
-    // TODO: add song types
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum SongType {
+    // TODO: add MORE?! song types
     Main,
     Instrumental,
     Remix,
     Custom(String)
 }
 
+impl Default for SongType {
+    fn default() -> Self {
+        SongType::Main
+    }
+}
+
 /// Stores information about a single song
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct Song {
-    pub location: URI,
+    pub location: Vec<URI>,
     pub uuid: Uuid,
     pub plays: i32,
     pub skips: i32,
     pub favorited: bool,
-    // pub banned: Option<BannedType>,
+    pub banned: Option<BannedType>,
     pub rating: Option<u8>,
     pub format: Option<FileFormat>,
     pub duration: Duration,
@@ -158,6 +182,7 @@ pub struct Song {
     pub date_modified: Option<DateTime<Utc>>,
     pub album_art: Vec<AlbumArt>,
     pub tags: BTreeMap<Tag, String>,
+    pub internal_tags: Vec<InternalTag>
 }
 
 
@@ -180,7 +205,7 @@ impl Song {
     pub fn get_field(&self, target_field: &str) -> Option<Field> {
         let lower_target = target_field.to_lowercase();
         match lower_target.as_str() {
-            "location" => Some(Field::Location(self.location.clone())),
+            "location" => Some(Field::Location(self.primary_uri().unwrap().0.clone())), //TODO: make this not unwrap()
             "plays" => Some(Field::Plays(self.plays)),
             "skips" => Some(Field::Skips(self.skips)),
             "favorited" => Some(Field::Favorited(self.favorited)),
@@ -279,13 +304,15 @@ impl Song {
         // TODO: Fix error handling
         let binding = fs::canonicalize(target_file).unwrap();
 
+        // TODO: Handle creation of internal tag: Song Type and Song Links
+        let internal_tags = { Vec::new() };
         let new_song = Song {
-            location: URI::Local(binding),
+            location: vec![URI::Local(binding)],
             uuid: Uuid::new_v4(),
             plays: 0,
             skips: 0,
             favorited: false,
-            // banned: None,
+            banned: None,
             rating: None,
             format,
             duration,
@@ -295,6 +322,7 @@ impl Song {
             date_modified: Some(chrono::offset::Utc::now()),
             tags,
             album_art,
+            internal_tags,
         };
         Ok(new_song)
     }
@@ -399,17 +427,17 @@ impl Song {
                 let album_art = find_images(&audio_location.to_path_buf()).unwrap();
 
                 let new_song = Song {
-                    location: URI::Cue {
+                    location: vec![URI::Cue {
                         location: audio_location.clone(),
                         index: i,
                         start,
                         end,
-                    },
+                    }],
                     uuid: Uuid::new_v4(),
                     plays: 0,
                     skips: 0,
                     favorited: false,
-                    // banned: None,
+                    banned: None,
                     rating: None,
                     format,
                     duration,
@@ -419,6 +447,7 @@ impl Song {
                     date_modified: Some(chrono::offset::Utc::now()),
                     tags,
                     album_art,
+                    internal_tags: Vec::new()
                 };
                 tracks.push((new_song, audio_location.clone()));
             }
@@ -448,16 +477,17 @@ impl Song {
                 let blank_tag = &lofty::Tag::new(TagType::Id3v2);
                 let tagged_file: lofty::TaggedFile;
 
+                // TODO: add support for other URI types... or don't
                 #[cfg(target_family = "windows")]
                 let uri = urlencoding::decode(
-                    match self.location.as_uri().strip_prefix("file:///") {
+                    match self.primary_uri()?.0.as_uri().strip_prefix("file:///") {
                         Some(str) => str,
                         None => return Err("invalid path.. again?".into())
                 })?.into_owned();
 
                 #[cfg(target_family = "unix")]
                 let uri = urlencoding::decode(
-                    match self.location.as_uri().strip_prefix("file://") {
+                    match self.primary_uri()?.as_uri().strip_prefix("file://") {
                         Some(str) => str,
                         None => return Err("invalid path.. again?".into())
                 })?.into_owned();
@@ -491,6 +521,26 @@ impl Song {
         };
         dbg!(open(dbg!(uri))?);
         Ok(())
+    }
+
+    /// Returns a reference to the first valid URI in the song, and any invalid URIs that come before it, or errors if there are no valid URIs
+    #[allow(clippy::type_complexity)]
+    pub fn primary_uri(&self) -> Result<(&URI, Option<Vec<&URI>>), Box<dyn Error>> {
+        let mut invalid_uris = Vec::new();
+        let mut valid_uri = None;
+
+        for uri in &self.location {
+            if uri.exists()? {
+                valid_uri = Some(uri);
+                break;
+            }else {
+                invalid_uris.push(uri);
+            }
+        }
+        match valid_uri {
+            Some(uri) => Ok((uri, if !invalid_uris.is_empty() { Some(invalid_uris) } else { None } )),
+            None => Err("No valid URIs for this song".into())
+        }
     }
 }
 
@@ -652,14 +702,8 @@ pub struct MusicLibrary {
     pub name: String,
     pub uuid: Uuid,
     pub library: Vec<Song>,
-}
-
-#[test]
-fn library_init() {
-    let config = Config::read_file(PathBuf::from("test_config/config_test.json")).unwrap();
-    let target_uuid = config.libraries.libraries[0].uuid;
-    let a = MusicLibrary::init(Arc::new(RwLock::from(config)), target_uuid).unwrap();
-    dbg!(a);
+    pub playlists: PlaylistFolder,
+    pub backup_songs: Vec<Song> // maybe move this to the config instead?
 }
 
 impl MusicLibrary {
@@ -669,6 +713,8 @@ impl MusicLibrary {
             name,
             uuid,
             library: Vec::new(),
+            playlists: PlaylistFolder::new(),
+            backup_songs: Vec::new(),
         }
     }
 
@@ -737,8 +783,11 @@ impl MusicLibrary {
             .par_iter()
             .enumerate()
             .try_for_each(|(i, track)| {
-                if path == &track.location {
-                    return std::ops::ControlFlow::Break((track, i));
+                for location in &track.location {
+                    //TODO: check that this works
+                    if path == location {
+                        return std::ops::ControlFlow::Break((track, i));
+                    }
                 }
                 Continue(())
             });
@@ -774,7 +823,7 @@ impl MusicLibrary {
     fn query_path(&self, path: PathBuf) -> Option<Vec<&Song>> {
         let result: Arc<Mutex<Vec<&Song>>> = Arc::new(Mutex::new(Vec::new()));
         self.library.par_iter().for_each(|track| {
-            if path == track.location.path() {
+            if path == track.primary_uri().unwrap().0.path() { //TODO: make this also not unwrap
                 result.clone().lock().unwrap().push(track);
             }
         });
@@ -886,13 +935,14 @@ impl MusicLibrary {
     }
 
     pub fn add_song(&mut self, new_song: Song) -> Result<(), Box<dyn Error>> {
-        if self.query_uri(&new_song.location).is_some() {
-            return Err(format!("URI already in database: {:?}", new_song.location).into());
+        let location = new_song.primary_uri()?.0;
+        if self.query_uri(location).is_some() {
+            return Err(format!("URI already in database: {:?}", location).into());
         }
 
-        match new_song.location {
-            URI::Local(_) if self.query_path(new_song.location.path()).is_some() => {
-                return Err(format!("Location exists for {:?}", new_song.location).into())
+        match location {
+            URI::Local(_) if self.query_path(location.path()).is_some() => {
+                return Err(format!("Location exists for {:?}", location).into())
             }
             _ => (),
         }
@@ -915,17 +965,18 @@ impl MusicLibrary {
     }
 
     /// Scan the song by a location and update its tags
+    // TODO: change this to work with multiple uris
     pub fn update_uri(
         &mut self,
         target_uri: &URI,
         new_tags: Vec<Tag>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let target_song = match self.query_uri(target_uri) {
+        let (target_song, _) = match self.query_uri(target_uri) {
             Some(song) => song,
             None => return Err("URI not in database!".to_string().into()),
         };
 
-        println!("{:?}", target_song.0.location);
+        println!("{:?}", target_song.location);
 
         for tag in new_tags {
             println!("{:?}", tag);
@@ -1143,9 +1194,11 @@ impl MusicLibrary {
 
 #[cfg(test)]
 mod test {
-    use std::{path::Path, thread::sleep, time::{Duration, Instant}};
+    use std::{path::{Path, PathBuf}, sync::{Arc, RwLock}, thread::sleep, time::{Duration, Instant}};
 
     use tempfile::TempDir;
+
+    use crate::{config::config::Config, music_storage::library::MusicLibrary};
 
     use super::Song;
 
@@ -1161,5 +1214,13 @@ mod test {
         println!("{}ms", now.elapsed().as_millis() );
 
         sleep(Duration::from_secs(20));
+    }
+
+    #[test]
+    fn library_init() {
+        let config = Config::read_file(PathBuf::from("test_config/config_test.json")).unwrap();
+        let target_uuid = config.libraries.libraries[0].uuid;
+        let a = MusicLibrary::init(Arc::new(RwLock::from(config)), target_uuid).unwrap();
+        dbg!(a);
     }
 }

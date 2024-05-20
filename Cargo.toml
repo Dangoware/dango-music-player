@@ -12,7 +12,15 @@ keywords = []
 categories = []
 
 [dependencies]
-file-format = { version = "0.23.0", features = ["reader-asf", "reader-ebml", "reader-mp4", "reader-rm", "reader-txt", "reader-xml", "serde"] }
+file-format = { version = "0.23.0", features = [
+    "reader-asf",
+    "reader-ebml",
+    "reader-mp4",
+    "reader-rm",
+    "reader-txt",
+    "reader-xml",
+    "serde",
+] }
 lofty = "0.18.2"
 serde = { version = "1.0.195", features = ["derive"] }
 walkdir = "2.4.0"
@@ -39,3 +47,4 @@ opener = { version = "0.7.0", features = ["reveal"] }
 tempfile = "3.10.1"
 listenbrainz = "0.7.0"
 discord-rpc-client = "0.4.0"
+nestify = "0.3.3"
