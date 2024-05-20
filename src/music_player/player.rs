@@ -31,7 +31,7 @@ pub enum PlayerState {
     VoidPending,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum PlayerCommand {
     Play,
     Pause,

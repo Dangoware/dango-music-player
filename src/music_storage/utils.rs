@@ -84,7 +84,6 @@ pub fn find_images(song_path: &Path) -> Result<Vec<AlbumArt>, Box<dyn Error>> {
         .filter(|e| e.depth() < 3)
     // Don't recurse very deep
     {
-        println!("{:?}", target_file);
         let path = target_file.path();
         if !path.is_file() || !path.exists() {
             continue;

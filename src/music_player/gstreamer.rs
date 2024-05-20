@@ -51,7 +51,10 @@ enum PlaybackInfo {
         start: Duration,
         end:   Duration,
     },
-    Finished // When this is sent, the thread will die!
+
+    /// When this is sent, the thread will die! Use it when the [Player] is
+    /// done playing
+    Finished
 }
 
 /// An instance of a music player with a GStreamer backend
@@ -66,7 +69,7 @@ pub struct GStreamer {
     volume:     f64,
     start:      Option<Duration>,
     end:        Option<Duration>,
-    paused:     bool,
+    paused:     Arc<RwLock<bool>>,
     position:   Arc<RwLock<Option<Duration>>>,
 }
 
@@ -260,6 +263,8 @@ impl Player for GStreamer {
 
         // Set up the thread to monitor bus messages
         let playbin_bus_ctrl = Arc::clone(&playbin);
+        let paused = Arc::new(RwLock::new(false));
+        let bus_paused = Arc::clone(&paused);
         let bus_watch = playbin
             .read()
             .unwrap()
@@ -267,23 +272,18 @@ impl Player for GStreamer {
             .expect("Failed to get GStreamer message bus")
             .add_watch(move |_bus, msg| {
                 match msg.view() {
-                    gst::MessageView::Eos(_) => {}
+                    gst::MessageView::Eos(_) => println!("End of stream"),
                     gst::MessageView::StreamStart(_) => println!("Stream start"),
-                    gst::MessageView::Error(_) => {
-                        playbin_bus_ctrl
-                            .write()
-                            .unwrap()
-                            .set_state(gst::State::Ready)
-                            .unwrap();
-
-                        playbin_bus_ctrl
-                            .write()
-                            .unwrap()
-                            .set_state(gst::State::Playing)
-                            .unwrap();
+                    gst::MessageView::Error(err) => {
+                        println!("Error recieved: {}", err);
+                        return glib::ControlFlow::Break
                     }
-                    /* TODO: Fix buffering!!
                     gst::MessageView::Buffering(buffering) => {
+                        if *bus_paused.read().unwrap() == true {
+                            return glib::ControlFlow::Continue
+                        }
+
+                        // If the player is not paused, pause it
                         let percent = buffering.percent();
                         if percent < 100 {
                             playbin_bus_ctrl
@@ -291,7 +291,8 @@ impl Player for GStreamer {
                                 .unwrap()
                                 .set_state(gst::State::Paused)
                                 .unwrap();
-                        } else if !(buffering) {
+                        } else if percent >= 100 {
+                            println!("Finished buffering");
                             playbin_bus_ctrl
                                 .write()
                                 .unwrap()
@@ -299,7 +300,6 @@ impl Player for GStreamer {
                                 .unwrap();
                         }
                     }
-                    */
                     _ => (),
                 }
                 glib::ControlFlow::Continue
@@ -321,7 +321,7 @@ impl Player for GStreamer {
             volume: 1.0,
             start: None,
             end: None,
-            paused: false,
+            paused,
             position,
         })
     }
@@ -355,20 +355,21 @@ impl Player for GStreamer {
 
     /// If the player is paused or stopped, starts playback
     fn play(&mut self) -> Result<(), PlayerError> {
+        *self.paused.write().unwrap() = false;
         self.set_state(gst::State::Playing)?;
         Ok(())
     }
 
     /// Pause, if playing
     fn pause(&mut self) -> Result<(), PlayerError> {
-        //self.paused = true;
+        *self.paused.write().unwrap() = true;
         self.set_state(gst::State::Paused)?;
         Ok(())
     }
 
     /// Resume from being paused
     fn resume(&mut self) -> Result<(), PlayerError> {
-        //self.paused = false;
+        *self.paused.write().unwrap() = false;
         self.set_state(gst::State::Playing)?;
         Ok(())
     }
@@ -473,9 +474,10 @@ fn playback_monitor(
 ) {
     let mut stats = PlaybackInfo::Idle;
     let mut pos_temp;
+    let mut sent_atf = false;
     loop {
         // Check for new messages to decide how to proceed
-        if let Ok(result) = status_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+        if let Ok(result) = status_rx.recv_timeout(std::time::Duration::from_millis(10)) {
             stats = result
         }
 
@@ -489,15 +491,18 @@ fn playback_monitor(
             PlaybackInfo::Playing{start, end} if pos_temp.is_some() => {
                 // Check if the current playback position is close to the end
                 let finish_point = end - Duration::milliseconds(250);
-                if pos_temp.unwrap() >= end {
+                if pos_temp.unwrap().num_microseconds() >= end.num_microseconds() {
                     let _ = playback_tx.try_send(PlayerCommand::EndOfStream);
                     playbin
                         .write()
                         .unwrap()
                         .set_state(gst::State::Ready)
                         .expect("Unable to set the pipeline state");
-                } else if pos_temp.unwrap() >= finish_point {
+                    sent_atf = false
+                } else if pos_temp.unwrap().num_microseconds() >= finish_point.num_microseconds()
+                    && !sent_atf {
                     let _ = playback_tx.try_send(PlayerCommand::AboutToFinish);
+                    sent_atf = true;
                 }
 
                 // This has to be done AFTER the current time in the file
@@ -508,7 +513,9 @@ fn playback_monitor(
                 *position.write().unwrap() = None;
                 break
             },
-            PlaybackInfo::Idle | PlaybackInfo::Switching => {},
+            PlaybackInfo::Idle | PlaybackInfo::Switching => {
+                sent_atf = false
+            },
             _ => ()
         }
 

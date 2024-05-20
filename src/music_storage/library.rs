@@ -218,8 +218,8 @@ impl Song {
         self.tags.remove(target_key);
     }
 
-    /// Creates a `Song` from a song file
-    pub fn from_file(target_file: &Path) -> Result<Self, Box<dyn Error>> {
+    /// Creates a `Song` from a music file
+    pub fn from_file<P: ?Sized + AsRef<Path>>(target_file: &P) -> Result<Self, Box<dyn Error>> {
         let normal_options = ParseOptions::new().parsing_mode(lofty::ParsingMode::Relaxed);
 
         let blank_tag = &lofty::Tag::new(TagType::Id3v2);
@@ -283,7 +283,7 @@ impl Song {
         }
 
         // Find images around the music file that can be used
-        let mut found_images = find_images(target_file).unwrap();
+        let mut found_images = find_images(target_file.as_ref()).unwrap();
         album_art.append(&mut found_images);
 
         // Get the format as a string
@@ -548,7 +548,7 @@ impl URI {
         match self {
             URI::Local(loc) => loc.try_exists(),
             URI::Cue { location, .. } => location.try_exists(),
-            URI::Remote(_, _loc) => todo!(),
+            URI::Remote(_, _loc) => Ok(true), // TODO: Investigate a way to do this?
         }
     }
 }
