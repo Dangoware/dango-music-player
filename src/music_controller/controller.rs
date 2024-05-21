@@ -6,21 +6,35 @@ use crossbeam_channel;
 use crossbeam_channel::{Receiver, Sender};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
+use thiserror::Error;
 
 use crossbeam_channel::unbounded;
 use std::error::Error;
 use uuid::Uuid;
 
-use crate::music_player::player::Player;
+use crate::config::config::ConfigError;
+use crate::music_player::player::{Player, PlayerError};
 use crate::{
     config::config::Config, music_controller::queue::Queue, music_storage::library::MusicLibrary,
 };
+
+use super::queue::QueueError;
 
 pub struct Controller<P: Player> {
     pub queue: Queue,
     pub config: Arc<RwLock<Config>>,
     pub library: MusicLibrary,
     pub player: Box<P>,
+}
+
+#[derive(Error, Debug)]
+pub enum ControllerError {
+    #[error("{0:?}")]
+    QueueError(#[from] QueueError),
+    #[error("{0:?}")]
+    PlayerError(#[from] PlayerError),
+    #[error("{0:?}")]
+    ConfigError(#[from] ConfigError),
 }
 
 #[derive(Debug)]

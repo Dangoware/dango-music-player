@@ -54,7 +54,6 @@ pub struct ConfigLibraries {
 }
 
 impl ConfigLibraries {
-    //TODO: Add new function for test tube
     pub fn set_default(mut self, uuid: &Uuid) {
         self.default_library = *uuid;
     }
