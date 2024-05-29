@@ -213,6 +213,11 @@ impl GStreamer {
     fn property(&self, property: &str) -> glib::Value {
         self.playbin().unwrap().property_value(property)
     }
+
+    fn ready(&mut self) -> Result<(), PlayerError> {
+        self.set_state(gst::State::Ready)?;
+        Ok(())
+    }
 }
 
 impl Player for GStreamer {
@@ -329,62 +334,46 @@ impl Player for GStreamer {
         &self.source
     }
 
-    /// Insert a new track to be played. This method should be called at the
-    /// beginning to start playback of something, and once the [PlayerCommand]
-    /// indicates the track is about to finish to enqueue gaplessly.
     fn enqueue_next(&mut self, next_track: &URI) -> Result<(), PlayerError> {
         self.set_source(next_track)
     }
 
-    /// Set the playback volume, accepts a float from 0 to 1
     fn set_volume(&mut self, volume: f64) {
         self.volume = volume.clamp(0.0, 1.0);
         self.set_gstreamer_volume(self.volume);
     }
 
-    /// Returns the current volume level, a float from 0 to 1
-    fn volume(&mut self) -> f64 {
+    fn volume(&self) -> f64 {
         self.volume
     }
 
-    fn ready(&mut self) -> Result<(), PlayerError> {
-        self.set_state(gst::State::Ready)?;
-        Ok(())
-    }
-
-    /// If the player is paused or stopped, starts playback
     fn play(&mut self) -> Result<(), PlayerError> {
+        if self.state() == PlayerState::Playing {
+            return Ok(())
+        }
         *self.paused.write().unwrap() = false;
         self.set_state(gst::State::Playing)?;
         Ok(())
     }
 
-    /// Pause, if playing
     fn pause(&mut self) -> Result<(), PlayerError> {
+        if self.state() == PlayerState::Paused || *self.paused.read().unwrap() {
+            return Ok(())
+        }
         *self.paused.write().unwrap() = true;
         self.set_state(gst::State::Paused)?;
         Ok(())
     }
 
-    /// Resume from being paused
-    fn resume(&mut self) -> Result<(), PlayerError> {
-        *self.paused.write().unwrap() = false;
-        self.set_state(gst::State::Playing)?;
-        Ok(())
-    }
-
-    /// Check if playback is paused
-    fn is_paused(&mut self) -> bool {
+    fn is_paused(&self) -> bool {
         self.playbin().unwrap().current_state() == gst::State::Paused
     }
 
-    /// Get the current playback position of the player
-    fn position(&mut self) -> Option<Duration> {
+    fn position(&self) -> Option<Duration> {
         *self.position.read().unwrap()
     }
 
-    /// Get the duration of the currently playing track
-    fn duration(&mut self) -> Option<Duration> {
+    fn duration(&self) -> Option<Duration> {
         if self.end.is_some() && self.start.is_some() {
             Some(self.end.unwrap() - self.start.unwrap())
         } else {
@@ -392,7 +381,6 @@ impl Player for GStreamer {
         }
     }
 
-    /// Seek relative to the current position
     fn seek_by(&mut self, seek_amount: Duration) -> Result<(), PlayerError> {
         let time_pos = match *self.position.read().unwrap() {
             Some(pos) => pos,
@@ -404,7 +392,6 @@ impl Player for GStreamer {
         Ok(())
     }
 
-    /// Seek absolutely
     fn seek_to(&mut self, target_pos: Duration) -> Result<(), PlayerError> {
         let start = if self.start.is_none() {
             return Err(PlayerError::Seek("No START time".into()));
@@ -432,7 +419,6 @@ impl Player for GStreamer {
         Ok(())
     }
 
-    /// Stop the playback entirely
     fn stop(&mut self) -> Result<(), PlayerError> {
         self.pause()?;
         self.ready()?;
@@ -447,7 +433,6 @@ impl Player for GStreamer {
         Ok(())
     }
 
-    /// Return a reference to the player message channel
     fn message_channel(&self) -> &crossbeam::channel::Receiver<PlayerCommand> {
         &self.message_rx
     }

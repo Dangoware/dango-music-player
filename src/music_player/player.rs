@@ -40,36 +40,58 @@ pub enum PlayerCommand {
 }
 
 pub trait Player {
-    /// Create a new player
+    /// Create a new player.
     fn new() -> Result<Self, PlayerError> where Self: Sized;
 
+    /// Get the currently playing [URI] from the player.
     fn source(&self) -> &Option<URI>;
 
+    /// Insert a new [`URI`] to be played. This method should be called at the
+    /// beginning to start playback of something, and once the [`PlayerCommand`]
+    /// indicates the track is about to finish to enqueue gaplessly.
+    ///
+    /// For backends which do not support gapless playback, `AboutToFinish`
+    /// will not be called, and the next [`URI`] should be enqueued once `Eos`
+    /// occurs.
     fn enqueue_next(&mut self, next_track: &URI) -> Result<(), PlayerError>;
 
+    /// Set the playback volume, accepts a float from `0` to `1`.
+    ///
+    /// Values outside the range of `0` to `1` will be capped.
     fn set_volume(&mut self, volume: f64);
 
-    fn volume(&mut self) -> f64;
+    /// Returns the current volume level, a float from `0` to `1`.
+    fn volume(&self) -> f64;
 
-    fn ready(&mut self) -> Result<(), PlayerError>;
-
+    /// If the player is paused or stopped, starts playback.
     fn play(&mut self) -> Result<(), PlayerError>;
 
-    fn resume(&mut self) -> Result<(), PlayerError>;
-
+    /// If the player is playing, pause playback.
     fn pause(&mut self) -> Result<(), PlayerError>;
 
+    /// Stop the playback entirely, removing the current [`URI`] from the player.
     fn stop(&mut self) -> Result<(), PlayerError>;
 
-    fn is_paused(&mut self) -> bool;
+    /// Convenience function to check if playback is paused.
+    fn is_paused(&self) -> bool;
 
-    fn position(&mut self) -> Option<Duration>;
+    /// Get the current playback position of the player.
+    fn position(&self) -> Option<Duration>;
 
-    fn duration(&mut self) -> Option<Duration>;
+    /// Get the duration of the currently playing track.
+    fn duration(&self) -> Option<Duration>;
 
+    /// Seek relative to the current position.
+    ///
+    /// The position is capped at the duration of the song, and zero.
     fn seek_by(&mut self, seek_amount: Duration) -> Result<(), PlayerError>;
 
+    /// Seek absolutely within the song.
+    ///
+    /// The position is capped at the duration of the song, and zero.
     fn seek_to(&mut self, target_pos: Duration) -> Result<(), PlayerError>;
 
+    /// Return a reference to the player message channel, which can be cloned
+    /// in order to monitor messages from the player.
     fn message_channel(&self) -> &crossbeam::channel::Receiver<PlayerCommand>;
 }
