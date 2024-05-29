@@ -391,7 +391,7 @@ impl Queue {
 mod test_super {
     #![allow(unused)]
     use crate::{
-        config::config::tests::{new_config_lib, read_config_lib},
+        config::tests::{new_config_lib, read_config_lib},
         music_storage::library,
     };
 

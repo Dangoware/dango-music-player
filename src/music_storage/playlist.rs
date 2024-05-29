@@ -315,7 +315,7 @@ impl Default for Playlist {
 #[cfg(test)]
 mod test_super {
     use super::*;
-    use crate::config::config::tests::read_config_lib;
+    use crate::config::tests::read_config_lib;
 
     #[test]
     fn list_to_m3u8() {

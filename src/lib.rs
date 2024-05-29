@@ -18,8 +18,5 @@ pub mod music_player {
     pub mod gstreamer;
     pub mod player;
 }
-#[allow(clippy::module_inception)]
-pub mod config {
-    pub mod config;
-    pub mod other_settings;
-}
+
+pub mod config;

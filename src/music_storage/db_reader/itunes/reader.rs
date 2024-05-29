@@ -336,7 +336,7 @@ impl ITunesSong {
 mod tests {
     use std::{path::{Path, PathBuf}, sync::{Arc, RwLock}};
 
-    use crate::{config::config::{Config, ConfigLibrary}, music_storage::{db_reader::extern_library::ExternalLibrary, library::MusicLibrary}};
+    use crate::{config::{Config, ConfigLibrary}, music_storage::{db_reader::extern_library::ExternalLibrary, library::MusicLibrary}};
 
     use super::ITunesLibrary;
 

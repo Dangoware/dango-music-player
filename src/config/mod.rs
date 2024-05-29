@@ -1,3 +1,5 @@
+pub mod other_settings;
+
 use std::{
     fs::{self, File, OpenOptions},
     io::{Error, Read, Write},
@@ -214,7 +216,7 @@ pub mod tests {
         )
         .unwrap();
         lib.scan_folder("test-config/music/").unwrap();
-        lib.save(config.clone()).unwrap();
+        lib.save(Arc::new(RwLock::new(config.clone()))).unwrap();
 
         (config, lib)
     }
@@ -232,7 +234,7 @@ pub mod tests {
 
         lib.scan_folder("test-config/music/").unwrap();
 
-        lib.save(config.clone()).unwrap();
+        lib.save(Arc::new(RwLock::new(config.clone()))).unwrap();
 
         (config, lib)
     }

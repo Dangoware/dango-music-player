@@ -1,7 +1,7 @@
 use super::playlist::PlaylistFolder;
 // Crate things
 use super::utils::{find_images, normalize, read_file, write_file};
-use crate::config::config::Config;
+use crate::config::Config;
 
 // Various std things
 use std::collections::BTreeMap;
@@ -1127,7 +1127,7 @@ mod test {
         sync::{Arc, RwLock},
     };
 
-    use crate::{config::config::Config, music_storage::library::MusicLibrary};
+    use crate::{config::{tests::new_config_lib, Config}, music_storage::library::MusicLibrary};
 
     #[test]
     fn library_init() {
