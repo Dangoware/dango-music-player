@@ -353,6 +353,6 @@ mod tests {
         songs.iter().for_each(|song| library.add_song(song.to_owned()).unwrap());
 
         config.write_file().unwrap();
-        library.save(config).unwrap();
+        library.save(Arc::new(RwLock::from(config))).unwrap();
     }
 }

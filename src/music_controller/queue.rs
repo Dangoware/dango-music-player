@@ -59,7 +59,7 @@ pub struct Queue {
     pub items: Vec<QueueItem>,
     pub played: Vec<QueueItem>,
     pub loop_: bool,
-    pub shuffle: bool,
+    pub shuffle: Option<Vec<usize>>,
 }
 
 // TODO: HAndle the First QueueState[looping] and shuffle

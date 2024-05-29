@@ -6,6 +6,7 @@ use crossbeam_channel;
 use crossbeam_channel::{Receiver, Sender};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
+use std::thread::spawn;
 use thiserror::Error;
 
 use crossbeam_channel::unbounded;
@@ -13,18 +14,18 @@ use std::error::Error;
 use uuid::Uuid;
 
 use crate::config::config::ConfigError;
-use crate::music_player::player::{Player, PlayerError};
+use crate::music_player::player::{Player, PlayerCommand, PlayerError};
 use crate::{
     config::config::Config, music_controller::queue::Queue, music_storage::library::MusicLibrary,
 };
 
 use super::queue::QueueError;
 
-pub struct Controller<P: Player> {
+pub struct Controller<P: Player + Send + Sync> {
     pub queue: Queue,
     pub config: Arc<RwLock<Config>>,
     pub library: MusicLibrary,
-    pub player: Box<P>,
+    pub player: Arc<RwLock<Box<P>>>,
 }
 
 #[derive(Error, Debug)]
@@ -69,7 +70,7 @@ impl<T: Send, U: Send> MailMan<T, U> {
 }
 
 #[allow(unused_variables)]
-impl<P: Player> Controller<P> {
+impl<P: Player + Send + Sync> Controller<P> {
     pub fn start<T>(config_path: T) -> Result<Self, Box<dyn Error>>
     where
         std::path::PathBuf: std::convert::From<T>,
@@ -83,12 +84,28 @@ impl<P: Player> Controller<P> {
         let config_ = Arc::new(RwLock::from(config));
         let library = MusicLibrary::init(config_.clone(), uuid)?;
 
-        Ok(Controller {
+        let controller = Controller {
             queue: Queue::default(),
             config: config_.clone(),
             library,
-            player: Box::new(P::new()?),
-        })
+            player: Arc::new(RwLock::new(Box::new(P::new()?))),
+        };
+
+
+        let player = controller.player.clone();
+        let controler_thread = spawn(move || {
+            match player.read().unwrap().message_channel().recv().unwrap() {
+                PlayerCommand::AboutToFinish => {},
+                PlayerCommand::EndOfStream => {
+
+                    player.write().unwrap().enqueue_next(todo!());
+                },
+                _ => {}
+            }
+        });
+
+
+        Ok(controller)
     }
 
     pub fn q_add(&mut self, item: &Uuid, source: super::queue::PlayerLocation, by_human: bool) {
