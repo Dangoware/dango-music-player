@@ -94,6 +94,7 @@ impl GStreamer {
         }
 
         // Make sure the playback tracker knows the stuff is stopped
+        println!("Beginning switch");
         self.playback_tx.send(PlaybackInfo::Switching).unwrap();
 
         let uri = self.playbin.read().unwrap().property_value("current-uri");
@@ -133,12 +134,11 @@ impl GStreamer {
                     .unwrap()
                     .set_property("uri", source.as_uri());
 
-                self.play().unwrap();
+                if self.state() != PlayerState::Playing {
+                    self.play().unwrap();
+                }
 
-                while uri.get::<&str>().unwrap_or("")
-                    == self.property("current-uri").get::<&str>().unwrap_or("")
-                    || self.position().is_none()
-                {
+                while self.raw_duration().is_none() {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
 
@@ -249,7 +249,7 @@ impl Player for GStreamer {
             .ok_or(PlayerError::Build)?;
 
         playbin.write().unwrap().set_property_from_value("flags", &flags);
-        playbin.write().unwrap().set_property("instant-uri", true);
+        //playbin.write().unwrap().set_property("instant-uri", true);
 
         let position = Arc::new(RwLock::new(None));
 
@@ -258,8 +258,7 @@ impl Player for GStreamer {
         let (status_tx, status_rx) = unbounded::<PlaybackInfo>();
         let position_update = Arc::clone(&position);
 
-        let _playback_monitor =
-            std::thread::spawn(|| playback_monitor(playbin_arc, status_rx, playback_tx, position_update));
+        std::thread::spawn(|| playback_monitor(playbin_arc, status_rx, playback_tx, position_update));
 
         // Set up the thread to monitor bus messages
         let playbin_bus_ctrl = Arc::clone(&playbin);
@@ -477,7 +476,7 @@ fn playback_monitor(
     let mut sent_atf = false;
     loop {
         // Check for new messages to decide how to proceed
-        if let Ok(result) = status_rx.recv_timeout(std::time::Duration::from_millis(10)) {
+        if let Ok(result) = status_rx.recv_timeout(std::time::Duration::from_millis(50)) {
             stats = result
         }
 
@@ -490,8 +489,9 @@ fn playback_monitor(
         match stats {
             PlaybackInfo::Playing{start, end} if pos_temp.is_some() => {
                 // Check if the current playback position is close to the end
-                let finish_point = end - Duration::milliseconds(250);
+                let finish_point = end - Duration::milliseconds(2000);
                 if pos_temp.unwrap().num_microseconds() >= end.num_microseconds() {
+                    println!("MONITOR: End of stream");
                     let _ = playback_tx.try_send(PlayerCommand::EndOfStream);
                     playbin
                         .write()
@@ -500,7 +500,9 @@ fn playback_monitor(
                         .expect("Unable to set the pipeline state");
                     sent_atf = false
                 } else if pos_temp.unwrap().num_microseconds() >= finish_point.num_microseconds()
-                    && !sent_atf {
+                    && !sent_atf
+                {
+                    println!("MONITOR: About to finish");
                     let _ = playback_tx.try_send(PlayerCommand::AboutToFinish);
                     sent_atf = true;
                 }
@@ -510,6 +512,7 @@ fn playback_monitor(
                 pos_temp = Some(pos_temp.unwrap() - start)
             },
             PlaybackInfo::Finished => {
+                println!("MONITOR: Shutting down");
                 *position.write().unwrap() = None;
                 break
             },

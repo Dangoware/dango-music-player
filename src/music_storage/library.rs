@@ -283,8 +283,8 @@ impl Song {
         }
 
         // Find images around the music file that can be used
-        let mut found_images = find_images(target_file.as_ref()).unwrap();
-        album_art.append(&mut found_images);
+        let found_images = find_images(target_file.as_ref()).unwrap();
+        album_art.extend_from_slice(&found_images);
 
         // Get the format as a string
         let format: Option<FileFormat> = match FileFormat::from_file(target_file) {
@@ -624,8 +624,6 @@ impl Album<'_> {
     }
 }
 
-const BLOCKED_EXTENSIONS: [&str; 4] = ["vob", "log", "txt", "sf2"];
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MusicLibrary {
     pub name: String,
@@ -636,6 +634,8 @@ pub struct MusicLibrary {
 }
 
 impl MusicLibrary {
+    const BLOCKED_EXTENSIONS: &'static [&'static str] = &["vob", "log", "txt", "sf2"];
+
     /// Create a new library from a name and [Uuid]
     fn new(name: String, uuid: Uuid) -> Self {
         MusicLibrary {
@@ -654,7 +654,7 @@ impl MusicLibrary {
     /// the [MusicLibrary] Vec
     pub fn init(config: Arc<RwLock<Config>>, uuid: Uuid) -> Result<Self, Box<dyn Error>> {
         let global_config = &*config.read().unwrap();
-        let path = global_config.libraries.get_library(&uuid)?.path;
+        let path = global_config.libraries.get_library(&uuid)?.path.clone();
 
         let library: MusicLibrary = match path.exists() {
             true => read_file(path)?,
@@ -671,7 +671,8 @@ impl MusicLibrary {
     }
 
     //#[cfg(debug_assertions)] // We probably wouldn't want to use this for real, but maybe it would have some utility?
-    pub fn from_path(path: PathBuf) -> Result<Self, Box<dyn Error>> {
+    pub fn from_path<P: ?Sized + AsRef<Path>>(path: &P) -> Result<Self, Box<dyn Error>> {
+        let path: PathBuf = path.as_ref().to_path_buf();
         let library: MusicLibrary = match path.exists() {
             true => read_file(path)?,
             false => {
@@ -684,8 +685,8 @@ impl MusicLibrary {
     }
 
     /// Serializes the database out to the file specified in the config
-    pub fn save(&self, config: Config) -> Result<(), Box<dyn Error>> {
-        let path = config.libraries.get_library(&self.uuid)?.path;
+    pub fn save(&self, config: Arc<RwLock<Config>>) -> Result<(), Box<dyn Error>> {
+        let path = config.read().unwrap().libraries.get_library(&self.uuid)?.path.clone();
         match path.try_exists() {
             Ok(_) => write_file(self, path)?,
             Err(error) => return Err(error.into()),
@@ -715,7 +716,7 @@ impl MusicLibrary {
                 for location in &track.location {
                     //TODO: check that this works
                     if path == location {
-                        return std::ops::ControlFlow::Break((track, i));
+                        return Break((track, i));
                     }
                 }
                 Continue(())
@@ -765,7 +766,7 @@ impl MusicLibrary {
     }
 
     /// Finds all the audio files within a specified folder
-    pub fn scan_folder(&mut self, target_path: &str) -> Result<i32, Box<dyn std::error::Error>> {
+    pub fn scan_folder<P: ?Sized + AsRef<Path>>(&mut self, target_path: &P) -> Result<i32, Box<dyn std::error::Error>> {
         let mut total = 0;
         let mut errors = 0;
         for target_file in WalkDir::new(target_path)
@@ -803,26 +804,28 @@ impl MusicLibrary {
             // If it's a normal file, add it to the database
             // if it's a cuesheet, do a bunch of fancy stuff
             if (format.kind() == Kind::Audio || format.kind() == Kind::Video)
-                && !BLOCKED_EXTENSIONS.contains(&extension.as_str())
+                && !Self::BLOCKED_EXTENSIONS.contains(&extension.as_str())
             {
                 match self.add_file(target_file.path()) {
                     Ok(_) => total += 1,
                     Err(_error) => {
                         errors += 1;
-                        //println!("{}, {:?}: {}", format, target_file.file_name(), _error)
+                        println!("{:?}: {}", target_file.file_name(), _error)
                     } // TODO: Handle more of these errors
                 };
             } else if extension == "cue" {
                 total += match self.add_cuesheet(target_file.path()) {
                     Ok(added) => added,
-                    Err(error) => {
+                    Err(_error) => {
                         errors += 1;
-                        //println!("{}", error);
+                        println!("{:?}: {}", target_file.file_name(), _error);
                         0
                     }
                 }
             }
         }
+
+        println!("Total scanning errors: {}", errors);
 
         Ok(total)
     }
