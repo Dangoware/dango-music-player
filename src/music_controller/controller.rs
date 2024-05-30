@@ -5,8 +5,9 @@
 use crossbeam_channel;
 use crossbeam_channel::{Receiver, Sender};
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
-use std::thread::spawn;
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread::{sleep, spawn};
+use std::time::Duration;
 use thiserror::Error;
 
 use crossbeam_channel::unbounded;
@@ -22,10 +23,10 @@ use crate::{
 use super::queue::QueueError;
 
 pub struct Controller<P: Player + Send + Sync> {
-    pub queue: Queue,
+    pub queue: Arc<RwLock<Queue>>,
     pub config: Arc<RwLock<Config>>,
     pub library: MusicLibrary,
-    pub player: Arc<RwLock<P>>,
+    pub player: Arc<Mutex<P>>,
 }
 
 #[derive(Error, Debug)]
@@ -85,22 +86,43 @@ impl<P: Player + Send + Sync + Sized + 'static> Controller<P> {
         let library = MusicLibrary::init(config_.clone(), uuid)?;
 
         let controller = Controller {
-            queue: Queue::default(),
+            queue: Arc::new(RwLock::from(Queue::default())),
             config: config_.clone(),
             library,
-            player: Arc::new(RwLock::new(P::new()?)),
+            player: Arc::new(Mutex::new(P::new()?)),
         };
 
-        let player = Arc::clone(&controller.player);
-        let controller_thread = spawn(move || {
-            match player.read().unwrap().message_channel().recv().unwrap() {
-                PlayerCommand::AboutToFinish => {},
-                PlayerCommand::EndOfStream => {
 
-                    player.write().unwrap().enqueue_next(todo!());
-                },
-                _ => {}
+        let player = controller.player.clone();
+        let queue = controller.queue.clone();
+        let controller_thread = spawn(move || {
+            loop {
+                let signal = { player.lock().unwrap().message_channel().recv().unwrap() };
+                match signal {
+                    PlayerCommand::AboutToFinish => {
+                        println!("Switching songs!");
+
+                        let mut queue = queue.write().unwrap();
+
+                        let uri = queue
+                                .next()
+                                .unwrap()
+                                .clone();
+
+                        player
+                            .lock()
+                            .unwrap()
+                            .enqueue_next(uri.item
+                                .primary_uri()
+                                .unwrap()
+                                .0)
+                            .unwrap();
+                    },
+                    PlayerCommand::EndOfStream => {dbg!()}
+                    _ => {}
+                }
             }
+
         });
 
 
@@ -109,20 +131,44 @@ impl<P: Player + Send + Sync + Sized + 'static> Controller<P> {
 
     pub fn q_add(&mut self, item: &Uuid, source: super::queue::PlayerLocation, by_human: bool) {
         let item = self.library.query_uuid(item).unwrap().0.to_owned();
-        self.queue.add_item(item, source, by_human)
+        self.queue.write().unwrap().add_item(item, source, by_human)
     }
 }
 
 #[cfg(test)]
 mod test_super {
-    use crate::{config::tests::read_config_lib, music_player::gstreamer::GStreamer};
+    use std::{thread::sleep, time::Duration};
+
+    use crate::{config::tests::read_config_lib, music_controller::queue::PlayerLocation, music_player::{gstreamer::GStreamer, player::Player}};
 
     use super::Controller;
 
     #[test]
     fn construct_controller() {
+        println!("starto!");
         let config = read_config_lib();
 
-        let controller = Controller::<GStreamer>::start("test-config/config_test.json").unwrap();
+        let next = config.1.library[2].clone();
+        {
+            let controller = Controller::<GStreamer>::start("test-config/config_test.json").unwrap();
+            {
+                let mut queue = controller.queue.write().unwrap();
+                for x in config.1.library {
+                    queue.add_item(x, PlayerLocation::Library, true);
+                }
+            }
+            {
+                controller.player.lock().unwrap().enqueue_next(next.primary_uri().unwrap().0).unwrap();
+            }
+            {
+                controller.player.lock().unwrap().set_volume(0.2);
+            }
+            {
+                controller.player.lock().unwrap().play().unwrap();
+            }
+            println!("I'm a tire");
+        }
+        sleep(Duration::from_secs(600))
+
     }
 }

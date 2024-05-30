@@ -74,7 +74,7 @@ impl Queue {
     }
 
     #[allow(unused)]
-    fn dbg_items(&self) {
+    pub(super) fn dbg_items(&self) {
         dbg!(
             self.items
                 .iter()

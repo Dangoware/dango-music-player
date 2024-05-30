@@ -335,6 +335,7 @@ impl Player for GStreamer {
     }
 
     fn enqueue_next(&mut self, next_track: &URI) -> Result<(), PlayerError> {
+        println!("enqueuing in fn");
         self.set_source(next_track)
     }
 
