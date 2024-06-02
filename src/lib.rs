@@ -45,7 +45,7 @@ impl<
 QueueItem<T, U, L> {
     pub fn from_item_type(item: QueueItemType<T, U>, source: Option<L>) -> Self {
         QueueItem {
-            item: item,
+            item,
             state: QueueState::NoState,
             source,
             by_human: false,

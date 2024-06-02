@@ -1,12 +1,12 @@
 [package]
 name = "kushi"
 version = "0.1.0"
-edition = "2021"
-description = "A queue built for the Dango Music Player and Oden"
-readme = "README.md"
-homepage = "https://github.com/Dangoware/kushi-queue"
-repository = "https://github.com/Dangoware/kushi-queue"
 license = "MIT OR Apache-2.0"
+description = "A queue built for the Dango Music Player and Oden"
+homepage = "https://github.com/Dangoware/kushi-queue"
+edition = "2021"
+readme = "README.md"
+repository = "https://github.com/Dangoware/kushi-queue"
 keywords = ["queue","music","vec", "dmp"]
 categories = ["data-structures"]
 
