@@ -2,7 +2,7 @@
 name = "kushi"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
-description = "A queue built for the Dango Music Player and Oden"
+description = "A queue built for the Dango Music Player and Oden Music Bot"
 homepage = "https://github.com/Dangoware/kushi-queue"
 edition = "2021"
 readme = "README.md"
