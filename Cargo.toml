@@ -2,6 +2,13 @@
 name = "kushi"
 version = "0.1.0"
 edition = "2021"
+description = "A queue built for the Dango Music Player and Oden"
+readme = "README.md"
+homepage = "https://github.com/Dangoware/kushi-queue"
+repository = "https://github.com/Dangoware/kushi-queue"
+license = "MIT OR Apache-2.0"
+keywords = ["queue","music","vec", "dmp"]
+categories = ["data-structures"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
