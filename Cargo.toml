@@ -14,4 +14,3 @@ categories = ["data-structures"]
 
 [dependencies]
 thiserror = "1.0.61"
-uuid = "1.8.0"
