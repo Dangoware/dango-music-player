@@ -11,6 +11,7 @@ use std::ops::ControlFlow::{Break, Continue};
 // Files
 use file_format::{FileFormat, Kind};
 use glib::filename_to_uri;
+use kushi::traits::TrackGroup;
 use lofty::{AudioFile, ItemKey, ItemValue, ParseOptions, Probe, TagType, TaggedFileExt};
 use rcue::parser::parse_from_file;
 use std::fs;
@@ -623,6 +624,9 @@ impl Album<'_> {
         total
     }
 }
+
+impl TrackGroup for Album<'_> {}
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MusicLibrary {

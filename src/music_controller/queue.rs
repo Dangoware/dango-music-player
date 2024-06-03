@@ -23,16 +23,7 @@ pub enum QueueState {
     NoState,
 }
 
-// TODO: move this to a different location to be used elsewhere
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[non_exhaustive]
-pub enum PlayerLocation {
-    Test,
-    Library,
-    Playlist(Uuid),
-    File,
-    Custom,
-}
+
 
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]

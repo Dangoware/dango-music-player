@@ -4,6 +4,9 @@
 
 use crossbeam_channel;
 use crossbeam_channel::{Receiver, Sender};
+use kushi::error::QueueError;
+use kushi::traits::Location;
+use kushi::{Queue, QueueItemType};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{sleep, spawn};
@@ -16,14 +19,13 @@ use uuid::Uuid;
 
 use crate::config::ConfigError;
 use crate::music_player::player::{Player, PlayerCommand, PlayerError};
+use crate::music_storage::library::{Album, Song};
 use crate::{
-    config::Config, music_controller::queue::Queue, music_storage::library::MusicLibrary,
+    config::Config, music_storage::library::MusicLibrary,
 };
 
-use super::queue::QueueError;
-
-pub struct Controller<P: Player + Send + Sync> {
-    pub queue: Arc<RwLock<Queue>>,
+pub struct Controller<'a, P: Player + Send + Sync> {
+    pub queue: Arc<RwLock<Queue<Song, Album<'a>, PlayerLocation>>>,
     pub config: Arc<RwLock<Config>>,
     pub library: MusicLibrary,
     pub player: Arc<Mutex<P>>,
@@ -38,6 +40,19 @@ pub enum ControllerError {
     #[error("{0:?}")]
     ConfigError(#[from] ConfigError),
 }
+
+// TODO: move this to a different location to be used elsewhere
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub enum PlayerLocation {
+    Test,
+    Library,
+    Playlist(Uuid),
+    File,
+    Custom,
+}
+
+impl Location for PlayerLocation {}
 
 #[derive(Debug)]
 pub(super) struct MailMan<T: Send, U: Send> {
@@ -71,8 +86,8 @@ impl<T: Send, U: Send> MailMan<T, U> {
 }
 
 #[allow(unused_variables)]
-impl<P: Player + Send + Sync + Sized + 'static> Controller<P> {
-    pub fn start<T>(config_path: T) -> Result<Self, Box<dyn Error>>
+impl<P: Player + Send + Sync + Sized + 'static> Controller<'static, P> {
+    pub fn start<T>(config_path: T) -> Result <Self, Box<dyn Error>>
     where
         std::path::PathBuf: std::convert::From<T>,
         P: Player,
@@ -85,8 +100,15 @@ impl<P: Player + Send + Sync + Sized + 'static> Controller<P> {
         let config_ = Arc::new(RwLock::from(config));
         let library = MusicLibrary::init(config_.clone(), uuid)?;
 
+        let queue: Queue<Song, Album, PlayerLocation> = Queue {
+            items: Vec::new(),
+            played: Vec::new(),
+            loop_: false,
+            shuffle: None
+        };
+
         let controller = Controller {
-            queue: Arc::new(RwLock::from(Queue::default())),
+            queue: Arc::new(RwLock::from(queue)),
             config: config_.clone(),
             library,
             player: Arc::new(Mutex::new(P::new()?)),
@@ -112,10 +134,12 @@ impl<P: Player + Send + Sync + Sized + 'static> Controller<P> {
                         player
                             .lock()
                             .unwrap()
-                            .enqueue_next(uri.item
-                                .primary_uri()
-                                .unwrap()
-                                .0)
+                            .enqueue_next(&{
+                                match uri.item {
+                                    QueueItemType::Single(song) => song.primary_uri().unwrap().0.clone(),
+                                    _ => unimplemented!()
+                                }
+                            })
                             .unwrap();
                     },
                     PlayerCommand::EndOfStream => {dbg!()}
@@ -129,7 +153,7 @@ impl<P: Player + Send + Sync + Sized + 'static> Controller<P> {
         Ok(controller)
     }
 
-    pub fn q_add(&mut self, item: &Uuid, source: super::queue::PlayerLocation, by_human: bool) {
+    pub fn q_add(&mut self, item: &Uuid, source: Option<PlayerLocation>, by_human: bool) {
         let item = self.library.query_uuid(item).unwrap().0.to_owned();
         self.queue.write().unwrap().add_item(item, source, by_human)
     }
@@ -139,7 +163,7 @@ impl<P: Player + Send + Sync + Sized + 'static> Controller<P> {
 mod test_super {
     use std::{thread::sleep, time::Duration};
 
-    use crate::{config::tests::read_config_lib, music_controller::queue::PlayerLocation, music_player::{gstreamer::GStreamer, player::Player}};
+    use crate::{config::tests::read_config_lib, music_controller::controller::PlayerLocation, music_player::{gstreamer::GStreamer, player::Player}};
 
     use super::Controller;
 
@@ -154,21 +178,21 @@ mod test_super {
             {
                 let mut queue = controller.queue.write().unwrap();
                 for x in config.1.library {
-                    queue.add_item(x, PlayerLocation::Library, true);
+                    queue.add_item(x, Some(PlayerLocation::Library), true);
                 }
             }
             {
                 controller.player.lock().unwrap().enqueue_next(next.primary_uri().unwrap().0).unwrap();
             }
             {
-                controller.player.lock().unwrap().set_volume(0.2);
+                controller.player.lock().unwrap().set_volume(0.1);
             }
             {
                 controller.player.lock().unwrap().play().unwrap();
             }
             println!("I'm a tire");
         }
-        sleep(Duration::from_secs(600))
+        sleep(Duration::from_secs(10))
 
     }
 }
