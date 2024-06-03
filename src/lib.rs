@@ -21,10 +21,10 @@ pub struct QueueItem<
     U: Debug + PartialEq + Clone + TrackGroup, // U: The Multi-Item Type. Needs to be tracked as multiple items
     L: Debug + PartialEq + Clone + Copy + Location // L: The Location Type. Optional but maybe useful
 > {
-    pub(crate) item: QueueItemType<T, U>,
-    pub(crate) state: QueueState,
-    pub(crate) source: Option<L>,
-    pub(crate) by_human: bool,
+    pub item: QueueItemType<T, U>,
+    pub state: QueueState,
+    pub source: Option<L>,
+    pub by_human: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,6 +36,20 @@ pub enum QueueItemType<
     Single(T),
     Multi(U)
 }
+
+impl<
+    T: Debug + Clone + PartialEq, // T: The Singular Item Type
+    U: Debug + PartialEq + Clone + TrackGroup, // U: The Multi-Item Type. Needs to be tracked as multiple items
+> QueueItemType<T, U>  {
+    pub fn from_single(item: T) -> Self {
+        QueueItemType::Single(item)
+    }
+
+    pub fn from_multi(item: U) -> Self {
+        QueueItemType::Multi(item)
+    }
+}
+
 
 impl<
     T: Debug + Clone + PartialEq,
@@ -91,6 +105,15 @@ impl<
         );
     }
 
+    pub fn new(loop_: bool, shuffle: Option<Vec<usize>>) -> Self {
+        Queue {
+            items: Vec::new(),
+            played: Vec::new(),
+            loop_,
+            shuffle
+        }
+    }
+
     pub fn set_items(&mut self, tracks: Vec<QueueItem<T, U, L>>) {
         let mut tracks = tracks;
         self.items.clear();
@@ -98,7 +121,8 @@ impl<
     }
 
     /// Inserts an item after the AddHere item
-    pub fn add_item(&mut self, item: QueueItemType<T, U>, source: Option<L>, by_human: bool) {
+    pub fn add_item(&mut self, item: T, source: Option<L>, by_human: bool) {
+        let item = QueueItemType::from_single(item);
         let mut i: usize = 0;
 
         self.items = self
@@ -128,7 +152,8 @@ impl<
     }
 
     /// Inserts an item after the currently playing item
-    pub fn add_item_next(&mut self, item: QueueItemType<T, U>, source: Option<L>) {
+    pub fn add_item_next(&mut self, item: T, source: Option<L>) {
+        let item = QueueItemType::from_single(item);
         use QueueState::*;
         let empty = self.items.is_empty();
 
