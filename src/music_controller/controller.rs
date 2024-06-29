@@ -9,8 +9,7 @@ use kushi::traits::Location;
 use kushi::{Queue, QueueItemType};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
-use std::thread::{sleep, spawn};
-use std::time::Duration;
+use std::thread::spawn;
 use thiserror::Error;
 
 use crossbeam_channel::unbounded;
@@ -24,8 +23,8 @@ use crate::{
     config::Config, music_storage::library::MusicLibrary,
 };
 
-pub struct Controller<'a, P: Player + Send + Sync> {
-    pub queue: Arc<RwLock<Queue<Song, Album<'a>, PlayerLocation>>>,
+pub struct Controller<P: Player + Send + Sync> {
+    pub queue: Arc<RwLock<Queue<Song, Album, PlayerLocation>>>,
     pub config: Arc<RwLock<Config>>,
     pub library: MusicLibrary,
     pub player: Arc<Mutex<P>>,
@@ -86,7 +85,7 @@ impl<T: Send, U: Send> MailMan<T, U> {
 }
 
 #[allow(unused_variables)]
-impl<P: Player + Send + Sync + Sized + 'static> Controller<'static, P> {
+impl<P: Player + Send + Sync + Sized + 'static> Controller<P> {
     pub fn start<T>(config_path: T) -> Result <Self, Box<dyn Error>>
     where
         std::path::PathBuf: std::convert::From<T>,

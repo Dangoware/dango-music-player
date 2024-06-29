@@ -4,7 +4,7 @@ use super::utils::{find_images, normalize, read_file, write_file};
 use crate::config::Config;
 
 // Various std things
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::ops::ControlFlow::{Break, Continue};
 
@@ -320,7 +320,6 @@ impl Song {
     }
 
     /// creates a `Vec<Song>` from a cue file
-
     pub fn from_cue(cuesheet: &Path) -> Result<Vec<(Self, PathBuf)>, Box<dyn Error>> {
         let mut tracks = Vec::new();
 
@@ -574,43 +573,43 @@ pub enum Service {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Album<'a> {
-    title: &'a String,
-    artist: Option<&'a String>,
-    cover: Option<&'a AlbumArt>,
-    discs: BTreeMap<usize, Vec<&'a Song>>,
+pub struct Album {
+    title: String,
+    artist: Option<String>,
+    cover: Option<AlbumArt>,
+    discs: BTreeMap<u16, Vec<Uuid>>,
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl Album<'_> {
+impl Album {
     //returns the Album title
     pub fn title(&self) -> &String {
-        self.title
+        &self.title
     }
 
     /// Returns the album cover as an AlbumArt struct, if it exists
-    fn cover(&self) -> Option<&AlbumArt> {
-        self.cover
+    fn cover(&self) -> &Option<AlbumArt> {
+        &self.cover
     }
 
     /// Returns the Album Artist, if they exist
-    pub fn artist(&self) -> Option<&String> {
-        self.artist
+    pub fn artist(&self) -> &Option<String> {
+        &self.artist
     }
 
-    pub fn discs(&self) -> &BTreeMap<usize, Vec<&Song>> {
+    pub fn discs(&self) -> &BTreeMap<u16, Vec<Uuid>> {
         &self.discs
     }
     /// Returns the specified track at `index` from the album, returning
     /// an error if the track index is out of range
-    pub fn track(&self, disc: usize, index: usize) -> Option<&Song> {
-        Some(self.discs.get(&disc)?[index])
+    pub fn track(&self, disc: u16, index: usize) -> Option<&Uuid> {
+        self.discs.get(&disc)?.get(index)
     }
 
-    fn tracks(&self) -> Vec<&Song> {
+    fn tracks(&self) -> Vec<Uuid> {
         let mut songs = Vec::new();
-        for disc in &self.discs {
-            songs.append(&mut disc.1.clone())
+        for disc in self.discs.values() {
+            songs.extend_from_slice(&disc)
         }
         songs
     }
@@ -618,15 +617,14 @@ impl Album<'_> {
     /// Returns the number of songs in the album
     pub fn len(&self) -> usize {
         let mut total = 0;
-        for disc in &self.discs {
-            total += disc.1.len();
+        for disc in self.discs.values() {
+            total += disc.len();
         }
         total
     }
 }
 
-impl TrackGroup for Album<'_> {}
-
+impl TrackGroup for Album {}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MusicLibrary {
@@ -689,6 +687,17 @@ impl MusicLibrary {
     }
 
     /// Serializes the database out to the file specified in the config
+    pub fn save_path<P: ?Sized + AsRef<Path>>(&self, path: &P) -> Result<(), Box<dyn Error>> {
+        let path = path.as_ref();
+        match path.try_exists() {
+            Ok(_) => write_file(self, path)?,
+            Err(error) => return Err(error.into()),
+        }
+
+        Ok(())
+    }
+
+    /// Serializes the database out to the file specified in the config
     pub fn save(&self, config: Arc<RwLock<Config>>) -> Result<(), Box<dyn Error>> {
         let path = config.read().unwrap().libraries.get_library(&self.uuid)?.path.clone();
         match path.try_exists() {
@@ -711,6 +720,7 @@ impl MusicLibrary {
 
     /// Queries for a [Song] by its [URI], returning a single `Song`
     /// with the `URI` that matches along with its position in the library
+    #[inline(always)]
     pub fn query_uri(&self, path: &URI) -> Option<(&Song, usize)> {
         let result = self
             .library
@@ -759,9 +769,10 @@ impl MusicLibrary {
         self.library.par_iter().for_each(|track| {
             if path == track.primary_uri().unwrap().0.path() {
                 //TODO: make this also not unwrap
-                result.clone().lock().unwrap().push(track);
+                Arc::clone(&result).lock().unwrap().push(track);
             }
         });
+
         if result.lock().unwrap().len() > 0 {
             Some(Arc::try_unwrap(result).unwrap().into_inner().unwrap())
         } else {
@@ -786,18 +797,10 @@ impl MusicLibrary {
                 continue;
             }
 
-            /* TODO: figure out how to increase the speed of this maybe
             // Check if the file path is already in the db
             if self.query_uri(&URI::Local(path.to_path_buf())).is_some() {
                 continue;
             }
-
-            // Save periodically while scanning
-            i += 1;
-            if i % 500 == 0 {
-                self.save(config).unwrap();
-            }
-            */
 
             let format = FileFormat::from_file(path)?;
             let extension = match path.extension() {
@@ -832,6 +835,22 @@ impl MusicLibrary {
         println!("Total scanning errors: {}", errors);
 
         Ok(total)
+    }
+
+    pub fn remove_missing(&mut self) {
+        let target_removals = Arc::new(Mutex::new(Vec::new()));
+        self.library.par_iter().for_each(|t|{
+            for location in &t.location {
+                if !location.exists().unwrap() {
+                    Arc::clone(&target_removals).lock().unwrap().push(location.clone());
+                }
+            }
+        });
+
+        let target_removals = Arc::try_unwrap(target_removals).unwrap().into_inner().unwrap();
+        for location in target_removals {
+            self.remove_uri(&location).unwrap();
+        }
     }
 
     pub fn add_file(&mut self, target_file: &Path) -> Result<(), Box<dyn Error>> {
@@ -1038,64 +1057,41 @@ impl MusicLibrary {
     /// Generates all albums from the track list
     pub fn albums(&self) -> BTreeMap<String, Album> {
         let mut albums: BTreeMap<String, Album> = BTreeMap::new();
-        for result in &self.library {
-            let title = match result.get_tag(&Tag::Album) {
-                Some(title) => title,
+        for song in &self.library {
+            let album_title = match song.get_tag(&Tag::Album) {
+                Some(title) => title.clone(),
                 None => continue,
             };
-            let norm_title = normalize(title);
+            //let norm_title = normalize(&album_title);
 
-            let disc_num = result
+            let disc_num = song
                 .get_tag(&Tag::Disk)
                 .unwrap_or(&"".to_string())
-                .parse::<usize>()
+                .parse::<u16>()
                 .unwrap_or(1);
 
-            match albums.get_mut(&norm_title) {
-                // If the album is in the list, add the track to the appropriate disc in it
+            match albums.get_mut(&album_title) {
+                // If the album is in the list, add the track to the appropriate disc within the album
                 Some(album) => match album.discs.get_mut(&disc_num) {
-                    Some(disc) => disc.push(result),
+                    Some(disc) => disc.push(song.uuid),
                     None => {
-                        album.discs.insert(disc_num, vec![result]);
+                        album.discs.insert(disc_num, vec![song.uuid]);
                     }
                 },
-                // If the album is not in the list, make a new one and add it
+                // If the album is not in the list, make it new one and add it
                 None => {
-                    let album_art = result.album_art.first();
+                    let album_art = song.album_art.first();
 
                     let new_album = Album {
-                        title,
-                        artist: result.get_tag(&Tag::AlbumArtist),
-                        discs: BTreeMap::from([(disc_num, vec![result])]),
-                        cover: album_art,
+                        title: album_title.clone(),
+                        artist: song.get_tag(&Tag::AlbumArtist).cloned(),
+                        discs: BTreeMap::from([(disc_num, vec![song.uuid])]),
+                        cover: album_art.cloned(),
                     };
-                    albums.insert(norm_title, new_album);
+                    albums.insert(album_title, new_album);
                 }
             }
         }
-
-        // Sort the tracks in each disk in each album
-        let blank = String::from("");
-        albums.par_iter_mut().for_each(|album| {
-            for disc in &mut album.1.discs {
-                disc.1.par_sort_by(|a, b| {
-                    let a_track = a.get_tag(&Tag::Track).unwrap_or(&blank);
-                    let b_track = b.get_tag(&Tag::Track).unwrap_or(&blank);
-
-                    if let (Ok(num_a), Ok(num_b)) = (a_track.parse::<i32>(), b_track.parse::<i32>())
-                    {
-                        // If parsing the track numbers succeeds, compare as numbers
-                        num_a.cmp(&num_b)
-                    } else {
-                        // If parsing doesn't succeed, compare the locations
-                        let path_a = PathBuf::from(a.get_field("location").unwrap().to_string());
-                        let path_b = PathBuf::from(b.get_field("location").unwrap().to_string());
-
-                        path_a.file_name().cmp(&path_b.file_name())
-                    }
-                });
-            }
-        });
 
         // Return the albums!
         albums

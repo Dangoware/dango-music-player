@@ -37,13 +37,13 @@ pub(super) fn write_file<
     writer_name.set_extension("tmp");
 
     // Create a new BufWriter on the file and a snap frame encoder
-    let writer = BufWriter::new(File::create(&writer_name)?);
-    let mut e = snap::write::FrameEncoder::new(writer);
+    let mut writer = BufWriter::new(File::create(&writer_name)?);
+    //let mut e = snap::write::FrameEncoder::new(writer);
 
     // Write out the data
     bincode::serde::encode_into_std_write(
         library,
-        &mut e,
+        &mut writer,
         bincode::config::standard()
             .with_little_endian()
             .with_variable_int_encoding(),
@@ -59,12 +59,12 @@ pub(super) fn read_file<T: for<'de> serde::Deserialize<'de>>(
     path: PathBuf,
 ) -> Result<T, Box<dyn Error>> {
     // Create a new snap reader over the file
-    let file_reader = BufReader::new(File::open(path)?);
-    let mut d = snap::read::FrameDecoder::new(file_reader);
+    let mut file_reader = BufReader::new(File::open(path)?);
+    //let mut d = snap::read::FrameDecoder::new(file_reader);
 
     // Decode the library from the serialized data into the vec
     let library: T = bincode::serde::decode_from_std_read(
-        &mut d,
+        &mut file_reader,
         bincode::config::standard()
             .with_little_endian()
             .with_variable_int_encoding(),
