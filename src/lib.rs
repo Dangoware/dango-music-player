@@ -1,10 +1,11 @@
 use std::fmt::Debug;
 
 use error::QueueError;
-use traits::{Location, TrackGroup};
+
 
 pub mod error;
-pub mod traits;
+
+pub trait Location {}
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum QueueState {
@@ -18,7 +19,7 @@ pub enum QueueState {
 #[non_exhaustive]
 pub struct QueueItem<
     T: Debug + Clone + PartialEq, // T: The Singular Item Type
-    U: Debug + PartialEq + Clone + TrackGroup, // U: The Multi-Item Type. Needs to be tracked as multiple items
+    U: Debug + PartialEq + Clone + IntoIterator, // U: an Iterator
     L: Debug + PartialEq + Clone + Copy + Location // L: The Location Type. Optional but maybe useful
 > {
     pub item: QueueItemType<T, U>,
@@ -31,7 +32,7 @@ pub struct QueueItem<
 #[non_exhaustive]
 pub enum QueueItemType<
     T: Debug + Clone + PartialEq, // T: The Singular Item Type
-    U: Debug + PartialEq + Clone + TrackGroup, // U: The Multi-Item Type. Needs to be tracked as multiple items
+    U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
 > {
     Single(T),
     Multi(U)
@@ -39,7 +40,7 @@ pub enum QueueItemType<
 
 impl<
     T: Debug + Clone + PartialEq, // T: The Singular Item Type
-    U: Debug + PartialEq + Clone + TrackGroup, // U: The Multi-Item Type. Needs to be tracked as multiple items
+    U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
 > QueueItemType<T, U>  {
     pub fn from_single(item: T) -> Self {
         QueueItemType::Single(item)
@@ -53,7 +54,7 @@ impl<
 
 impl<
     T: Debug + Clone + PartialEq,
-    U: Debug + PartialEq + Clone + TrackGroup,
+    U: Debug + PartialEq + Clone + IntoIterator,
     L: Debug + PartialEq + Clone + Copy + Location
 >
 QueueItem<T, U, L> {
@@ -70,7 +71,7 @@ QueueItem<T, U, L> {
 #[derive(Debug, Default)]
 pub struct Queue<
     T: Debug + Clone + PartialEq, // T: The Singular Item Type
-    U: Debug + PartialEq + Clone + TrackGroup, // U: The Multi-Item Type. Needs to be tracked as multiple items
+    U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
     L: Debug + PartialEq + Clone + Copy + Location // L: The Location Type. Optional but maybe useful
 > {
     pub items: Vec<QueueItem<T, U, L>>,
@@ -82,7 +83,7 @@ pub struct Queue<
 // TODO: HAndle the First QueueState[looping] and shuffle
 impl<
     T: Debug + Clone + PartialEq,
-    U: Debug + PartialEq + Clone + TrackGroup,
+    U: Debug + PartialEq + Clone + IntoIterator,
     L: Debug + PartialEq + Clone + Copy + Location
 > Queue<T, U, L> {
     fn has_addhere(&self) -> bool {
