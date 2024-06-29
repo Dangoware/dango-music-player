@@ -3,15 +3,17 @@ use super::playlist::PlaylistFolder;
 use super::utils::{find_images, normalize, read_file, write_file};
 use crate::config::Config;
 
+use std::cmp::Ordering;
 // Various std things
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::ops::ControlFlow::{Break, Continue};
+use std::vec::IntoIter;
 
 // Files
 use file_format::{FileFormat, Kind};
 use glib::filename_to_uri;
-use kushi::traits::TrackGroup;
+
 use lofty::{AudioFile, ItemKey, ItemValue, ParseOptions, Probe, TagType, TaggedFileExt};
 use rcue::parser::parse_from_file;
 use std::fs;
@@ -577,7 +579,7 @@ pub struct Album {
     title: String,
     artist: Option<String>,
     cover: Option<AlbumArt>,
-    discs: BTreeMap<u16, Vec<Uuid>>,
+    discs: BTreeMap<u16, Vec<(u16, Uuid)>>,
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -597,16 +599,16 @@ impl Album {
         &self.artist
     }
 
-    pub fn discs(&self) -> &BTreeMap<u16, Vec<Uuid>> {
+    pub fn discs(&self) -> &BTreeMap<u16, Vec<(u16, Uuid)>> {
         &self.discs
     }
     /// Returns the specified track at `index` from the album, returning
     /// an error if the track index is out of range
-    pub fn track(&self, disc: u16, index: usize) -> Option<&Uuid> {
+    pub fn track(&self, disc: u16, index: usize) -> Option<&(u16, Uuid)> {
         self.discs.get(&disc)?.get(index)
     }
 
-    fn tracks(&self) -> Vec<Uuid> {
+    fn tracks(&self) -> Vec<(u16, Uuid)> {
         let mut songs = Vec::new();
         for disc in self.discs.values() {
             songs.extend_from_slice(&disc)
@@ -624,7 +626,50 @@ impl Album {
     }
 }
 
-impl TrackGroup for Album {}
+impl IntoIterator for Album {
+    type Item = AlbumTrack;
+    type IntoIter = IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let mut vec = vec![];
+
+        for (disc, mut tracks) in self.discs {
+            tracks.par_sort_by(|a, b| a.0.cmp(&b.0));
+
+            let mut tracks = tracks.into_iter()
+                .map(|(track, uuid)|
+                AlbumTrack {
+                    disc,
+                    track,
+                    uuid
+                })
+                .collect::<Vec<_>>();
+
+                vec.append(&mut tracks);
+        }
+        vec.into_iter()
+    }
+}
+
+pub struct AlbumTrack {
+    disc: u16,
+    track: u16,
+    uuid: Uuid
+}
+
+impl AlbumTrack {
+    pub fn disc(&self) -> &u16 {
+        &self.disc
+    }
+
+    pub fn track(&self) -> &u16 {
+        &self.track
+    }
+
+    pub fn uuid(&self) -> &Uuid {
+        &self.uuid
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MusicLibrary {
@@ -1056,6 +1101,8 @@ impl MusicLibrary {
 
     /// Generates all albums from the track list
     pub fn albums(&self) -> BTreeMap<String, Album> {
+        let mut paths = BTreeMap::new();
+
         let mut albums: BTreeMap<String, Album> = BTreeMap::new();
         for song in &self.library {
             let album_title = match song.get_tag(&Tag::Album) {
@@ -1073,25 +1120,74 @@ impl MusicLibrary {
             match albums.get_mut(&album_title) {
                 // If the album is in the list, add the track to the appropriate disc within the album
                 Some(album) => match album.discs.get_mut(&disc_num) {
-                    Some(disc) => disc.push(song.uuid),
+                    Some(disc) => disc.push((
+                        song.get_tag(&Tag::Track)
+                            .unwrap_or(&String::new())
+                            .parse::<u16>()
+                            .unwrap_or_default(),
+                        song.uuid
+                    )),
                     None => {
-                        album.discs.insert(disc_num, vec![song.uuid]);
+                        album.discs.insert(disc_num, vec![(
+                            song.get_tag(&Tag::Track)
+                                .unwrap_or(&String::new())
+                                .parse::<u16>()
+                                .unwrap_or_default(),
+                            song.uuid
+                        )]);
                     }
                 },
                 // If the album is not in the list, make it new one and add it
                 None => {
                     let album_art = song.album_art.first();
-
                     let new_album = Album {
                         title: album_title.clone(),
                         artist: song.get_tag(&Tag::AlbumArtist).cloned(),
-                        discs: BTreeMap::from([(disc_num, vec![song.uuid])]),
+                        discs: BTreeMap::from([(
+                            disc_num,
+                            vec![(
+                                song.get_tag(&Tag::Track)
+                                    .unwrap_or(&String::new())
+                                    .parse::<u16>()
+                                    .unwrap_or_default(),
+                                song.uuid
+                            )])]),
                         cover: album_art.cloned(),
                     };
                     albums.insert(album_title, new_album);
                 }
+
             }
+            paths.insert(song.uuid, song.primary_uri().unwrap());
         }
+
+        // Sort the tracks in each disk in each album
+        albums.par_iter_mut().for_each(|album| {
+            for disc in &mut album.1.discs {
+                disc.1.sort_by(|a, b| {
+                    let num_a = a.0;
+                    let num_b = b.0;
+
+                    if (num_a, num_b) != (0,0)
+                    {
+                        // If parsing the track numbers succeeds, compare as numbers
+                        num_a.cmp(&num_b)
+                    } else {
+                        // If parsing doesn't succeed, compare the locations
+                        let a = match paths.get_key_value(&a.1) {
+                            Some((_, (uri, _))) => uri,
+                            None => return Ordering::Equal
+                        };
+                        let b = match paths.get_key_value(&b.1) {
+                            Some((_, (uri, _))) => uri,
+                            None => return Ordering::Equal
+                        };
+
+                        a.as_uri().cmp(&b.as_uri())
+                    }
+                });
+            }
+        });
 
         // Return the albums!
         albums

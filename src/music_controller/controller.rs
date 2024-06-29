@@ -5,7 +5,7 @@
 use crossbeam_channel;
 use crossbeam_channel::{Receiver, Sender};
 use kushi::error::QueueError;
-use kushi::traits::Location;
+use kushi::Location;
 use kushi::{Queue, QueueItemType};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
