@@ -1,12 +1,5 @@
 use std::fmt::Debug;
 
-use error::QueueError;
-
-
-pub mod error;
-
-pub trait Location {}
-
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum QueueState {
     Played,
@@ -20,11 +13,9 @@ pub enum QueueState {
 pub struct QueueItem<
     T: Debug + Clone + PartialEq, // T: The Singular Item Type
     U: Debug + PartialEq + Clone + IntoIterator, // U: an Iterator
-    L: Debug + PartialEq + Clone + Copy + Location // L: The Location Type. Optional but maybe useful
 > {
     pub item: QueueItemType<T, U>,
     pub state: QueueState,
-    pub source: Option<L>,
     pub by_human: bool,
 }
 
@@ -55,14 +46,12 @@ impl<
 impl<
     T: Debug + Clone + PartialEq,
     U: Debug + PartialEq + Clone + IntoIterator,
-    L: Debug + PartialEq + Clone + Copy + Location
 >
-QueueItem<T, U, L> {
-    pub fn from_item_type(item: QueueItemType<T, U>, source: Option<L>) -> Self {
+QueueItem<T, U> {
+    pub fn from_item_type(item: QueueItemType<T, U>) -> Self {
         QueueItem {
             item,
             state: QueueState::NoState,
-            source,
             by_human: false,
         }
     }
@@ -72,10 +61,9 @@ QueueItem<T, U, L> {
 pub struct Queue<
     T: Debug + Clone + PartialEq, // T: The Singular Item Type
     U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
-    L: Debug + PartialEq + Clone + Copy + Location // L: The Location Type. Optional but maybe useful
 > {
-    pub items: Vec<QueueItem<T, U, L>>,
-    pub played: Vec<QueueItem<T, U, L>>,
+    pub items: Vec<QueueItem<T, U>>,
+    pub played: Vec<QueueItem<T, U>>,
     pub loop_: bool,
     pub shuffle: Option<Vec<usize>>,
 }
@@ -84,8 +72,7 @@ pub struct Queue<
 impl<
     T: Debug + Clone + PartialEq,
     U: Debug + PartialEq + Clone + IntoIterator,
-    L: Debug + PartialEq + Clone + Copy + Location
-> Queue<T, U, L> {
+> Queue<T, U> {
     fn has_addhere(&self) -> bool {
         for item in &self.items {
             if item.state == QueueState::AddHere {
@@ -115,14 +102,14 @@ impl<
         }
     }
 
-    pub fn set_items(&mut self, tracks: Vec<QueueItem<T, U, L>>) {
+    pub fn set_items(&mut self, tracks: Vec<QueueItem<T, U>>) {
         let mut tracks = tracks;
         self.items.clear();
         self.items.append(&mut tracks);
     }
 
     /// Inserts an item after the AddHere item
-    pub fn add_item(&mut self, item: T, source: Option<L>, by_human: bool) {
+    pub fn add_item(&mut self, item: T, by_human: bool) {
         let item = QueueItemType::from_single(item);
         let mut i: usize = 0;
 
@@ -139,21 +126,20 @@ impl<
                 }
                 item_
             })
-            .collect::<Vec<QueueItem<T, U, L>>>();
+            .collect::<Vec<QueueItem<T, U>>>();
 
         self.items.insert(
             i + if self.items.is_empty() { 0 } else { 1 },
             QueueItem {
                 item,
                 state: QueueState::AddHere,
-                source,
                 by_human,
             },
         );
     }
 
     /// Inserts an item after the currently playing item
-    pub fn add_item_next(&mut self, item: T, source: Option<L>) {
+    pub fn add_item_next(&mut self, item: T) {
         let item = QueueItemType::from_single(item);
         use QueueState::*;
         let empty = self.items.is_empty();
@@ -170,13 +156,12 @@ impl<
                 } else {
                     NoState
                 },
-                source,
                 by_human: true,
             },
         )
     }
 
-    pub fn add_multi(&mut self, items: Vec<QueueItemType<T, U>>, source: Option<L>, by_human: bool) {
+    pub fn add_multi(&mut self, items: Vec<QueueItemType<T, U>>, by_human: bool) {
         let mut i: usize = 0;
 
         self.items = self
@@ -192,7 +177,7 @@ impl<
                 }
                 item_
             })
-            .collect::<Vec<QueueItem<T, U, L>>>();
+            .collect::<Vec<QueueItem<T, U>>>();
 
         let empty = self.items.is_empty();
 
@@ -203,7 +188,6 @@ impl<
                 QueueItem {
                     item,
                     state: QueueState::NoState,
-                    source,
                     by_human,
                 },
             );
@@ -212,7 +196,7 @@ impl<
     }
 
     /// Add multiple Items after the currently playing Item
-    pub fn add_multi_next(&mut self, items: Vec<QueueItemType<T, U>>, source: Option<L>) {
+    pub fn add_multi_next(&mut self, items: Vec<QueueItemType<T, U>>) {
         use QueueState::*;
         let empty = self.items.is_empty();
 
@@ -228,7 +212,6 @@ impl<
                 QueueItem {
                     item,
                     state: NoState,
-                    source,
                     by_human: true,
                 },
             )
@@ -239,7 +222,7 @@ impl<
         }
     }
 
-    pub fn remove_item(&mut self, remove_index: usize) -> Result<QueueItem<T, U, L>, QueueError> {
+    pub fn remove_item(&mut self, remove_index: usize) -> Result<QueueItem<T, U>, QueueError> {
         // dbg!(/*&remove_index, self.current_index(), &index,*/ &self.items[remove_index]);
 
         if remove_index < self.items.len() {
@@ -257,7 +240,6 @@ impl<
         &mut self,
         index: usize,
         new_item: QueueItemType<T, U>,
-        source: Option<L>,
         addhere: bool,
     ) -> Result<(), QueueError> {
         if self.items.get_mut(index).is_none()
@@ -270,7 +252,7 @@ impl<
             });
         }
         if addhere {
-            let mut new_item = QueueItem::from_item_type(new_item, source);
+            let mut new_item = QueueItem::from_item_type(new_item);
             for item in &mut self.items {
                 if item.state == QueueState::AddHere {
                     item.state = QueueState::NoState
@@ -279,7 +261,7 @@ impl<
             new_item.state = QueueState::AddHere;
             self.items.insert(index, new_item);
         } else {
-            let new_item = QueueItem::from_item_type(new_item, source);
+            let new_item = QueueItem::from_item_type(new_item);
             self.items.insert(index, new_item);
         }
         Ok(())
@@ -374,7 +356,7 @@ impl<
     }
 
     #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> Result<&QueueItem<T, U, L>, QueueError> {
+    pub fn next(&mut self) -> Result<&QueueItem<T, U>, QueueError> {
         if self.items.is_empty() {
             if self.loop_ {
                 unimplemented!() // TODO: add function to loop the queue
@@ -403,7 +385,7 @@ impl<
         }
     }
 
-    pub fn prev(&mut self) -> Result<&QueueItem<T, U, L>, QueueError> {
+    pub fn prev(&mut self) -> Result<&QueueItem<T, U>, QueueError> {
         if let Some(item) = self.played.pop() {
             if item.state == QueueState::First && self.loop_ {
                 todo!()
@@ -422,7 +404,7 @@ impl<
         }
     }
 
-    pub fn current(&self) -> Result<&QueueItem<T, U, L>, QueueError> {
+    pub fn current(&self) -> Result<&QueueItem<T, U>, QueueError> {
         if !self.items.is_empty() {
             if let QueueItemType::Multi(_) = self.items[0].item {
                 unimplemented!(); // TODO: Handle Multi items here?
@@ -438,4 +420,19 @@ impl<
             self.played.remove(0);
         }
     }
+}
+
+
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum QueueError {
+    #[error("Index out of bounds! Index {index} is over len {len}")]
+    OutOfBounds { index: usize, len: usize },
+    #[error("The Queue is empty!")]
+    EmptyQueue,
+    #[error("There are no past played songs!")]
+    EmptyPlayed,
+    #[error("There is no item after this in the Queue")]
+    NoNext,
 }
