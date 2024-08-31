@@ -95,8 +95,9 @@ impl<P: Player + Send + Sync + Sized + 'static> Controller<P> {
         let config = Config::read_file(config_path)?;
         let uuid = config.libraries.get_default()?.uuid;
 
+        let library = MusicLibrary::init(config.libraries.get_default()?.path.clone(), uuid)?;
         let config_ = Arc::new(RwLock::from(config));
-        let library = MusicLibrary::init(config_.clone(), uuid)?;
+
 
         let queue: Queue<QueueSong, QueueAlbum> = Queue {
             items: Vec::new(),

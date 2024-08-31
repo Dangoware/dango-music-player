@@ -348,11 +348,11 @@ mod tests {
 
         let songs = ITunesLibrary::from_file(Path::new("test-config\\iTunesLib.xml")).to_songs();
 
-        let mut library = MusicLibrary::init(Arc::new(RwLock::from(config.clone())), config_lib.uuid).unwrap();
+        let mut library = MusicLibrary::init(config.libraries.get_default().unwrap().path.clone(), config_lib.uuid).unwrap();
 
         songs.iter().for_each(|song| library.add_song(song.to_owned()).unwrap());
 
         config.write_file().unwrap();
-        library.save(Arc::new(RwLock::from(config))).unwrap();
+        library.save(config.libraries.get_default().unwrap().path.clone()).unwrap();
     }
 }

@@ -1,5 +1,4 @@
 // Crate things
-//use crate::music_controller::config::Config;
 use crate::music_storage::library::URI;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::error::Error;

@@ -211,12 +211,12 @@ pub mod tests {
         config.write_file().unwrap();
 
         let mut lib = MusicLibrary::init(
-            Arc::new(RwLock::from(config.clone())),
+            config.libraries.get_default().unwrap().path.clone(),
             dbg!(config.libraries.default_library),
         )
         .unwrap();
         lib.scan_folder("test-config/music/").unwrap();
-        lib.save(Arc::new(RwLock::new(config.clone()))).unwrap();
+        lib.save(config.libraries.get_default().unwrap().path.clone()).unwrap();
 
         (config, lib)
     }
@@ -227,14 +227,14 @@ pub mod tests {
         // dbg!(&config);
 
         let mut lib = MusicLibrary::init(
-            Arc::new(RwLock::from(config.clone())),
+            config.libraries.get_default().unwrap().path.clone(),
             config.libraries.get_default().unwrap().uuid,
         )
         .unwrap();
 
         lib.scan_folder("test-config/music/").unwrap();
 
-        lib.save(Arc::new(RwLock::new(config.clone()))).unwrap();
+        lib.save(config.libraries.get_default().unwrap().path.clone()).unwrap();
 
         (config, lib)
     }

@@ -699,21 +699,16 @@ impl MusicLibrary {
     /// If the database file already exists, return the [MusicLibrary], otherwise create
     /// the database first. This needs to be run before anything else to retrieve
     /// the [MusicLibrary] Vec
-    pub fn init(config: Arc<RwLock<Config>>, uuid: Uuid) -> Result<Self, Box<dyn Error>> {
-        let global_config = &*config.read().unwrap();
-        let path = global_config.libraries.get_library(&uuid)?.path.clone();
-
+    pub fn init(path: PathBuf, uuid: Uuid) -> Result<Self, Box<dyn Error>> {
         let library: MusicLibrary = match path.exists() {
             true => read_file(path)?,
             false => {
                 // If the library does not exist, re-create it
                 let lib = MusicLibrary::new(String::new(), uuid);
-
                 write_file(&lib, path)?;
                 lib
             }
         };
-
         Ok(library)
     }
 
@@ -743,8 +738,7 @@ impl MusicLibrary {
     }
 
     /// Serializes the database out to the file specified in the config
-    pub fn save(&self, config: Arc<RwLock<Config>>) -> Result<(), Box<dyn Error>> {
-        let path = config.read().unwrap().libraries.get_library(&self.uuid)?.path.clone();
+    pub fn save(&self, path: PathBuf) -> Result<(), Box<dyn Error>> {
         match path.try_exists() {
             Ok(_) => write_file(self, path)?,
             Err(error) => return Err(error.into()),
@@ -1229,7 +1223,7 @@ mod test {
     fn library_init() {
         let config = Config::read_file(PathBuf::from("test_config/config_test.json")).unwrap();
         let target_uuid = config.libraries.libraries[0].uuid;
-        let a = MusicLibrary::init(Arc::new(RwLock::from(config)), target_uuid).unwrap();
+        let a = MusicLibrary::init(config.libraries.get_default().unwrap().path.clone(), target_uuid).unwrap();
         dbg!(a);
     }
 }
