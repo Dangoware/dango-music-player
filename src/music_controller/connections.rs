@@ -13,8 +13,6 @@
 
 // use super::controller::DatabaseResponse;
 
-
-
 // impl Controller {
 //     pub fn listenbrainz_authenticate(&mut self) -> Result<ListenBrainz, Box<dyn Error>> {
 //         let config = &self.config.read().unwrap();
@@ -95,7 +93,6 @@
 
 //         c.q_enqueue(0, songs[1].location.to_owned()).unwrap();
 //         c.q_play(0).unwrap();
-
 
 //         sleep(Duration::from_secs(100));
 //         c.lbz_scrobble(client, songs[1].uuid).unwrap();

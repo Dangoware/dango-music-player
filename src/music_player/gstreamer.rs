@@ -46,30 +46,30 @@ impl TryInto<gst::State> for PlayerState {
 enum PlaybackInfo {
     Idle,
     Switching,
-    Playing{
+    Playing {
         start: Duration,
-        end:   Duration,
+        end: Duration,
     },
 
     /// When this is sent, the thread will die! Use it when the [Player] is
     /// done playing
-    Finished
+    Finished,
 }
 
 /// An instance of a music player with a GStreamer backend
 #[derive(Debug)]
 pub struct GStreamer {
-    source:     Option<URI>,
+    source: Option<URI>,
 
     message_rx: crossbeam::channel::Receiver<PlayerCommand>,
     playback_tx: crossbeam::channel::Sender<PlaybackInfo>,
 
-    playbin:    Arc<RwLock<Element>>,
-    volume:     f64,
-    start:      Option<Duration>,
-    end:        Option<Duration>,
-    paused:     Arc<RwLock<bool>>,
-    position:   Arc<RwLock<Option<Duration>>>,
+    playbin: Arc<RwLock<Element>>,
+    volume: f64,
+    start: Option<Duration>,
+    end: Option<Duration>,
+    paused: Arc<RwLock<bool>>,
+    position: Arc<RwLock<Option<Duration>>>,
 }
 
 impl From<gst::StateChangeError> for PlayerError {
@@ -89,7 +89,7 @@ impl GStreamer {
     fn set_source(&mut self, source: &URI) -> Result<(), PlayerError> {
         if !source.exists().is_ok_and(|x| x) {
             // If the source doesn't exist, gstreamer will crash!
-            return Err(PlayerError::NotFound)
+            return Err(PlayerError::NotFound);
         }
 
         // Make sure the playback tracker knows the stuff is stopped
@@ -110,10 +110,12 @@ impl GStreamer {
                 self.end = Some(Duration::from_std(*end).unwrap());
 
                 // Send the updated position to the tracker
-                self.playback_tx.send(PlaybackInfo::Playing{
-                    start: self.start.unwrap(),
-                    end: self.end.unwrap()
-                }).unwrap();
+                self.playback_tx
+                    .send(PlaybackInfo::Playing {
+                        start: self.start.unwrap(),
+                        end: self.end.unwrap(),
+                    })
+                    .unwrap();
 
                 // Wait for it to be ready, and then move to the proper position
                 self.play().unwrap();
@@ -125,7 +127,9 @@ impl GStreamer {
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
                 //panic!("Couldn't seek to beginning of cue track in reasonable time (>20ms)");
-                return Err(PlayerError::StateChange("Could not seek to beginning of CUE track".into()))
+                return Err(PlayerError::StateChange(
+                    "Could not seek to beginning of CUE track".into(),
+                ));
             }
             _ => {
                 self.playbin
@@ -145,10 +149,12 @@ impl GStreamer {
                 self.end = self.raw_duration();
 
                 // Send the updated position to the tracker
-                self.playback_tx.send(PlaybackInfo::Playing{
-                    start: self.start.unwrap(),
-                    end: self.end.unwrap()
-                }).unwrap();
+                self.playback_tx
+                    .send(PlaybackInfo::Playing {
+                        start: self.start.unwrap(),
+                        end: self.end.unwrap(),
+                    })
+                    .unwrap();
             }
         }
 
@@ -223,7 +229,7 @@ impl Player for GStreamer {
     fn new() -> Result<Self, PlayerError> {
         // Initialize GStreamer, maybe figure out how to nicely fail here
         if let Err(err) = gst::init() {
-            return Err(PlayerError::Init(err.to_string()))
+            return Err(PlayerError::Init(err.to_string()));
         };
         let ctx = glib::MainContext::default();
         let _guard = ctx.acquire();
@@ -233,7 +239,7 @@ impl Player for GStreamer {
             match gst::ElementFactory::make("playbin3").build() {
                 Ok(playbin) => playbin,
                 Err(error) => return Err(PlayerError::Init(error.to_string())),
-            }
+            },
         ));
 
         let playbin = playbin_arc.clone();
@@ -252,7 +258,10 @@ impl Player for GStreamer {
             .build()
             .ok_or(PlayerError::Build)?;
 
-        playbin.write().unwrap().set_property_from_value("flags", &flags);
+        playbin
+            .write()
+            .unwrap()
+            .set_property_from_value("flags", &flags);
         //playbin.write().unwrap().set_property("instant-uri", true);
 
         let position = Arc::new(RwLock::new(None));
@@ -262,7 +271,9 @@ impl Player for GStreamer {
         let (status_tx, status_rx) = unbounded::<PlaybackInfo>();
         let position_update = Arc::clone(&position);
 
-        std::thread::spawn(|| playback_monitor(playbin_arc, status_rx, playback_tx, position_update));
+        std::thread::spawn(|| {
+            playback_monitor(playbin_arc, status_rx, playback_tx, position_update)
+        });
 
         // Set up the thread to monitor bus messages
         let playbin_bus_ctrl = Arc::clone(&playbin);
@@ -279,11 +290,11 @@ impl Player for GStreamer {
                     gst::MessageView::StreamStart(_) => println!("Stream start"),
                     gst::MessageView::Error(err) => {
                         println!("Error recieved: {}", err);
-                        return glib::ControlFlow::Break
+                        return glib::ControlFlow::Break;
                     }
                     gst::MessageView::Buffering(buffering) => {
                         if *bus_paused.read().unwrap() == true {
-                            return glib::ControlFlow::Continue
+                            return glib::ControlFlow::Continue;
                         }
 
                         // If the player is not paused, pause it
@@ -349,7 +360,7 @@ impl Player for GStreamer {
 
     fn play(&mut self) -> Result<(), PlayerError> {
         if self.state() == PlayerState::Playing {
-            return Ok(())
+            return Ok(());
         }
         *self.paused.write().unwrap() = false;
         self.set_state(gst::State::Playing)?;
@@ -358,7 +369,7 @@ impl Player for GStreamer {
 
     fn pause(&mut self) -> Result<(), PlayerError> {
         if self.state() == PlayerState::Paused || *self.paused.read().unwrap() {
-            return Ok(())
+            return Ok(());
         }
         *self.paused.write().unwrap() = true;
         self.set_state(gst::State::Paused)?;
@@ -472,7 +483,7 @@ fn playback_monitor(
             .map(|pos| Duration::nanoseconds(pos.nseconds() as i64));
 
         match stats {
-            PlaybackInfo::Playing{start, end} if pos_temp.is_some() => {
+            PlaybackInfo::Playing { start, end } if pos_temp.is_some() => {
                 // Check if the current playback position is close to the end
                 let finish_point = end - Duration::milliseconds(2000);
                 if pos_temp.unwrap().num_microseconds() >= end.num_microseconds() {
@@ -495,16 +506,14 @@ fn playback_monitor(
                 // This has to be done AFTER the current time in the file
                 // is calculated, or everything else is wrong
                 pos_temp = Some(pos_temp.unwrap() - start)
-            },
+            }
             PlaybackInfo::Finished => {
                 println!("MONITOR: Shutting down");
                 *position.write().unwrap() = None;
-                break
-            },
-            PlaybackInfo::Idle | PlaybackInfo::Switching => {
-                sent_atf = false
-            },
-            _ => ()
+                break;
+            }
+            PlaybackInfo::Idle | PlaybackInfo::Switching => sent_atf = false,
+            _ => (),
         }
 
         *position.write().unwrap() = pos_temp;

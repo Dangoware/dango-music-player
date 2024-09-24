@@ -193,10 +193,10 @@ pub mod tests {
     use crate::music_storage::library::MusicLibrary;
     use std::{
         path::PathBuf,
-        sync::{Arc, RwLock},
     };
 
     pub fn new_config_lib() -> (Config, MusicLibrary) {
+        _ = std::fs::create_dir_all("test-config/music/");
         let lib = ConfigLibrary::new(
             PathBuf::from("test-config/library"),
             String::from("library"),
@@ -216,7 +216,8 @@ pub mod tests {
         )
         .unwrap();
         lib.scan_folder("test-config/music/").unwrap();
-        lib.save(config.libraries.get_default().unwrap().path.clone()).unwrap();
+        lib.save(config.libraries.get_default().unwrap().path.clone())
+            .unwrap();
 
         (config, lib)
     }
@@ -234,7 +235,8 @@ pub mod tests {
 
         lib.scan_folder("test-config/music/").unwrap();
 
-        lib.save(config.libraries.get_default().unwrap().path.clone()).unwrap();
+        lib.save(config.libraries.get_default().unwrap().path.clone())
+            .unwrap();
 
         (config, lib)
     }

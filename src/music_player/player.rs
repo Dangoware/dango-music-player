@@ -41,7 +41,9 @@ pub enum PlayerCommand {
 
 pub trait Player {
     /// Create a new player.
-    fn new() -> Result<Self, PlayerError> where Self: Sized;
+    fn new() -> Result<Self, PlayerError>
+    where
+        Self: Sized;
 
     /// Get the currently playing [URI] from the player.
     fn source(&self) -> &Option<URI>;

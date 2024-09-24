@@ -636,16 +636,12 @@ impl IntoIterator for Album {
         for (disc, mut tracks) in self.discs {
             tracks.par_sort_by(|a, b| a.0.cmp(&b.0));
 
-            let mut tracks = tracks.into_iter()
-                .map(|(track, uuid)|
-                AlbumTrack {
-                    disc,
-                    track,
-                    uuid
-                })
+            let mut tracks = tracks
+                .into_iter()
+                .map(|(track, uuid)| AlbumTrack { disc, track, uuid })
                 .collect::<Vec<_>>();
 
-                vec.append(&mut tracks);
+            vec.append(&mut tracks);
         }
         vec.into_iter()
     }
@@ -654,7 +650,7 @@ impl IntoIterator for Album {
 pub struct AlbumTrack {
     disc: u16,
     track: u16,
-    uuid: Uuid
+    uuid: Uuid,
 }
 
 impl AlbumTrack {
@@ -820,7 +816,10 @@ impl MusicLibrary {
     }
 
     /// Finds all the audio files within a specified folder
-    pub fn scan_folder<P: ?Sized + AsRef<Path>>(&mut self, target_path: &P) -> Result<i32, Box<dyn std::error::Error>> {
+    pub fn scan_folder<P: ?Sized + AsRef<Path>>(
+        &mut self,
+        target_path: &P,
+    ) -> Result<i32, Box<dyn std::error::Error>> {
         let mut total = 0;
         let mut errors = 0;
         for target_file in WalkDir::new(target_path)
@@ -878,15 +877,21 @@ impl MusicLibrary {
 
     pub fn remove_missing(&mut self) {
         let target_removals = Arc::new(Mutex::new(Vec::new()));
-        self.library.par_iter().for_each(|t|{
+        self.library.par_iter().for_each(|t| {
             for location in &t.location {
                 if !location.exists().unwrap() {
-                    Arc::clone(&target_removals).lock().unwrap().push(location.clone());
+                    Arc::clone(&target_removals)
+                        .lock()
+                        .unwrap()
+                        .push(location.clone());
                 }
             }
         });
 
-        let target_removals = Arc::try_unwrap(target_removals).unwrap().into_inner().unwrap();
+        let target_removals = Arc::try_unwrap(target_removals)
+            .unwrap()
+            .into_inner()
+            .unwrap();
         for location in target_removals {
             self.remove_uri(&location).unwrap();
         }
@@ -1119,16 +1124,19 @@ impl MusicLibrary {
                             .unwrap_or(&String::new())
                             .parse::<u16>()
                             .unwrap_or_default(),
-                        song.uuid
+                        song.uuid,
                     )),
                     None => {
-                        album.discs.insert(disc_num, vec![(
-                            song.get_tag(&Tag::Track)
-                                .unwrap_or(&String::new())
-                                .parse::<u16>()
-                                .unwrap_or_default(),
-                            song.uuid
-                        )]);
+                        album.discs.insert(
+                            disc_num,
+                            vec![(
+                                song.get_tag(&Tag::Track)
+                                    .unwrap_or(&String::new())
+                                    .parse::<u16>()
+                                    .unwrap_or_default(),
+                                song.uuid,
+                            )],
+                        );
                     }
                 },
                 // If the album is not in the list, make it new one and add it
@@ -1144,13 +1152,13 @@ impl MusicLibrary {
                                     .unwrap_or(&String::new())
                                     .parse::<u16>()
                                     .unwrap_or_default(),
-                                song.uuid
-                            )])]),
+                                song.uuid,
+                            )],
+                        )]),
                         cover: album_art.cloned(),
                     };
                     albums.insert(album_title, new_album);
                 }
-
             }
             paths.insert(song.uuid, song.primary_uri().unwrap());
         }
@@ -1162,19 +1170,18 @@ impl MusicLibrary {
                     let num_a = a.0;
                     let num_b = b.0;
 
-                    if (num_a, num_b) != (0,0)
-                    {
+                    if (num_a, num_b) != (0, 0) {
                         // If parsing the track numbers succeeds, compare as numbers
                         num_a.cmp(&num_b)
                     } else {
                         // If parsing doesn't succeed, compare the locations
                         let a = match paths.get_key_value(&a.1) {
                             Some((_, (uri, _))) => uri,
-                            None => return Ordering::Equal
+                            None => return Ordering::Equal,
                         };
                         let b = match paths.get_key_value(&b.1) {
                             Some((_, (uri, _))) => uri,
-                            None => return Ordering::Equal
+                            None => return Ordering::Equal,
                         };
 
                         a.as_uri().cmp(&b.as_uri())
@@ -1217,13 +1224,20 @@ mod test {
         sync::{Arc, RwLock},
     };
 
-    use crate::{config::{tests::new_config_lib, Config}, music_storage::library::MusicLibrary};
+    use crate::{
+        config::{tests::new_config_lib, Config},
+        music_storage::library::MusicLibrary,
+    };
 
     #[test]
     fn library_init() {
         let config = Config::read_file(PathBuf::from("test_config/config_test.json")).unwrap();
         let target_uuid = config.libraries.libraries[0].uuid;
-        let a = MusicLibrary::init(config.libraries.get_default().unwrap().path.clone(), target_uuid).unwrap();
+        let a = MusicLibrary::init(
+            config.libraries.get_default().unwrap().path.clone(),
+            target_uuid,
+        )
+        .unwrap();
         dbg!(a);
     }
 }

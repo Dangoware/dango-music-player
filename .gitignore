@@ -3,6 +3,7 @@ target/
 test-config/
 # Rust configuration
 Cargo.lock
+.cargo/
 
 # Database files
 *.db3*
@@ -15,4 +16,3 @@ music_database*
 *.json
 *.zip
 *.xml
-

@@ -2,13 +2,13 @@ use file_format::FileFormat;
 use lofty::{AudioFile, LoftyError, ParseOptions, Probe, TagType, TaggedFileExt};
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
-use uuid::Uuid;
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration as StdDur;
 use std::vec::Vec;
+use uuid::Uuid;
 
 use chrono::prelude::*;
 
@@ -118,7 +118,12 @@ impl ExternalLibrary for ITunesLibrary {
             buf.clear();
         }
         let elasped = now.elapsed();
-        println!("\n\niTunesReader grabbed {} songs in {:#?} seconds\nIDs Skipped: {}", count3, elasped.as_secs(), count4);
+        println!(
+            "\n\niTunesReader grabbed {} songs in {:#?} seconds\nIDs Skipped: {}",
+            count3,
+            elasped.as_secs(),
+            count4
+        );
         let mut lib = ITunesLibrary::new();
         lib.tracks.append(converted_songs.as_mut());
         lib
@@ -175,10 +180,10 @@ impl ExternalLibrary for ITunesLibrary {
                 skips: 0,
                 favorited: track.favorited,
                 banned: if track.banned {
-                        Some(BannedType::All)
-                    }else {
-                        None
-                    },
+                    Some(BannedType::All)
+                } else {
+                    None
+                },
                 rating: track.rating,
                 format: match FileFormat::from_file(PathBuf::from(&loc)) {
                     Ok(e) => Some(e),
@@ -334,25 +339,43 @@ impl ITunesSong {
 
 #[cfg(test)]
 mod tests {
-    use std::{path::{Path, PathBuf}, sync::{Arc, RwLock}};
+    use std::{
+        path::{Path, PathBuf},
+        sync::{Arc, RwLock},
+    };
 
-    use crate::{config::{Config, ConfigLibrary}, music_storage::{db_reader::extern_library::ExternalLibrary, library::MusicLibrary}};
+    use crate::{
+        config::{Config, ConfigLibrary},
+        music_storage::{db_reader::extern_library::ExternalLibrary, library::MusicLibrary},
+    };
 
     use super::ITunesLibrary;
 
     #[test]
     fn itunes_lib_test() {
         let mut config = Config::read_file(PathBuf::from("test-config/config_test.json")).unwrap();
-        let config_lib = ConfigLibrary::new(PathBuf::from("test-config/library2"), String::from("library2"), None);
+        let config_lib = ConfigLibrary::new(
+            PathBuf::from("test-config/library2"),
+            String::from("library2"),
+            None,
+        );
         config.libraries.libraries.push(config_lib.clone());
 
         let songs = ITunesLibrary::from_file(Path::new("test-config\\iTunesLib.xml")).to_songs();
 
-        let mut library = MusicLibrary::init(config.libraries.get_default().unwrap().path.clone(), config_lib.uuid).unwrap();
+        let mut library = MusicLibrary::init(
+            config.libraries.get_default().unwrap().path.clone(),
+            config_lib.uuid,
+        )
+        .unwrap();
 
-        songs.iter().for_each(|song| library.add_song(song.to_owned()).unwrap());
+        songs
+            .iter()
+            .for_each(|song| library.add_song(song.to_owned()).unwrap());
 
         config.write_file().unwrap();
-        library.save(config.libraries.get_default().unwrap().path.clone()).unwrap();
+        library
+            .save(config.libraries.get_default().unwrap().path.clone())
+            .unwrap();
     }
 }
