@@ -108,16 +108,31 @@ pub enum QueueResponse {
     Item(QueueItem<QueueSong, QueueAlbum>),
 }
 
+
+pub struct ControllerInput<'a> {
+    player_mail: (
+        MailMan<PlayerCommand, PlayerResponse>,
+        MailMan<PlayerResponse, PlayerCommand>,
+    ),
+    lib_mail: MailMan<LibraryResponse, LibraryCommand>,
+    library: &'a mut MusicLibrary,
+    config: Arc<RwLock<Config>>,
+}
+
+pub struct ControllerHandle {
+    lib_mail: MailMan<LibraryCommand, LibraryResponse>,
+    player_mail: MailMan<PlayerCommand, PlayerResponse>,
+}
+
 #[allow(unused_variables)]
 impl<'c, P: Player + Send + Sync> Controller<'c, P> {
     pub async fn start(
-        player_mail: (
-            MailMan<PlayerCommand, PlayerResponse>,
-            MailMan<PlayerResponse, PlayerCommand>,
-        ),
-        lib_mail: MailMan<LibraryResponse, LibraryCommand>,
-        mut library: MusicLibrary,
-        config: Arc<RwLock<Config>>,
+        ControllerInput {
+            player_mail,
+            lib_mail,
+            library,
+            config
+        }: ControllerInput<'c>
     ) -> Result<(), Box<dyn Error>>
     where
         P: Player,
@@ -171,7 +186,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                             .await;
                         scope
                             .spawn(async {
-                                Controller::<P>::inner_library_loop(inner_lib_mail.1, &mut library)
+                                Controller::<P>::inner_library_loop(inner_lib_mail.1, library)
                                     .await
                                     .unwrap()
                             })
@@ -420,7 +435,7 @@ mod test_super {
         let a = spawn(move || {
             futures::executor::block_on(async {
                 let config = Config::read_file(PathBuf::from(std::env!("CONFIG-PATH"))).unwrap();
-                let library = {
+                let mut library = {
                     MusicLibrary::init(
                         config.libraries.get_default().unwrap().path.clone(),
                         config.libraries.get_default().unwrap().uuid,
@@ -429,10 +444,12 @@ mod test_super {
                 };
 
                 Controller::<GStreamer>::start(
-                    player_mail,
-                    lib_mail.1,
-                    library,
-                    Arc::new(RwLock::new(config)),
+                    crate::music_controller::controller::ControllerInput {
+                        player_mail,
+                        lib_mail: lib_mail.1,
+                        library: &mut library,
+                        config: Arc::new(RwLock::new(config)),
+                    }
                 )
                 .await
                 .unwrap();
