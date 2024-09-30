@@ -108,16 +108,51 @@ pub enum QueueResponse {
     Item(QueueItem<QueueSong, QueueAlbum>),
 }
 
+
+pub struct ControllerInput {
+    player_mail: (
+        MailMan<PlayerCommand, PlayerResponse>,
+        MailMan<PlayerResponse, PlayerCommand>,
+    ),
+    lib_mail: MailMan<LibraryResponse, LibraryCommand>,
+    library: MusicLibrary,
+    config: Arc<RwLock<Config>>,
+}
+
+pub struct ControllerHandle {
+    lib_mail: MailMan<LibraryCommand, LibraryResponse>,
+    player_mail: MailMan<PlayerCommand, PlayerResponse>,
+}
+
+impl ControllerHandle {
+    fn new(library: MusicLibrary, config: Arc<RwLock<Config>>) -> (Self, ControllerInput) {
+        let lib_mail = MailMan::double();
+        let player_mail = MailMan::double();
+
+        (
+            ControllerHandle {
+                lib_mail: lib_mail.0,
+                player_mail: player_mail.0.clone()
+            },
+            ControllerInput {
+                player_mail,
+                lib_mail: lib_mail.1,
+                library,
+                config
+            }
+        )
+    }
+}
+
 #[allow(unused_variables)]
 impl<'c, P: Player + Send + Sync> Controller<'c, P> {
     pub async fn start(
-        player_mail: (
-            MailMan<PlayerCommand, PlayerResponse>,
-            MailMan<PlayerResponse, PlayerCommand>,
-        ),
-        lib_mail: MailMan<LibraryResponse, LibraryCommand>,
-        mut library: MusicLibrary,
-        config: Arc<RwLock<Config>>,
+        ControllerInput {
+            player_mail,
+            lib_mail,
+            mut library,
+            config
+        }: ControllerInput
     ) -> Result<(), Box<dyn Error>>
     where
         P: Player,
@@ -371,7 +406,7 @@ mod test_super {
     use crate::{
         config::{tests::new_config_lib, Config},
         music_controller::controller::{
-            LibraryCommand, LibraryResponse, MailMan, PlayerCommand, PlayerResponse,
+            LibraryCommand, LibraryResponse, MailMan, PlayerCommand, PlayerResponse, ControllerHandle
         },
         music_player::gstreamer::GStreamer,
         music_storage::library::MusicLibrary,
@@ -384,21 +419,27 @@ mod test_super {
         // use if you don't have a config setup and add music to the music folder
         new_config_lib();
 
-        let lib_mail: (MailMan<LibraryCommand, LibraryResponse>, MailMan<_, _>) = MailMan::double();
-        let player_mail: (MailMan<PlayerCommand, PlayerResponse>, MailMan<_, _>) =
-            MailMan::double();
+        let config = Config::read_file(PathBuf::from(std::env!("CONFIG-PATH"))).unwrap();
+        let mut library = {
+            MusicLibrary::init(
+                config.libraries.get_default().unwrap().path.clone(),
+                config.libraries.get_default().unwrap().uuid,
+            )
+            .unwrap()
+        };
 
-        let _player_mail = player_mail.0.clone();
+        let (handle, input) = ControllerHandle::new(library, Arc::new(RwLock::new(config)));
+
         let b = spawn(move || {
             futures::executor::block_on(async {
-                _player_mail
+                handle.player_mail
                     .send(PlayerCommand::SetVolume(0.01))
                     .await
                     .unwrap();
                 loop {
                     let buf: String = text_io::read!();
                     dbg!(&buf);
-                    _player_mail
+                    handle.player_mail
                         .send(match buf.to_lowercase().as_str() {
                             "next" => PlayerCommand::NextSong,
                             "prev" => PlayerCommand::PrevSong,
@@ -412,28 +453,16 @@ mod test_super {
                         .await
                         .unwrap();
                     println!("sent it");
-                    println!("{:?}", _player_mail.recv().await.unwrap())
+                    println!("{:?}", handle.player_mail.recv().await.unwrap())
                 }
             })
         });
 
         let a = spawn(move || {
             futures::executor::block_on(async {
-                let config = Config::read_file(PathBuf::from(std::env!("CONFIG-PATH"))).unwrap();
-                let library = {
-                    MusicLibrary::init(
-                        config.libraries.get_default().unwrap().path.clone(),
-                        config.libraries.get_default().unwrap().uuid,
-                    )
-                    .unwrap()
-                };
 
-                Controller::<GStreamer>::start(
-                    player_mail,
-                    lib_mail.1,
-                    library,
-                    Arc::new(RwLock::new(config)),
-                )
+
+                Controller::<GStreamer>::start(input)
                 .await
                 .unwrap();
             });
