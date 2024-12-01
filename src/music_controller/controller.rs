@@ -81,18 +81,24 @@ pub enum PlayerResponse {
 
 pub enum LibraryCommand {
     Song(Uuid),
+    AllSongs,
+    GetLibrary,
 }
 
 pub enum LibraryResponse {
-    Songs(Song),
+    Song(Song),
+    AllSongs(Vec<Song>),
+    Library(MusicLibrary),
 }
 
 enum InnerLibraryCommand {
     Song(Uuid),
+    AllSongs,
 }
 
 enum InnerLibraryResponse<'a> {
     Song(&'a Song),
+    AllSongs(&'a Vec<Song>),
 }
 
 pub enum QueueCommand {
@@ -120,12 +126,12 @@ pub struct ControllerInput {
 }
 
 pub struct ControllerHandle {
-    lib_mail: MailMan<LibraryCommand, LibraryResponse>,
-    player_mail: MailMan<PlayerCommand, PlayerResponse>,
+    pub lib_mail: MailMan<LibraryCommand, LibraryResponse>,
+    pub player_mail: MailMan<PlayerCommand, PlayerResponse>,
 }
 
 impl ControllerHandle {
-    fn new(library: MusicLibrary, config: Arc<RwLock<Config>>) -> (Self, ControllerInput) {
+    pub fn new(library: MusicLibrary, config: Arc<RwLock<Config>>) -> (Self, ControllerInput) {
         let lib_mail = MailMan::double();
         let player_mail = MailMan::double();
 
@@ -195,29 +201,24 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                                 )
                                 .await
                                 .unwrap();
-                            })
-                            .await;
+                            });
                         scope
                             .spawn(async move {
                                 Controller::<P>::player_event_loop(player, player_mail.0)
                                     .await
                                     .unwrap();
-                            })
-                            .await;
+                            });
                         scope
                             .spawn(async {
-                                Controller::<P>::inner_library_loop(inner_lib_mail.1, &mut library)
-                                    .await
+                                Controller::<P>::inner_library_loop(inner_lib_mail.1, &mut library).await
                                     .unwrap()
-                            })
-                            .await;
+                            });
                         scope
                             .spawn(async {
                                 Controller::<P>::outer_library_loop(lib_mail, inner_lib_mail.0)
                                     .await
                                     .unwrap();
-                            })
-                            .await
+                            });
                     })
                     .await;
                 })
@@ -315,15 +316,33 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
         lib_mail: MailMan<LibraryResponse, LibraryCommand>,
         inner_lib_mail: MailMan<InnerLibraryCommand, InnerLibraryResponse<'c>>,
     ) -> Result<(), ()> {
+        println!("outer lib loop");
         while true {
             match lib_mail.recv().await.unwrap() {
                 LibraryCommand::Song(uuid) => {
+                    println!("got song commandf");
                     inner_lib_mail
                         .send(InnerLibraryCommand::Song(uuid))
                         .await
                         .unwrap();
                     let x = inner_lib_mail.recv().await.unwrap();
                 }
+                LibraryCommand::AllSongs => {
+                    println!("got command");
+                    inner_lib_mail
+                    .send(InnerLibraryCommand::AllSongs)
+                    .await
+                    .unwrap();
+                    println!("sent");
+                    let x = inner_lib_mail.recv().await.unwrap();
+                    println!("recieved");
+                    if let InnerLibraryResponse::AllSongs(songs) = x {
+                        lib_mail.send(LibraryResponse::AllSongs(songs.clone())).await.unwrap();
+                    } else {
+                        unreachable!()
+                    }
+                },
+                _ => { todo!() }
             }
         }
         Ok(())
@@ -341,6 +360,12 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                         .send(InnerLibraryResponse::Song(song))
                         .await
                         .unwrap();
+                }
+                InnerLibraryCommand::AllSongs => {
+                    let songs: &'c Vec<Song> = &library.library;
+                    lib_mail.send(InnerLibraryResponse::AllSongs(songs))
+                    .await
+                    .unwrap();
                 }
             }
         }
