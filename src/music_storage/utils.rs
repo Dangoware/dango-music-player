@@ -1,6 +1,6 @@
+use ciborium::{from_reader, into_writer};
 use deunicode::deunicode_with_tofu;
 use file_format::{FileFormat, Kind};
-use snap;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
@@ -24,7 +24,7 @@ pub(super) fn normalize(input_string: &str) -> String {
 }
 
 /// Write any data structure which implements [serde::Serialize]
-/// out to a [bincode] encoded file compressed using [snap]
+/// out to a [cbor] encoded file compressed using [ciborium]
 pub(super) fn write_file<
     T: serde::Serialize,
     U: std::convert::AsRef<Path> + std::convert::AsRef<std::ffi::OsStr> + Clone,
@@ -37,17 +37,11 @@ pub(super) fn write_file<
     writer_name.set_extension("tmp");
 
     // Create a new BufWriter on the file and a snap frame encoder
-    let mut writer = BufWriter::new(File::create(&writer_name)?);
+    let writer = BufWriter::new(File::create(&writer_name)?);
     //let mut e = snap::write::FrameEncoder::new(writer);
 
     // Write out the data
-    bincode::serde::encode_into_std_write(
-        library,
-        &mut writer,
-        bincode::config::standard()
-            .with_little_endian()
-            .with_variable_int_encoding(),
-    )?;
+    into_writer(&library, writer)?;
     fs::rename(writer_name, &path)?;
 
     Ok(())
@@ -59,16 +53,11 @@ pub(super) fn read_file<T: for<'de> serde::Deserialize<'de>>(
     path: PathBuf,
 ) -> Result<T, Box<dyn Error>> {
     // Create a new snap reader over the file
-    let mut file_reader = BufReader::new(File::open(path)?);
+    let file_reader = BufReader::new(File::open(path)?);
     //let mut d = snap::read::FrameDecoder::new(file_reader);
 
     // Decode the library from the serialized data into the vec
-    let library: T = bincode::serde::decode_from_std_read(
-        &mut file_reader,
-        bincode::config::standard()
-            .with_little_endian()
-            .with_variable_int_encoding(),
-    )?;
+    let library: T = from_reader(file_reader)?;
 
     Ok(library)
 }
