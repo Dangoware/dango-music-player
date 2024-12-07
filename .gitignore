@@ -28,3 +28,4 @@ dist-ssr
 # Rust Stuff
 target
 Cargo.lock
+.cargo
