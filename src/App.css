@@ -1,0 +1,73 @@
+.container {
+  position: absolute;
+  top: -1px;
+  left: 0;
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: stretch;
+}
+
+.leftSide {
+  width: 85%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.rightSide {
+  position: relative;
+  align-self:flex-end;
+  width: 15%;
+  height: 100%;
+  background-color: #c1bcd1;
+  display: flex;
+  flex-direction: column;
+}
+
+.playlistHead {
+  position: relative;
+  height: 3.5%;
+  width: 100%;
+  background-color: #876765;
+}
+
+.mainView {
+  background-color: #f5eab2;
+  height: 91.5%;
+}
+
+#playBar {
+  position:relative;
+  bottom: 0;
+  left: 0;
+  background-color: #4c4373;
+  width: 100%;
+  height: 5%;
+  padding: 1.5%;
+}
+
+.topHalf {
+  display: flex;
+  justify-content: space-around;
+}
+#seekBar {
+  width: 100%;
+}
+
+.nowPlaying {
+  text-align: center;
+  height: 25%;
+}
+#nowPlayingArtwork {
+  width: 90%;
+  padding: 5%;
+}
+
+.Queue {
+  position: relative;
+  bottom: -25%;
+  background-color: burlywood;
+  height: 50%;
+}

@@ -1,0 +1,35 @@
+[package]
+name = "dango-music-player"
+version = "0.0.0"
+description = "A music player."
+authors = ["G2", "MrDulfin"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "dango_music_player_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["unstable"] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dmp-core = { path = "/media/rocket/Dangoware/Dango Music Player/dmp-core" }
+futures = "0.3.31"
+crossbeam = "0.8.4"
+directories = "5.0.1"
+uuid = { version = "1.11.0", features = ["v4"] }
+ciborium = "0.2.2"
+mime = "0.3.17"
+
+[features]
+default = [ "custom-protocol" ]
+custom-protocol = [ "tauri/custom-protocol" ]
