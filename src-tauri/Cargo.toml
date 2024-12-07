@@ -22,7 +22,7 @@ tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-dmp-core = { path = "/media/rocket/Dangoware/Dango Music Player/dmp-core" }
+dmp-core = { path = "../dmp-core" }
 futures = "0.3.31"
 crossbeam = "0.8.4"
 directories = "5.0.1"
