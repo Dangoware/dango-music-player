@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 // Various std things
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
+use std::io::Read;
 use std::ops::ControlFlow::{Break, Continue};
 use std::vec::IntoIter;
 
@@ -471,6 +472,24 @@ impl Song {
                 },
             )),
             None => Err("No valid URIs for this song".into()),
+        }
+    }
+
+    pub fn album_art(&self, i: usize) -> Result<Vec<u8>, Box<dyn Error>> {
+        match self.album_art[i] {
+            AlbumArt::Embedded(j) => {
+                let file = lofty::read_from_path(self.primary_uri()?.0.path())?;
+                if file.contains_tag_type(TagType::Id3v2) {
+                    Ok(file.tag(TagType::Id3v2).unwrap().pictures()[j].data().to_vec())
+                } else {
+                    unimplemented!()
+                }
+            },
+            AlbumArt::External(ref path) => {
+                let mut buf = vec![];
+                std::fs::File::open(path.path())?.read_to_end(&mut buf)?;
+                Ok(buf)
+            }
         }
     }
 }

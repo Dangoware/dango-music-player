@@ -36,6 +36,7 @@
 .mainView {
   background-color: #f5eab2;
   height: 91.5%;
+  overflow-y: scroll;
 }
 
 #playBar {
@@ -70,4 +71,10 @@
   bottom: -25%;
   background-color: burlywood;
   height: 50%;
+}
+
+.song {
+  display: flex;
+  justify-content: left;
+  gap: 1%;
 }

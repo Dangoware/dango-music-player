@@ -5,6 +5,7 @@
 
 use kushi::{Queue, QueueItemType};
 use kushi::{QueueError, QueueItem};
+use serde::Serialize;
 use std::error::Error;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
@@ -74,9 +75,10 @@ pub enum PlayerCommand {
     SetVolume(f64),
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum PlayerResponse {
     Empty,
+    NowPlaying(Song)
 }
 
 pub enum LibraryCommand {
@@ -270,7 +272,8 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                                 _ => unimplemented!(),
                             };
                             player.write().unwrap().enqueue_next(uri).unwrap();
-                            player_mail.send(PlayerResponse::Empty).await.unwrap();
+                            let QueueItemType::Single(x) = item.item else { panic!("This is temporary, handle queueItemTypes at some point")};
+                            player_mail.send(PlayerResponse::NowPlaying(x.song.clone())).await.unwrap();
                         }
                     }
                     PlayerCommand::PrevSong => {
@@ -328,14 +331,11 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                     let x = inner_lib_mail.recv().await.unwrap();
                 }
                 LibraryCommand::AllSongs => {
-                    println!("got command");
                     inner_lib_mail
                     .send(InnerLibraryCommand::AllSongs)
                     .await
                     .unwrap();
-                    println!("sent");
                     let x = inner_lib_mail.recv().await.unwrap();
-                    println!("recieved");
                     if let InnerLibraryResponse::AllSongs(songs) = x {
                         lib_mail.send(LibraryResponse::AllSongs(songs.clone())).await.unwrap();
                     } else {
@@ -497,3 +497,4 @@ mod test_super {
         a.join().unwrap();
     }
 }
+
