@@ -59,6 +59,13 @@ function App() {
   );
 }
 
+interface L {
+  uuid: number,
+}
+function LI({uuid}: L) {
+  return ( <img src={convertFileSrc("abc") + "?" + uuid } id="nowPlayingArtwork" alt="Some Image" key={uuid} /> )
+}
+
 export default App;
 
 function getConfig(): any {
@@ -150,8 +157,12 @@ function Song(props: SongProps) {
   )
 }
 
+
 function PlayBar() {
   let [playing, setPlaying] = useState('play');
+
+
+
   return (
     <section id="playBar" className="playBar">
       <div className="topHalf">
