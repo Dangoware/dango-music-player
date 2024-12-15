@@ -1,21 +1,21 @@
-use std::{fs, io::Read, path::PathBuf, str::FromStr, thread::spawn, time::Duration};
+use std::{fs, path::PathBuf, str::FromStr, thread::spawn};
 
+use commands::add_song_to_queue;
 use crossbeam::channel::{unbounded, Receiver, Sender};
-use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle}, music_player::gstreamer::GStreamer, music_storage::library::{AlbumArt, MusicLibrary}};
+use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle, LibraryResponse}, music_player::gstreamer::GStreamer, music_storage::library::{AlbumArt, MusicLibrary}};
 use tauri::{http::Response, Manager, State, Url, WebviewWindowBuilder, Wry};
 use uuid::Uuid;
-use wrappers::ArtworkRx;
 
-use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next};
+use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next, get_queue};
 
 pub mod wrappers;
+pub mod commands;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let (rx, tx) = unbounded::<Config>();
     let (lib_rx, lib_tx) = unbounded::<Option<PathBuf>>();
     let (handle_rx, handle_tx) = unbounded::<ControllerHandle>();
-    let (art_rx, art_tx) = unbounded::<Vec<u8>>();
 
     let controller_thread = spawn(move || {
         let mut config = { tx.recv().unwrap() } ;
@@ -32,10 +32,10 @@ pub fn run() {
         ).unwrap();
 
         let scan_path = scan_path.unwrap_or_else(|| config.libraries.get_default().unwrap().scan_folders.as_ref().unwrap()[0].clone());
-        library.scan_folder(&scan_path).unwrap();
+        // library.scan_folder(&scan_path).unwrap();
 
         if config.libraries.get_default().is_err() {
-            config.push_library( ConfigLibrary::new(save_path, String::from("Library"), Some(vec![scan_path.clone()])));
+            config.push_library( ConfigLibrary::new(save_path.clone(), String::from("Library"), Some(vec![scan_path.clone()])));
         }
         if library.library.is_empty() {
             println!("library is empty");
@@ -44,6 +44,8 @@ pub fn run() {
         }
         println!("scan_path: {}", scan_path.display());
 
+        library.save(save_path).unwrap();
+
         let (handle, input) = ControllerHandle::new(
             library,
             std::sync::Arc::new(std::sync::RwLock::new(config))
@@ -51,9 +53,8 @@ pub fn run() {
 
         handle_rx.send(handle).unwrap();
 
-        let controller = futures::executor::block_on(Controller::<GStreamer>::start(input)).unwrap();
+        let _controller = futures::executor::block_on(Controller::<GStreamer>::start(input)).unwrap();
     });
-
     let app = tauri::Builder::default()
     .plugin(tauri_plugin_shell::init())
     .invoke_handler(tauri::generate_handler![
@@ -68,20 +69,37 @@ pub fn run() {
         prev,
         get_song,
         lib_already_created,
-
+        get_queue,
+        add_song_to_queue,
     ]).manage(ConfigRx(rx))
     .manage(LibRx(lib_rx))
     .manage(HandleTx(handle_tx))
-    .manage(ArtworkRx(art_rx))
-    .register_asynchronous_uri_scheme_protocol("asset", move |_, req, res| {
-        dbg!(req);
-        let buf = art_tx.recv().unwrap_or_else(|_| Vec::new());
+    .register_asynchronous_uri_scheme_protocol("asset", move |ctx, req, res| {
+        let query = req
+            .clone()
+            .uri()
+            .clone()
+            .into_parts()
+            .path_and_query
+            .unwrap()
+            .query()
+            .unwrap()
+            .to_string();
+
+        let bytes = futures::executor::block_on(async move {
+            let controller = ctx.app_handle().state::<ControllerHandle>();
+            controller.lib_mail.send(dmp_core::music_controller::controller::LibraryCommand::Song(Uuid::parse_str(query.as_str()).unwrap())).await.unwrap();
+            let LibraryResponse::Song(song) = controller.lib_mail.recv().await.unwrap() else { unreachable!() };
+            song.album_art(0).unwrap_or_else(|_| None).unwrap_or_default()
+        });
+
+
         res.respond(
             Response::builder()
         .header("Origin", "*")
-        .header("Content-Length", buf.len())
+        .header("Content-Length", bytes.len())
         .status(200)
-        .body(buf)
+        .body(bytes)
         .unwrap()
         );
         println!("res sent")
@@ -96,7 +114,7 @@ pub fn run() {
         }
         _ => {}
     });
-    // controller_thread.join().unwrap();
+    std::mem::drop(controller_thread)
 }
 
 struct ConfigRx(Sender<Config>);

@@ -11,7 +11,7 @@
 }
 
 .leftSide {
-  width: 85%;
+  width: 80%;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -19,7 +19,7 @@
 .rightSide {
   position: relative;
   align-self:flex-end;
-  width: 15%;
+  width: 20%;
   height: 100%;
   background-color: #c1bcd1;
   display: flex;
@@ -71,6 +71,31 @@
   bottom: -25%;
   background-color: burlywood;
   height: 50%;
+  display: flex;
+  flex-direction: column;
+  overflow-y: scroll;
+}
+
+.queueSongButton {
+  height: 15%;
+  padding: 0%;
+  margin: 0%;
+}
+
+.queueSong {
+  height: 15%;
+  width: 90%;
+  display: flex;
+}
+
+.queueSongCoverArt {
+  width: 25%;
+  height: 100%;
+}
+
+.queueSongTags {
+  display: flex;
+  flex-direction: column;
 }
 
 .song {

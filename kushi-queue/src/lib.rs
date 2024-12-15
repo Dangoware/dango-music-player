@@ -57,7 +57,7 @@ QueueItem<T, U> {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Queue<
     T: Debug + Clone + PartialEq, // T: The Singular Item Type
     U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items

@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc, serde::ts_milliseconds_option};
 use crossbeam::channel::Sender;
-use dmp_core::{music_controller::controller::{ControllerHandle, LibraryCommand, LibraryResponse, PlayerResponse}, music_storage::library::{BannedType, Song, URI}};
+use dmp_core::{music_controller::controller::{ControllerHandle, LibraryCommand, LibraryResponse, PlayerResponse, QueueCommand, QueueResponse}, music_storage::library::{BannedType, Song, URI}};
+use itertools::Itertools;
+use kushi::QueueItemType;
 use serde::Serialize;
 use tauri::{ipc::Response, AppHandle, Emitter, State, Wry};
 use uuid::Uuid;
@@ -44,24 +46,26 @@ pub async fn get_volume(ctrl_handle: State<'_, ControllerHandle>) -> Result<(), 
 }
 
 #[tauri::command]
-pub async fn next(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>, art_rx: State<'_, ArtworkRx>) -> Result<(), String> {
+pub async fn next(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
     ctrl_handle.player_mail.send(dmp_core::music_controller::controller::PlayerCommand::NextSong).await.unwrap();
     let PlayerResponse::NowPlaying(song) = ctrl_handle.player_mail.recv().await.unwrap() else {
         unreachable!()
     };
-    let _song = _Song::from(&song);
-    art_rx.0.send(song.album_art(0).unwrap()).unwrap();
     println!("next");
-    app.emit("now_playing_change", _song).unwrap();
+    app.emit("now_playing_change", _Song::from(&song)).unwrap();
+    app.emit("queue_updated", ()).unwrap();
     Ok(())
 }
 
 #[tauri::command]
-pub async fn prev(ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
+pub async fn prev(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
     ctrl_handle.player_mail.send(dmp_core::music_controller::controller::PlayerCommand::PrevSong).await.unwrap();
-    let PlayerResponse::Empty = ctrl_handle.player_mail.recv().await.unwrap() else {
+    let PlayerResponse::NowPlaying(song) = ctrl_handle.player_mail.recv().await.unwrap() else {
         unreachable!()
     };
+    println!("prev");
+    app.emit("now_playing_change", _Song::from(&song)).unwrap();
+    app.emit("queue_updated", ()).unwrap();
     Ok(())
 }
 
@@ -71,6 +75,17 @@ pub async fn now_playing(ctrl_handle: State<'_, ControllerHandle>) -> Result<(),
     Ok(())
 }
 
+#[tauri::command]
+pub async fn get_queue(ctrl_handle: State<'_, ControllerHandle>) -> Result<Vec<_Song>, String> {
+    ctrl_handle.queue_mail.send(QueueCommand::Get).await.unwrap();
+    let QueueResponse::Get(queue) = ctrl_handle.queue_mail.recv().await.unwrap() else {
+        unreachable!()
+    };
+    Ok(queue.into_iter().map(|item| {
+        let QueueItemType::Single(song) = item.item else { unreachable!("There should be no albums in the queue right now") };
+        _Song::from(&song.song)
+    }).collect_vec())
+}
 
 //Grab Album art from custom protocol
 #[derive(Serialize, Debug, Clone)]
@@ -121,11 +136,4 @@ pub async fn get_song(ctrl_handle: State<'_, ControllerHandle>) -> Result<(), St
     let LibraryResponse::Song(_) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!("It has been reached") };
     println!("got songs");
     Ok(())
-}
-
-#[derive(Serialize, Debug)]
-pub struct NowPlaying {
-    title: String,
-    artist: String,
-    album: String,
 }

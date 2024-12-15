@@ -5,7 +5,7 @@
 
 use kushi::{Queue, QueueItemType};
 use kushi::{QueueError, QueueItem};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
@@ -32,7 +32,7 @@ pub enum ControllerError {
 }
 
 // TODO: move this to a different location to be used elsewhere
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum PlayerLocation {
     Test,
@@ -103,17 +103,21 @@ enum InnerLibraryResponse<'a> {
     AllSongs(&'a Vec<Song>),
 }
 
+#[derive(Debug, Clone)]
 pub enum QueueCommand {
     Append(QueueItem<QueueSong, QueueAlbum>),
     Next,
     Prev,
     GetIndex(usize),
     NowPlaying,
+    Get
 }
 
+#[derive(Debug, Clone)]
 pub enum QueueResponse {
     Ok,
     Item(QueueItem<QueueSong, QueueAlbum>),
+    Get(Vec<QueueItem<QueueSong, QueueAlbum>>)
 }
 
 
@@ -123,6 +127,10 @@ pub struct ControllerInput {
         MailMan<PlayerResponse, PlayerCommand>,
     ),
     lib_mail: MailMan<LibraryResponse, LibraryCommand>,
+    queue_mail: (
+        MailMan<QueueCommand, QueueResponse>,
+        MailMan<QueueResponse, QueueCommand>
+    ),
     library: MusicLibrary,
     config: Arc<RwLock<Config>>,
 }
@@ -130,21 +138,25 @@ pub struct ControllerInput {
 pub struct ControllerHandle {
     pub lib_mail: MailMan<LibraryCommand, LibraryResponse>,
     pub player_mail: MailMan<PlayerCommand, PlayerResponse>,
+    pub queue_mail: MailMan<QueueCommand, QueueResponse>,
 }
 
 impl ControllerHandle {
     pub fn new(library: MusicLibrary, config: Arc<RwLock<Config>>) -> (Self, ControllerInput) {
         let lib_mail = MailMan::double();
         let player_mail = MailMan::double();
+        let queue_mail = MailMan::double();
 
         (
             ControllerHandle {
                 lib_mail: lib_mail.0,
-                player_mail: player_mail.0.clone()
+                player_mail: player_mail.0.clone(),
+                queue_mail: queue_mail.0.clone()
             },
             ControllerInput {
                 player_mail,
                 lib_mail: lib_mail.1,
+                queue_mail: queue_mail,
                 library,
                 config
             }
@@ -158,6 +170,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
         ControllerInput {
             player_mail,
             lib_mail,
+            queue_mail,
             mut library,
             config
         }: ControllerInput
@@ -173,20 +186,20 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
             shuffle: None,
         };
 
-        for song in &library.library {
-            queue.add_item(
-                QueueSong {
-                    song: song.clone(),
-                    location: PlayerLocation::Test,
-                },
-                true,
-            );
-        }
+        // for song in &library.library {
+        //     queue.add_item(
+        //         QueueSong {
+        //             song: song.clone(),
+        //             location: PlayerLocation::Test,
+        //         },
+        //         true,
+        //     );
+        // }
         let inner_lib_mail = MailMan::double();
         let queue = queue;
 
         std::thread::scope(|scope| {
-            let queue_mail = MailMan::double();
+            let queue_mail = queue_mail;
             let a = scope.spawn(|| {
                 futures::executor::block_on(async {
                     moro::async_scope!(|scope| {
@@ -243,14 +256,19 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
         player_mail: MailMan<PlayerResponse, PlayerCommand>,
         queue_mail: MailMan<QueueCommand, QueueResponse>,
     ) -> Result<(), ()> {
-        {
-            player.write().unwrap().set_volume(0.05);
-        }
+        let mut first = true;
         while true {
             let _mail = player_mail.recv().await;
             if let Ok(mail) = _mail {
                 match mail {
                     PlayerCommand::Play => {
+                        if first {
+                            queue_mail.send(QueueCommand::NowPlaying).await.unwrap();
+                            let QueueResponse::Item(item) = queue_mail.recv().await.unwrap() else { unimplemented!() };
+                            let QueueItemType::Single(song) = item.item else { unimplemented!("This is temporary, handle queueItemTypes at some point") };
+                            player.write().unwrap().enqueue_next(song.song.primary_uri().unwrap().0).unwrap();
+                            first = false
+                        }
                         player.write().unwrap().play().unwrap();
                         player_mail.send(PlayerResponse::Empty).await.unwrap();
                     }
@@ -272,8 +290,8 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                                 _ => unimplemented!(),
                             };
                             player.write().unwrap().enqueue_next(uri).unwrap();
-                            let QueueItemType::Single(x) = item.item else { panic!("This is temporary, handle queueItemTypes at some point")};
-                            player_mail.send(PlayerResponse::NowPlaying(x.song.clone())).await.unwrap();
+                            let QueueItemType::Single(np_song) = item.item else { panic!("This is temporary, handle queueItemTypes at some point")};
+                            player_mail.send(PlayerResponse::NowPlaying(np_song.song.clone())).await.unwrap();
                         }
                     }
                     PlayerCommand::PrevSong => {
@@ -284,8 +302,8 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                                 QueueItemType::Single(song) => song.song.primary_uri().unwrap().0,
                                 _ => unimplemented!(),
                             };
-                            player.write().unwrap().enqueue_next(uri).unwrap();
-                            player_mail.send(PlayerResponse::Empty).await.unwrap();
+                            let QueueItemType::Single(np_song) = item.item else { panic!("This is temporary, handle queueItemTypes at some point")};
+                            player_mail.send(PlayerResponse::NowPlaying(np_song.song.clone())).await.unwrap();;
                         }
                     }
                     PlayerCommand::Enqueue(index) => {
@@ -319,16 +337,17 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
         lib_mail: MailMan<LibraryResponse, LibraryCommand>,
         inner_lib_mail: MailMan<InnerLibraryCommand, InnerLibraryResponse<'c>>,
     ) -> Result<(), ()> {
-        println!("outer lib loop");
         while true {
             match lib_mail.recv().await.unwrap() {
                 LibraryCommand::Song(uuid) => {
-                    println!("got song commandf");
                     inner_lib_mail
                         .send(InnerLibraryCommand::Song(uuid))
                         .await
                         .unwrap();
-                    let x = inner_lib_mail.recv().await.unwrap();
+                    let InnerLibraryResponse::Song(song) = inner_lib_mail.recv().await.unwrap() else {
+                        unimplemented!();
+                    };
+                    lib_mail.send(LibraryResponse::Song(song.clone())).await.unwrap();
                 }
                 LibraryCommand::AllSongs => {
                     inner_lib_mail
@@ -386,9 +405,15 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
     ) {
         while true {
             match queue_mail.recv().await.unwrap() {
-                QueueCommand::Append(item) => match item.item {
-                    QueueItemType::Single(song) => queue.add_item(song, true),
-                    _ => unimplemented!(),
+                QueueCommand::Append(item) => {
+                    match item.item {
+                        QueueItemType::Single(song) => queue.add_item(song, true),
+                        _ => unimplemented!(),
+                    }
+                    queue_mail
+                        .send(QueueResponse::Ok)
+                        .await
+                        .unwrap();
                 },
                 QueueCommand::Next => {
                     let next = queue.next().unwrap();
@@ -405,7 +430,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                         .unwrap();
                 }
                 QueueCommand::GetIndex(index) => {
-                    let item = queue.items[index].clone();
+                    let item = queue.items.get(index).expect("No item in the queue at index {index}").clone();
                     queue_mail.send(QueueResponse::Item(item)).await.unwrap();
                 }
                 QueueCommand::NowPlaying => {
@@ -414,6 +439,9 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                         .send(QueueResponse::Item(item.clone()))
                         .await
                         .unwrap();
+                }
+                QueueCommand::Get => {
+                    queue_mail.send(QueueResponse::Get(queue.items.clone())).await.unwrap();
                 }
             }
         }
@@ -445,7 +473,7 @@ mod test_super {
         new_config_lib();
 
         let config = Config::read_file(PathBuf::from(std::env!("CONFIG-PATH"))).unwrap();
-        let mut library = {
+        let library = {
             MusicLibrary::init(
                 config.libraries.get_default().unwrap().path.clone(),
                 config.libraries.get_default().unwrap().uuid,

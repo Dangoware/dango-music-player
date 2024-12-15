@@ -475,18 +475,23 @@ impl Song {
         }
     }
 
-    pub fn album_art(&self, i: usize) -> Result<Vec<u8>, Box<dyn Error>> {
-        match self.album_art.get(i).unwrap() {
-            AlbumArt::Embedded(j) => {
-                let file = lofty::read_from_path(self.primary_uri()?.0.path())?;
-                Ok(file.tag(file.primary_tag_type()).unwrap().pictures()[*j].data().to_vec())
-            },
-            AlbumArt::External(ref path) => {
-                let mut buf = vec![];
-                std::fs::File::open(path.path())?.read_to_end(&mut buf)?;
-                Ok(buf)
+    pub fn album_art(&self, i: usize) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
+        if let Some(art) = self.album_art.get(i) {
+            match art {
+                AlbumArt::Embedded(j) => {
+                    let file = lofty::read_from_path(self.primary_uri()?.0.path())?;
+                    Ok(Some(file.tag(file.primary_tag_type()).unwrap().pictures()[*j].data().to_vec()))
+                },
+                AlbumArt::External(ref path) => {
+                    let mut buf = vec![];
+                    std::fs::File::open(path.path())?.read_to_end(&mut buf)?;
+                    Ok(Some(buf))
+                }
             }
+        } else {
+            Ok(None)
         }
+
     }
 }
 

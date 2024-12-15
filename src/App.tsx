@@ -10,7 +10,8 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 const appWindow = getCurrentWebviewWindow();
 
 function App() {
-  const library = useState<JSX.Element[]>();
+  const library = useState<JSX.Element[]>([]);
+  const [queue, setQueue] = useState<JSX.Element[]>([]);
 
   const [nowPlaying, setNowPlaying] = useState<JSX.Element>(
     <NowPlaying
@@ -24,7 +25,6 @@ function App() {
   useEffect(() => {
     const unlisten = appWindow.listen<any>("now_playing_change", ({ event, payload }) => {
         // console.log(event);
-
         setNowPlaying(
           <NowPlaying
             title={ payload.tags.TrackTitle }
@@ -35,7 +35,19 @@ function App() {
         )
 
     })
+    return () => { unlisten.then((f) => f()) }
+  }, []);
 
+  useEffect(() => {
+    const unlisten = appWindow.listen<any>("queue_updated", (_) => {
+        // console.log(event);
+        invoke('get_queue').then((_songs) => {
+          let songs = _songs as any[]
+            setQueue(
+              songs.filter((_, i) => i != 0).map((song) => <QueueSong song={ song } key={ song.uuid + '_' + Math.floor((Math.random() * 100_000) + 1) + '_' + Date.now() } />)
+            )
+        })
+    })
     return () => { unlisten.then((f) => f()) }
   }, []);
 
@@ -52,18 +64,11 @@ function App() {
       </div>
       <div className="rightSide">
         { nowPlaying }
-        <Queue />
+        <Queue songs={queue} setSongs={ setQueue } />
       </div>
 
     </main>
   );
-}
-
-interface L {
-  uuid: number,
-}
-function LI({uuid}: L) {
-  return ( <img src={convertFileSrc("abc") + "?" + uuid } id="nowPlayingArtwork" alt="Some Image" key={uuid} /> )
 }
 
 export default App;
@@ -99,7 +104,7 @@ function PlaylistHead() {
 }
 
 interface MainViewProps {
-  lib_ref: [JSX.Element[] | undefined, React.Dispatch<React.SetStateAction<JSX.Element[] | undefined>>],
+  lib_ref: [JSX.Element[], React.Dispatch<React.SetStateAction<JSX.Element[]>>],
 }
 
 function MainView({ lib_ref }: MainViewProps) {
@@ -145,7 +150,7 @@ interface SongProps {
 }
 
 function Song(props: SongProps) {
-  console.log(props.tags);
+  // console.log(props.tags);
 
   return(
     <div className="song">
@@ -153,6 +158,10 @@ function Song(props: SongProps) {
       <p className="album">{ props.tags.Album }</p>
       <p className="artist">{ props.tags.AlbumArtist }</p>
       <p className="duration">{ props.duration }</p>
+      <button onClick={(_) => {
+        invoke('add_song_to_queue', { uuid: props.uuid, location: 'Library' }).then(() => {} )
+      }}
+      >Add to Queue</button>
     </div>
   )
 }
@@ -208,17 +217,34 @@ function NowPlaying({ title, artist, album, artwork }: NowPlayingProps) {
   )
 }
 
-function Queue() {
+interface QueueProps {
+  songs: JSX.Element[],
+  setSongs: React.Dispatch<React.SetStateAction<JSX.Element[]>>
+}
+function Queue({ songs, setSongs }: QueueProps) {
   return (
     <section className="Queue">
-      This is where the Queue be
+      { songs }
     </section>
   )
 }
 
-interface CurrentArtProps {
-  uuid: number,
+interface QueueSongProps {
+  song: any
 }
-function CurrentArt({uuid}: CurrentArtProps) {
-  return <img src={convertFileSrc("abc") + "?" + uuid } id="nowPlayingArtwork" alt="Now Playing Artwork" key={uuid} />
+
+function QueueSong({ song }: QueueSongProps) {
+  console.log(song.tags);
+
+  return (
+    // <button className="queueSongButton">
+      <div className="queueSong">
+      <img className="queueSongCoverArt" src={ convertFileSrc('abc') + '?' + song.uuid } key={ 'coverArt_' + song.uuid }/>
+      <div className="queueSongTags">
+        <h3 className="queueSongTitle">{ song.tags.TrackTitle }</h3>
+        <h4 className="queueSongArtist">{ song.tags.TrackArtist }</h4>
+      </div>
+    </div>
+    // </button>
+  )
 }
