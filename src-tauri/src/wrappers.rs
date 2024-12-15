@@ -12,9 +12,13 @@ use uuid::Uuid;
 pub struct ArtworkRx(pub Sender<Vec<u8>>);
 
 #[tauri::command]
-pub async fn play(ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
+pub async fn play(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
     ctrl_handle.player_mail.send(dmp_core::music_controller::controller::PlayerCommand::Play).await.unwrap();
-    let PlayerResponse::Empty = ctrl_handle.player_mail.recv().await.unwrap() else {
+    let res = ctrl_handle.player_mail.recv().await.unwrap();
+    if let PlayerResponse::Empty = res {}
+    else if let PlayerResponse::NowPlaying(song) = res {
+        app.emit("now_playing_change", _Song::from(&song)).unwrap();
+    } else {
         unreachable!()
     };
     Ok(())
@@ -78,7 +82,7 @@ pub async fn now_playing(ctrl_handle: State<'_, ControllerHandle>) -> Result<(),
 #[tauri::command]
 pub async fn get_queue(ctrl_handle: State<'_, ControllerHandle>) -> Result<Vec<_Song>, String> {
     ctrl_handle.queue_mail.send(QueueCommand::Get).await.unwrap();
-    let QueueResponse::Get(queue) = ctrl_handle.queue_mail.recv().await.unwrap() else {
+    let QueueResponse::GetAll(queue) = ctrl_handle.queue_mail.recv().await.unwrap() else {
         unreachable!()
     };
     Ok(queue.into_iter().map(|item| {

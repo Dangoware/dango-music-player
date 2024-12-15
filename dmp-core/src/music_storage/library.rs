@@ -1,4 +1,4 @@
-use super::playlist::PlaylistFolder;
+use super::playlist::{Playlist, PlaylistFolder};
 // Crate things
 use super::utils::{find_images, normalize, read_file, write_file};
 use crate::config::Config;
@@ -822,6 +822,7 @@ impl MusicLibrary {
     fn query_path(&self, path: PathBuf) -> Option<Vec<&Song>> {
         let result: Arc<Mutex<Vec<&Song>>> = Arc::new(Mutex::new(Vec::new()));
         self.library.par_iter().for_each(|track| {
+            // dbg!(&track);
             if path == track.primary_uri().unwrap().0.path() {
                 //TODO: make this also not unwrap
                 Arc::clone(&result).lock().unwrap().push(track);
@@ -1234,6 +1235,10 @@ impl MusicLibrary {
             .collect();
 
         Ok(albums)
+    }
+
+    pub fn query_playlist_uuid(&self, uuid: &Uuid) -> Result<Playlist, Box<dyn Error>> {
+        todo!()
     }
 }
 

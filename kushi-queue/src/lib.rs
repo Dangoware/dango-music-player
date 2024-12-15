@@ -425,7 +425,7 @@ impl<
 
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum QueueError {
     #[error("Index out of bounds! Index {index} is over len {len}")]
     OutOfBounds { index: usize, len: usize },

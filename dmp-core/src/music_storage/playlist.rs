@@ -48,6 +48,7 @@ pub struct Playlist {
     play_count: i32,
     play_time: Duration,
 }
+
 impl Playlist {
     pub fn new() -> Self {
         Default::default()

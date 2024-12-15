@@ -11,6 +11,8 @@ use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next
 pub mod wrappers;
 pub mod commands;
 
+const DEFAULT_IMAGE: &[u8] = include_bytes!("../icons/icon.png");
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let (rx, tx) = unbounded::<Config>();
@@ -32,9 +34,9 @@ pub fn run() {
         ).unwrap();
 
         let scan_path = scan_path.unwrap_or_else(|| config.libraries.get_default().unwrap().scan_folders.as_ref().unwrap()[0].clone());
-        // library.scan_folder(&scan_path).unwrap();
 
         if config.libraries.get_default().is_err() {
+            library.scan_folder(&scan_path).unwrap();
             config.push_library( ConfigLibrary::new(save_path.clone(), String::from("Library"), Some(vec![scan_path.clone()])));
         }
         if library.library.is_empty() {
@@ -86,23 +88,24 @@ pub fn run() {
             .unwrap()
             .to_string();
 
-        let bytes = futures::executor::block_on(async move {
+        let bytes = if query.as_str() == "default" { DEFAULT_IMAGE.to_vec() }
+        else {
+            futures::executor::block_on(async move {
             let controller = ctx.app_handle().state::<ControllerHandle>();
             controller.lib_mail.send(dmp_core::music_controller::controller::LibraryCommand::Song(Uuid::parse_str(query.as_str()).unwrap())).await.unwrap();
             let LibraryResponse::Song(song) = controller.lib_mail.recv().await.unwrap() else { unreachable!() };
-            song.album_art(0).unwrap_or_else(|_| None).unwrap_or_default()
-        });
+            song.album_art(0).unwrap_or_else(|_| None).unwrap_or(DEFAULT_IMAGE.to_vec())
+        })};
 
 
         res.respond(
             Response::builder()
-        .header("Origin", "*")
-        .header("Content-Length", bytes.len())
-        .status(200)
-        .body(bytes)
-        .unwrap()
+            .header("Origin", "*")
+            .header("Content-Length", bytes.len())
+            .status(200)
+            .body(bytes)
+            .unwrap()
         );
-        println!("res sent")
     })
     .build(tauri::generate_context!())
     .expect("error while building tauri application");
@@ -121,6 +124,7 @@ struct ConfigRx(Sender<Config>);
 
 struct LibRx(Sender<Option<PathBuf>>);
 struct HandleTx(Receiver<ControllerHandle>);
+struct DefaultImage<'a>(&'a [u8]);
 
 
 #[tauri::command]

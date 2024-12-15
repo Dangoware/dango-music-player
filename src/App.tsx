@@ -18,7 +18,7 @@ function App() {
       title="Title"
       album="Album"
       artist="Artist"
-      artwork={<></>}
+      artwork={<img src={convertFileSrc("abc") + "?" + "default" } id="nowPlayingArtwork" alt="Now Playing Artwork" key={'default_image'} />}
     />
   );
 

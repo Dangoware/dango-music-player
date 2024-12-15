@@ -117,7 +117,8 @@ pub enum QueueCommand {
 pub enum QueueResponse {
     Ok,
     Item(QueueItem<QueueSong, QueueAlbum>),
-    Get(Vec<QueueItem<QueueSong, QueueAlbum>>)
+    GetAll(Vec<QueueItem<QueueSong, QueueAlbum>>),
+    Err(QueueError),
 }
 
 
@@ -185,7 +186,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
             loop_: false,
             shuffle: None,
         };
-
+        // for testing porpuses
         // for song in &library.library {
         //     queue.add_item(
         //         QueueSong {
@@ -267,10 +268,12 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                             let QueueResponse::Item(item) = queue_mail.recv().await.unwrap() else { unimplemented!() };
                             let QueueItemType::Single(song) = item.item else { unimplemented!("This is temporary, handle queueItemTypes at some point") };
                             player.write().unwrap().enqueue_next(song.song.primary_uri().unwrap().0).unwrap();
+                            player_mail.send(PlayerResponse::NowPlaying(song.song)).await.unwrap();
                             first = false
+                        } else {
+                            player.write().unwrap().play().unwrap();
+                            player_mail.send(PlayerResponse::Empty).await.unwrap();
                         }
-                        player.write().unwrap().play().unwrap();
-                        player_mail.send(PlayerResponse::Empty).await.unwrap();
                     }
                     PlayerCommand::Pause => {
                         player.write().unwrap().pause().unwrap();
@@ -441,7 +444,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                         .unwrap();
                 }
                 QueueCommand::Get => {
-                    queue_mail.send(QueueResponse::Get(queue.items.clone())).await.unwrap();
+                    queue_mail.send(QueueResponse::GetAll(queue.items.clone())).await.unwrap();
                 }
             }
         }
