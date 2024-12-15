@@ -4,26 +4,43 @@ import "./App.css";
 import { Config } from "./types";
 import { EventEmitter } from "@tauri-apps/plugin-shell";
 import { listen } from "@tauri-apps/api/event";
+// import { fetch } from "@tauri-apps/plugin-http";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+
+const appWindow = getCurrentWebviewWindow();
 
 function App() {
   const library = useState<JSX.Element[]>();
-  const [artwork, setArtwork] = useState<JSX.Element>(<></>);
-  const [nowPlaying, setNowPlaying] = useState<JSX.Element>(<NowPlaying title="blank" album="blank" artist="blank" artwork={ artwork }/>);
 
-  listen<any>("now_playing_change", (event) => {
-    console.log(event.payload);
+  const [nowPlaying, setNowPlaying] = useState<JSX.Element>(
+    <NowPlaying
+      title="Title"
+      album="Album"
+      artist="Artist"
+      artwork={<></>}
+    />
+  );
 
-    setNowPlaying( <NowPlaying
-      title={ event.payload.tags.TrackTitle }
-      album={ event.payload.tags.AlbumTitle }
-      artist={ event.payload.tags["DISPLAY ARTIST"]}
-      artwork={ artwork } />)
-      setArtwork( <img src="asset://localhost" id="nowPlayingArtwork" /> )
-  })
+  useEffect(() => {
+    const unlisten = appWindow.listen<any>("now_playing_change", ({ event, payload }) => {
+        // console.log(event);
+
+        setNowPlaying(
+          <NowPlaying
+            title={ payload.tags.TrackTitle }
+            album={ payload.tags.AlbumTitle }
+            artist={ payload.tags["DISPLAY ARTIST"] }
+            artwork={ <img src={convertFileSrc("abc") + "?" + payload.uuid } id="nowPlayingArtwork" alt="Now Playing Artwork" key={payload.uuid} /> }
+          />
+        )
+
+    })
+
+    return () => { unlisten.then((f) => f()) }
+  }, []);
 
   useEffect(() => {
     getConfig();
-    invoke('set_volume', { volume: "1" }).then( () => {} )
   }, [])
 
   return (
@@ -50,7 +67,7 @@ function getConfig(): any {
     if (config.libraries.libraries.length == 0) {
       newWindow()
     } else {
-      console.log("else");
+      // console.log("else");
       invoke('lib_already_created').then(() => {})
     }
   })
@@ -80,23 +97,6 @@ interface MainViewProps {
 
 function MainView({ lib_ref }: MainViewProps) {
   const [library, setLibrary] = lib_ref;
-  // useEffect(() => {
-  //   console.log(lib_ref);
-  //   console.log(typeof lib_ref);
-  //   if (typeof lib_ref.current !== "undefined") {
-
-  //     setLibrary(lib_ref.current.map((song) => {
-  //         <Song
-  //         location={ song.location }
-  //         uuid={ song.uuid }
-  //         plays={ song.plays }
-  //         duration={ song.duration }
-  //         tags={ song.tags }
-  //         />
-  //     }))
-  //   }
-
-  // }, [lib_ref])
 
   return (
     <div className="mainView">
@@ -187,11 +187,9 @@ interface NowPlayingProps {
 }
 
 function NowPlaying({ title, artist, album, artwork }: NowPlayingProps) {
-  console.log(convertFileSrc("abc"));
-
   return (
     <section className="nowPlaying">
-      { artwork }
+        { artwork }
       <h2>{ title }</h2>
       <p>{ artist }</p>
       <p>{ album }</p>
@@ -205,4 +203,11 @@ function Queue() {
       This is where the Queue be
     </section>
   )
+}
+
+interface CurrentArtProps {
+  uuid: number,
+}
+function CurrentArt({uuid}: CurrentArtProps) {
+  return <img src={convertFileSrc("abc") + "?" + uuid } id="nowPlayingArtwork" alt="Now Playing Artwork" key={uuid} />
 }
