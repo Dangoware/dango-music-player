@@ -182,7 +182,7 @@ async fn create_library(
 #[tauri::command]
     async fn lib_already_created(app: tauri::AppHandle<Wry>, lib_rx: State<'_, LibRx>, handle_tx: State<'_, HandleTx>) -> Result<(), String> {
     println!("lib already created");
-    lib_rx.inner().0.send(None);
+    lib_rx.inner().0.send(None).unwrap();
     app.manage(handle_tx.inner().0.recv().unwrap());
     Ok(())
 }

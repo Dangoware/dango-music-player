@@ -20,9 +20,13 @@
     "security": {
       "assetProtocol": {
         "enable": true,
-        "scope": { "allow": ["asset://localhost*"] }
+        "scope": { "allow": ["asset://localhost*", "http://localhost*"] }
       },
-      "csp": "default-src 'self'; img-src 'self'; asset: asset://localhost/*"
+      "csp": {
+        "default-src": "'self' customprotocol: asset:",
+        "connect-src": "ipc: http://ipc.localhost",
+        "img-src": "'self' asset: http://asset.localhost blob: data:"
+      }
     }
   },
   "bundle": {

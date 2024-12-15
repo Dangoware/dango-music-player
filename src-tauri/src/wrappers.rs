@@ -51,6 +51,7 @@ pub async fn next(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>,
     };
     let _song = _Song::from(&song);
     art_rx.0.send(song.album_art(0).unwrap()).unwrap();
+    println!("next");
     app.emit("now_playing_change", _song).unwrap();
     Ok(())
 }
