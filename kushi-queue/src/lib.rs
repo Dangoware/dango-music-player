@@ -127,15 +127,31 @@ impl<
                 item_
             })
             .collect::<Vec<QueueItem<T, U>>>();
+        let empty = self.items.is_empty();
 
-        self.items.insert(
-            i + if self.items.is_empty() { 0 } else { 1 },
-            QueueItem {
-                item,
-                state: QueueState::AddHere,
-                by_human,
-            },
-        );
+        if !empty {
+            self.items.get_mut(i).expect("There should be an item at index {i}").state = QueueState::NoState;
+        }
+
+
+        if by_human {
+            self.items.insert(
+                i + if empty { 0 } else { 1 },
+                QueueItem {
+                    item,
+                    state: QueueState::AddHere,
+                    by_human,
+                },
+            );
+        } else {
+            self.items.push(
+                QueueItem {
+                    item,
+                    state: QueueState::NoState,
+                    by_human,
+                }
+            );
+        }
     }
 
     /// Inserts an item after the currently playing item
@@ -180,17 +196,30 @@ impl<
             .collect::<Vec<QueueItem<T, U>>>();
 
         let empty = self.items.is_empty();
+        if !empty {
+            self.items.get_mut(i).expect("There should be an item at index {i}").state == QueueState::NoState;
+        }
 
         let len = items.len();
         for item in items.into_iter().rev() {
-            self.items.insert(
-                i + if empty { 0 } else { 1 },
-                QueueItem {
-                    item,
-                    state: QueueState::NoState,
-                    by_human,
-                },
-            );
+            if by_human {
+                self.items.insert(
+                    i + if empty { 0 } else { 1 },
+                    QueueItem {
+                        item,
+                        state: QueueState::NoState,
+                        by_human, // true
+                    },
+                );
+            } else {
+                self.items.push(
+                    QueueItem {
+                        item,
+                        state: QueueState::NoState,
+                        by_human, // false
+                    },
+                );
+            }
         }
         self.items[i + len - if empty { 1 } else { 0 }].state = QueueState::AddHere;
     }
@@ -302,10 +331,7 @@ impl<
     pub fn move_to(&mut self, index: usize) -> Result<(), QueueError> {
         use QueueState::*;
 
-
-
         let empty = self.items.is_empty();
-
         let index = if !empty {
             index
         } else {
@@ -371,7 +397,7 @@ impl<
             }
 
             self.items[0].state = QueueState::NoState;
-            if self.items.get_mut(1).is_some() {
+            if self.items.get(1).is_some() {
                 self.items[1].state = QueueState::AddHere;
             }
         }
@@ -425,7 +451,7 @@ impl<
 
 use thiserror::Error;
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, PartialEq, PartialOrd, Clone)]
 pub enum QueueError {
     #[error("Index out of bounds! Index {index} is over len {len}")]
     OutOfBounds { index: usize, len: usize },
