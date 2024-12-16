@@ -1,9 +1,9 @@
 use std::{fs, path::PathBuf, str::FromStr, thread::spawn};
 
-use commands::add_song_to_queue;
+use commands::{add_song_to_queue, play_now};
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle, LibraryResponse}, music_player::gstreamer::GStreamer, music_storage::library::{AlbumArt, MusicLibrary}};
-use tauri::{http::Response, Manager, State, Url, WebviewWindowBuilder, Wry};
+use tauri::{http::Response, Emitter, Manager, State, Url, WebviewWindowBuilder, Wry};
 use uuid::Uuid;
 
 use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next, get_queue};
@@ -73,6 +73,7 @@ pub fn run() {
         lib_already_created,
         get_queue,
         add_song_to_queue,
+        play_now,
     ]).manage(ConfigRx(rx))
     .manage(LibRx(lib_rx))
     .manage(HandleTx(handle_tx))
@@ -96,8 +97,6 @@ pub fn run() {
             let LibraryResponse::Song(song) = controller.lib_mail.recv().await.unwrap() else { unreachable!() };
             song.album_art(0).unwrap_or_else(|_| None).unwrap_or(DEFAULT_IMAGE.to_vec())
         })};
-
-
         res.respond(
             Response::builder()
             .header("Origin", "*")
@@ -124,7 +123,6 @@ struct ConfigRx(Sender<Config>);
 
 struct LibRx(Sender<Option<PathBuf>>);
 struct HandleTx(Receiver<ControllerHandle>);
-struct DefaultImage<'a>(&'a [u8]);
 
 
 #[tauri::command]
@@ -196,6 +194,7 @@ async fn create_library(
 
     lib_rx.inner().0.send(Some(path)).unwrap();
     app.manage(handle_tx.inner().0.recv().unwrap());
+    app.emit("library_loaded", ()).unwrap();
 
     window.close().unwrap();
     Ok(())
@@ -206,5 +205,6 @@ async fn create_library(
     println!("lib already created");
     lib_rx.inner().0.send(None).unwrap();
     app.manage(handle_tx.inner().0.recv().unwrap());
+    app.emit("library_loaded", ()).unwrap();
     Ok(())
 }

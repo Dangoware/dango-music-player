@@ -133,7 +133,6 @@ impl<
             self.items.get_mut(i).expect("There should be an item at index {i}").state = QueueState::NoState;
         }
 
-
         if by_human {
             self.items.insert(
                 i + if empty { 0 } else { 1 },

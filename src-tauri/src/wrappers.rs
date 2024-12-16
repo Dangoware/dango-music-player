@@ -21,15 +21,17 @@ pub async fn play(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>)
     } else {
         unreachable!()
     };
+    app.emit("playing", ()).unwrap();
     Ok(())
 }
 
 #[tauri::command]
-pub async fn pause(ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
+pub async fn pause(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
     ctrl_handle.player_mail.send(dmp_core::music_controller::controller::PlayerCommand::Pause).await.unwrap();
     let PlayerResponse::Empty = ctrl_handle.player_mail.recv().await.unwrap() else {
         unreachable!()
     };
+    app.emit("paused", ()).unwrap();
     Ok(())
 }
 
@@ -58,6 +60,7 @@ pub async fn next(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>)
     println!("next");
     app.emit("now_playing_change", _Song::from(&song)).unwrap();
     app.emit("queue_updated", ()).unwrap();
+    app.emit("playing", ()).unwrap();
     Ok(())
 }
 

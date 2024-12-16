@@ -12,6 +12,7 @@ const appWindow = getCurrentWebviewWindow();
 function App() {
   const library = useState<JSX.Element[]>([]);
   const [queue, setQueue] = useState<JSX.Element[]>([]);
+  const [playing, setPlaying] = useState(false);
 
   const [nowPlaying, setNowPlaying] = useState<JSX.Element>(
     <NowPlaying
@@ -52,6 +53,19 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const unlisten = appWindow.listen<any>("playing", (_) => {
+        setPlaying(true)
+    })
+    return () => { unlisten.then((f) => f()) }
+  }, []);
+  useEffect(() => {
+    const unlisten = appWindow.listen<any>("paused", (_) => {
+        setPlaying(false)
+    })
+    return () => { unlisten.then((f) => f()) }
+  }, []);
+
+  useEffect(() => {
     getConfig();
   }, [])
 
@@ -60,7 +74,7 @@ function App() {
       <div className="leftSide">
         <PlaylistHead />
         <MainView lib_ref={ library } />
-        <PlayBar />
+        <PlayBar playing={ playing } setPlaying={ setPlaying } />
       </div>
       <div className="rightSide">
         { nowPlaying }
@@ -110,28 +124,31 @@ interface MainViewProps {
 function MainView({ lib_ref }: MainViewProps) {
   const [library, setLibrary] = lib_ref;
 
+  useEffect(() => {
+    const unlisten = appWindow.listen<any>("library_loaded", (_) => {
+      invoke('get_library').then((lib) => {
+        setLibrary([...(lib as any[]).map((song, i) => {
+          console.log(song);
+
+          return (
+            <Song
+              key={ song.uuid }
+              location={ song.location }
+              uuid={ song.uuid }
+              plays={ song.plays }
+              duration={ song.duration }
+              tags={ song.tags }
+            />
+          )
+        })])
+      })
+    })
+    return () => { unlisten.then((f) => f()) }
+  }, []);
+
   return (
     <div className="mainView">
-      main view
-      <button onClick={ (e) => {
-        e.preventDefault();
-
-        invoke('get_library').then((lib) => {
-          setLibrary([...(lib as any[]).map((song) => {
-            console.log(song);
-
-            return (
-              <Song
-                key={ song.uuid }
-                location={ song.location }
-                uuid={ song.uuid }
-                plays={ song.plays }
-                duration={ song.duration }
-                tags={ song.tags }
-              />
-            )
-          })])
-      })} }>get library</button>
+      <h1>Library</h1>
       <div>{ library }</div>
     </div>
   )
@@ -162,16 +179,19 @@ function Song(props: SongProps) {
         invoke('add_song_to_queue', { uuid: props.uuid, location: 'Library' }).then(() => {} )
       }}
       >Add to Queue</button>
+      <button onClick={() => {
+        invoke("play_now", { uuid: props.uuid, location: 'Library' }).then(() => {})
+      }}>Play Now</button>
     </div>
   )
 }
 
 
-function PlayBar() {
-  let [playing, setPlaying] = useState('play');
-
-
-
+interface PlayBarProps {
+  playing: boolean,
+  setPlaying: React.Dispatch<React.SetStateAction<boolean>>
+}
+function PlayBar({ playing, setPlaying }: PlayBarProps) {
   return (
     <section id="playBar" className="playBar">
       <div className="topHalf">
@@ -181,14 +201,9 @@ function PlayBar() {
         </div>
         <button onClick={ () => invoke('prev').then(() => {}) }>prev</button>
         <button onClick={ (_) => {
-          if (playing == 'play') {
-            setPlaying('pause')
-            invoke('play').then(() => {})
-          } else {
-            setPlaying('play')
-            invoke('pause').then(() => {})
-          }
-        }}>{ playing }</button>
+          setPlaying( playing ? false : true );
+          invoke( playing ? 'pause' : 'play' ).then(() => {})
+        }}>{ playing ? 'pause' : 'play' }</button>
         <button onClick={ () => invoke('next').then(() => {}) }>next</button>
         <input type="range" name="volume" id="volumeSlider" onChange={ (volume) => {
           invoke('set_volume', { volume: volume.target.value }).then(() => {})
