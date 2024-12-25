@@ -6,7 +6,7 @@ use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{C
 use tauri::{http::Response, Emitter, Manager, State, Url, WebviewWindowBuilder, Wry};
 use uuid::Uuid;
 
-use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next, get_queue, import_playlist, get_playlist};
+use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next, get_queue, import_playlist, get_playlist, get_playlists};
 
 pub mod wrappers;
 pub mod commands;
@@ -76,6 +76,7 @@ pub fn run() {
         play_now,
         import_playlist,
         get_playlist,
+        get_playlists
     ]).manage(ConfigRx(rx))
     .manage(LibRx(lib_rx))
     .manage(HandleTx(handle_tx))
@@ -142,11 +143,15 @@ async fn get_config(state: State<'_, ConfigRx>) -> Result<Config, String> {
 
         // dbg!(&dir);
 
-        let config = if let Ok(c) = Config::read_file(PathBuf::from(path).join("config")) {
+        let config = if let Ok(mut c) = Config::read_file(PathBuf::from(path).join("config")) {
+            if c.state_path == PathBuf::default() {
+                c.state_path = PathBuf::from(path).join("state");
+            }
             c
         } else {
             let c = Config {
                 path: PathBuf::from(path).join("config"),
+                state_path: PathBuf::from(path).join("state"),
                 ..Default::default()
             };
             c.write_file().unwrap();

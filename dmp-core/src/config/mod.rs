@@ -1,9 +1,7 @@
-pub mod other_settings;
-
 use std::{
     fs::{self, File, OpenOptions},
     io::{Error, Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use serde::{Deserialize, Serialize};
@@ -100,8 +98,8 @@ pub struct Config {
     pub path: PathBuf,
     pub backup_folder: Option<PathBuf>,
     pub libraries: ConfigLibraries,
-    pub volume: f32,
     pub connections: ConfigConnections,
+    pub state_path: PathBuf,
 }
 
 impl Config {
@@ -160,9 +158,9 @@ impl Config {
 
     pub fn read_file(path: PathBuf) -> Result<Self, Error> {
         let mut file: File = File::open(path)?;
-        let mut bun: String = String::new();
-        _ = file.read_to_string(&mut bun);
-        let config: Config = serde_json::from_str::<Config>(&bun)?;
+        let mut buf: String = String::new();
+        _ = file.read_to_string(&mut buf);
+        let config: Config = serde_json::from_str::<Config>(&buf)?;
         Ok(config)
     }
 

@@ -9,6 +9,7 @@ use crate::wrappers::_Song;
 
 #[tauri::command]
 pub async fn add_song_to_queue(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>, uuid: Uuid, location: PlayerLocation) -> Result<(), String> {
+    dbg!(&location);
     ctrl_handle.lib_mail.send(dmp_core::music_controller::controller::LibraryCommand::Song(uuid)).await.unwrap();
     let LibraryResponse::Song(song, _) = ctrl_handle.lib_mail.recv().await.unwrap() else {
         unreachable!()

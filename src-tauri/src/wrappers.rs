@@ -39,7 +39,7 @@ pub async fn pause(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>
 
 #[tauri::command]
 pub async fn set_volume(ctrl_handle: State<'_, ControllerHandle>, volume: String) -> Result<(), String> {
-    let volume = volume.parse::<f64>().unwrap() / 1000.0;
+    let volume = volume.parse::<f32>().unwrap() / 1000.0;
     ctrl_handle.player_mail.send(dmp_core::music_controller::controller::PlayerCommand::SetVolume(volume)).await.unwrap();
     let PlayerResponse::Empty = ctrl_handle.player_mail.recv().await.unwrap() else {
         unreachable!()
@@ -142,12 +142,23 @@ pub async fn get_library(ctrl_handle: State<'_, ControllerHandle>) -> Result<Vec
 
 #[tauri::command]
 pub async fn get_playlist(ctrl_handle: State<'_, ControllerHandle>, uuid: Uuid) -> Result<Vec<_Song>, String> {
-    ctrl_handle.lib_mail.send(LibraryCommand::Playlist(uuid)).await.unwrap();
-    let LibraryResponse::Playlist(playlist) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!("It has been reached") };
+    ctrl_handle.lib_mail.send(LibraryCommand::ExternalPlaylist(uuid)).await.unwrap();
+    let LibraryResponse::ExternalPlaylist(playlist) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!("It has been reached") };
 
     let songs = playlist.tracks.iter().map(|song| _Song::from(song)).collect::<Vec<_>>();
     println!("Got Playlist {}, len {}", playlist.title, playlist.tracks.len());
     Ok(songs)
+}
+
+#[tauri::command]
+pub async fn get_playlists(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
+    println!("getting Playlists");
+    ctrl_handle.lib_mail.send(LibraryCommand::Playlists).await.unwrap();
+    let LibraryResponse::Playlists(lists) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!() };
+    println!("gotten playlists");
+
+    app.emit("playlists_gotten", lists.into_iter().map(|(uuid, name)| PlaylistPayload { uuid, name }).collect_vec()).unwrap();
+    Ok(())
 }
 
 #[tauri::command]
@@ -161,11 +172,13 @@ pub async fn import_playlist(ctrl_handle: State<'_, ControllerHandle>) -> Result
 
     ctrl_handle.lib_mail.send(LibraryCommand::ImportM3UPlayList(PathBuf::from(file.path()))).await.unwrap();
     let LibraryResponse::ImportM3UPlayList(uuid, name) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!("It has been reached") };
+    ctrl_handle.lib_mail.send(LibraryCommand::Save).await.unwrap();
+    let LibraryResponse::Ok = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!() };
     println!("Imported Playlist {name}");
     Ok(PlaylistPayload {uuid, name})
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct PlaylistPayload {
     uuid: Uuid,
     name: String

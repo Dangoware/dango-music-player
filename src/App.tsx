@@ -98,7 +98,40 @@ interface PlaylistHeadProps {
 
 function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary }: PlaylistHeadProps) {
 
-  let handle_import = () => {
+  useEffect(() => {
+    const unlisten = appWindow.listen<any[]>("playlists_gotten", (_res) => {
+        // console.log(event);
+        let res = _res.payload;
+
+        setPlaylists([
+          ...res.map( (item) => {
+            return (
+              <button onClick={ () => {
+                invoke('get_playlist', { uuid: item.uuid }).then((list) => {
+                setLibrary([...(list as any[]).map((song) => {
+                  // console.log(song);
+                  return (
+                    <Song
+                      key={ song.uuid }
+                      location={ song.location }
+                      playerLocation={ {"Playlist" : item.uuid } }
+                      uuid={ song.uuid }
+                      plays={ song.plays }
+                      duration={ song.duration }
+                      tags={ song.tags }
+                    />
+                  )
+                  })])
+                })
+                setViewName( item.name )
+              } } key={ 'playlist_' + item.uuid }>{ item.name }</button>
+            )
+          })
+        ])
+    })
+    return () => { unlisten.then((f) => f()) }
+  }, []);
+    let handle_import = () => {
     invoke('import_playlist').then((_res) => {
       let res = _res as any;
 
@@ -114,6 +147,7 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary }: Play
                 <Song
                   key={ song.uuid }
                   location={ song.location }
+                  playerLocation={ {"Playlist" : res.uuid } }
                   uuid={ song.uuid }
                   plays={ song.plays }
                   duration={ song.duration }
@@ -140,6 +174,7 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary }: Play
               <Song
                 key={ song.uuid }
                 location={ song.location }
+                playerLocation="Library"
                 uuid={ song.uuid }
                 plays={ song.plays }
                 duration={ song.duration }
@@ -150,7 +185,7 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary }: Play
         })
       } }>Library</button>
         { playlists }
-      <button onClick={ handle_import }>Import .m3u8 Playlist</button>
+      <button onClick={ handle_import }>Import .m3u Playlist</button>
     </section>
   )
 }
@@ -166,15 +201,16 @@ function MainView({ lib_ref, viewName }: MainViewProps) {
   useEffect(() => {
     const unlisten = appWindow.listen<any>("library_loaded", (_) => {
       console.log("library_loaded");
+      invoke('get_playlists').then(() => {})
 
       invoke('get_library').then((lib) => {
         setLibrary([...(lib as any[]).map((song) => {
-          console.log(song);
 
           return (
             <Song
               key={ song.uuid }
               location={ song.location }
+              playerLocation="Library"
               uuid={ song.uuid }
               plays={ song.plays }
               duration={ song.duration }
@@ -198,6 +234,7 @@ function MainView({ lib_ref, viewName }: MainViewProps) {
 
 interface SongProps {
   location: any,
+  playerLocation: string | {"Playlist" : any},
   uuid: string,
   plays: number,
   format?: string,
@@ -218,11 +255,11 @@ function Song(props: SongProps) {
       <p className="artist">{ props.tags.AlbumArtist }</p>
       <p className="duration">{ props.duration }</p>
       <button onClick={(_) => {
-        invoke('add_song_to_queue', { uuid: props.uuid, location: 'Library' }).then(() => {} )
+        invoke('add_song_to_queue', { uuid: props.uuid, location: props.playerLocation }).then(() => {} )
       }}
       >Add to Queue</button>
       <button onClick={() => {
-        invoke("play_now", { uuid: props.uuid, location: 'Library' }).then(() => {})
+        invoke("play_now", { uuid: props.uuid, location: props.playerLocation }).then(() => {})
       }}>Play Now</button>
     </div>
   )

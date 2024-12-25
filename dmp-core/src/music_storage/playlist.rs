@@ -52,6 +52,17 @@ impl PlaylistFolder {
         }
         None
     }
+
+    pub fn lists_recursive(&self) -> Vec<&Playlist> {
+        let mut vec = vec![];
+        for item in &self.items {
+            match item {
+                PlaylistFolderItem::List(ref playlist) => vec.push(playlist),
+                PlaylistFolderItem::Folder(folder) => vec.append(&mut folder.lists_recursive()),
+            }
+        }
+        vec
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -107,13 +118,13 @@ impl Playlist {
     }
     pub fn get_index(&self, uuid: Uuid) -> Option<usize> {
         let mut i = 0;
-        if self.contains(uuid) {
+        if self.tracks.contains(&uuid) {
             for track in &self.tracks {
-                i += 1;
                 if &uuid == track {
                     dbg!("Index gotted! ", i);
                     return Some(i);
                 }
+                i += 1;
             }
         }
         None
@@ -351,7 +362,9 @@ pub struct ExternalPlaylist {
 impl ExternalPlaylist {
     pub(crate) fn from_playlist(playlist: &Playlist, library: &MusicLibrary) -> Self {
         let tracks: Vec<Song> = playlist.tracks.iter().filter_map(|uuid| {
-            library.query_uuid(uuid).map(|res| res.0.clone())
+            library.query_uuid(uuid).map(|res| {
+                res.0.clone()
+            })
         }).collect_vec();
 
         Self {
@@ -362,6 +375,27 @@ impl ExternalPlaylist {
             play_count: playlist.play_count,
             play_time: playlist.play_time
         }
+    }
+
+    pub fn get_index(&self, uuid: Uuid) -> Option<usize> {
+        let mut i = 0;
+        if self.contains(uuid) {
+            for track in &self.tracks {
+                if &uuid == &track.uuid {
+                    return Some(i);
+                }
+                i += 1;
+            }
+        }
+        None
+    }
+    pub fn contains(&self, uuid: Uuid) -> bool {
+        for track in &self.tracks {
+            if track.uuid == uuid {
+                return true;
+            }
+        }
+        false
     }
 }
 

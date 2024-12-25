@@ -6,15 +6,19 @@
 use itertools::Itertools;
 use kushi::{Queue, QueueItemType};
 use kushi::{QueueError, QueueItem};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
+use serde_json::to_string_pretty;
 use std::error::Error;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::marker::PhantomData;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::config::ConfigError;
+use crate::config::{self, ConfigError};
 use crate::music_player::player::{Player, PlayerError};
 use crate::music_storage::library::Song;
 use crate::music_storage::playlist::{ExternalPlaylist, Playlist, PlaylistFolderItem};
@@ -75,7 +79,7 @@ pub enum PlayerCommand {
     Pause,
     Play,
     Enqueue(usize),
-    SetVolume(f64),
+    SetVolume(f32),
     PlayNow(Uuid, PlayerLocation),
 }
 
@@ -90,8 +94,11 @@ pub enum LibraryCommand {
     Song(Uuid),
     AllSongs,
     GetLibrary,
+    ExternalPlaylist(Uuid),
     Playlist(Uuid),
-    ImportM3UPlayList(PathBuf)
+    ImportM3UPlayList(PathBuf),
+    Save,
+    Playlists,
 }
 
 #[derive(Debug, Clone)]
@@ -100,8 +107,10 @@ pub enum LibraryResponse {
     Song(Song, usize),
     AllSongs(Vec<Song>),
     Library(MusicLibrary),
-    Playlist(ExternalPlaylist),
-    ImportM3UPlayList(Uuid, String)
+    ExternalPlaylist(ExternalPlaylist),
+    Playlist(Playlist),
+    ImportM3UPlayList(Uuid, String),
+    Playlists(Vec<(Uuid, String)>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -170,6 +179,39 @@ impl ControllerHandle {
     }
 }
 
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+pub struct ControllerState {
+    path: PathBuf,
+    volume: f32,
+    now_playing: Uuid,
+}
+
+impl ControllerState {
+    fn new(path: PathBuf) -> Self {
+        ControllerState {
+            path,
+            volume: 0.35,
+            ..Default::default()
+        }
+    }
+
+    fn write_file(&self) -> Result<(), std::io::Error> {
+        OpenOptions::new()
+        .truncate(true)
+        .create(true)
+        .write(true)
+        .open(&self.path)
+        .unwrap()
+        .write_all(&to_string_pretty(self)?.into_bytes())?;
+        Ok(())
+    }
+
+    fn read_file(path: impl AsRef<Path>) -> Result<Self, std::io::Error> {
+        let state = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+        Ok(state)
+    }
+}
+
 #[allow(unused_variables)]
 impl<'c, P: Player + Send + Sync> Controller<'c, P> {
     pub async fn start(
@@ -184,23 +226,22 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
     where
         P: Player,
     {
-        //TODO: make a separate event loop for sccessing library that clones borrowed values from inner library loop?
-        let mut queue: Queue<QueueSong, QueueAlbum> = Queue {
+        let queue: Queue<QueueSong, QueueAlbum> = Queue {
             items: Vec::new(),
             played: Vec::new(),
             loop_: false,
             shuffle: None,
         };
-        // for testing porpuses
-        // for song in &library.library {
-        //     queue.add_item(
-        //         QueueSong {
-        //             song: song.clone(),
-        //             location: PlayerLocation::Test,
-        //         },
-        //         true,
-        //     );
-        // }
+
+        let state = {
+            let path = &config.read().unwrap().state_path;
+            if let Ok(state) = ControllerState::read_file(path) {
+                state
+            } else {
+                ControllerState::new(path.clone())
+            }
+        };
+
         let queue = queue;
 
         std::thread::scope(|scope| {
@@ -220,19 +261,27 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                                     player_mail.1,
                                     queue_mail.0,
                                     _lib_mail,
+                                    state,
                                 )
                                 .await
                                 .unwrap();
                             });
                         scope
                             .spawn(async move {
-                                Controller::<P>::player_event_loop(player, player_mail.0)
+                                Controller::<P>::player_event_loop(
+                                    player,
+                                    player_mail.0
+                                )
                                     .await
                                     .unwrap();
                             });
                         scope
                             .spawn(async {
-                                Controller::<P>::library_loop(lib_mail.1, &mut library)
+                                Controller::<P>::library_loop(
+                                    lib_mail.1,
+                                    &mut library,
+                                    config,
+                                )
                                     .await
                                     .unwrap();
                             });
@@ -258,8 +307,14 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
         player_mail: MailMan<PlayerResponse, PlayerCommand>,
         queue_mail: MailMan<QueueCommand, QueueResponse>,
         lib_mail: MailMan<LibraryCommand, LibraryResponse>,
+        mut state: ControllerState,
     ) -> Result<(), ()> {
         let mut first = true;
+        {
+            let volume = state.volume as f64;
+            player.write().unwrap().set_volume(volume);
+            println!("volume set to {volume}");
+        }
         while true {
             let _mail = player_mail.recv().await;
             if let Ok(mail) = _mail {
@@ -282,9 +337,12 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                         player_mail.send(PlayerResponse::Empty).await.unwrap();
                     }
                     PlayerCommand::SetVolume(volume) => {
-                        player.write().unwrap().set_volume(volume);
+                        player.write().unwrap().set_volume(volume as f64);
                         println!("volume set to {volume}");
                         player_mail.send(PlayerResponse::Empty).await.unwrap();
+
+                        state.volume = volume;
+                        _ = state.write_file()
                     }
                     PlayerCommand::NextSong => {
                         queue_mail.send(QueueCommand::Next).await.unwrap();
@@ -384,10 +442,25 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                         // ...
                         // let's just pretend I figured that out already
 
-                        lib_mail.send(LibraryCommand::AllSongs).await.unwrap();
-                        let LibraryResponse::AllSongs(songs) = lib_mail.recv().await.unwrap() else {
-                            unreachable!()
+                        let (songs, index) = match location {
+                            PlayerLocation::Library => {
+                                lib_mail.send(LibraryCommand::AllSongs).await.unwrap();
+                                let LibraryResponse::AllSongs(songs) = lib_mail.recv().await.unwrap() else {
+                                    unreachable!()
+                                };
+                                (songs, index)
+                            }
+                            PlayerLocation::Playlist(uuid) => {
+                                lib_mail.send(LibraryCommand::ExternalPlaylist(uuid)).await.unwrap();
+                                let LibraryResponse::ExternalPlaylist(list) = lib_mail.recv().await.unwrap() else {
+                                    unreachable!()
+                                };
+                                let index = list.get_index(song.uuid).unwrap();
+                                (list.tracks, index)
+                            }
+                            _ => todo!("Got Location other than Library or Playlist")
                         };
+
 
                         for i in index+1..(index+50) {
                             if let Some(song) = songs.get(i) {
@@ -396,7 +469,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                                     unreachable!()
                                 };
                             } else {
-                                println!("End of Library");
+                                println!("End of Library / Playlist");
                                 break;
                             }
                         }
@@ -414,6 +487,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
     async fn library_loop(
         lib_mail: MailMan<LibraryResponse, LibraryCommand>,
         library: &'c mut MusicLibrary,
+        config: Arc<RwLock<Config>>,
     ) -> Result<(), ()> {
         while true {
             match lib_mail.recv().await.unwrap() {
@@ -424,9 +498,9 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                 LibraryCommand::AllSongs => {
                     lib_mail.send(LibraryResponse::AllSongs(library.library.clone())).await.unwrap();
                 },
-                LibraryCommand::Playlist(uuid) => {
+                LibraryCommand::ExternalPlaylist(uuid) => {
                     let playlist = library.query_playlist_uuid(&uuid).unwrap();
-                    lib_mail.send(LibraryResponse::Playlist(ExternalPlaylist::from_playlist(playlist, &library))).await.unwrap();
+                    lib_mail.send(LibraryResponse::ExternalPlaylist(ExternalPlaylist::from_playlist(playlist, &library))).await.unwrap();
                 }
                 LibraryCommand::ImportM3UPlayList(path) => {
                     let playlist = Playlist::from_m3u(path, library).unwrap();
@@ -435,6 +509,16 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                     library.playlists.items.push(PlaylistFolderItem::List(playlist));
 
                     lib_mail.send(LibraryResponse::ImportM3UPlayList(uuid, name)).await.unwrap();
+                }
+                LibraryCommand::Save => {
+                    library.save({config.read().unwrap().libraries.get_library(&library.uuid).unwrap().path.clone()}).unwrap();
+                    lib_mail.send(LibraryResponse::Ok).await.unwrap();
+                }
+                LibraryCommand::Playlists => {
+                    let mut lists = vec![];
+                    library.playlists.lists_recursive().into_par_iter().map(|list| (list.uuid, list.title.clone())).collect_into_vec(&mut lists);
+
+                    lib_mail.send(LibraryResponse::Playlists(lists)).await.unwrap();
                 }
                 _ => { todo!() }
             }
