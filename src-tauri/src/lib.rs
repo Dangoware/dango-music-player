@@ -6,7 +6,7 @@ use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{C
 use tauri::{http::Response, Emitter, Manager, State, Url, WebviewWindowBuilder, Wry};
 use uuid::Uuid;
 
-use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next, get_queue};
+use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next, get_queue, import_playlist, get_playlist};
 
 pub mod wrappers;
 pub mod commands;
@@ -74,6 +74,8 @@ pub fn run() {
         get_queue,
         add_song_to_queue,
         play_now,
+        import_playlist,
+        get_playlist,
     ]).manage(ConfigRx(rx))
     .manage(LibRx(lib_rx))
     .manage(HandleTx(handle_tx))
@@ -94,7 +96,7 @@ pub fn run() {
             futures::executor::block_on(async move {
             let controller = ctx.app_handle().state::<ControllerHandle>();
             controller.lib_mail.send(dmp_core::music_controller::controller::LibraryCommand::Song(Uuid::parse_str(query.as_str()).unwrap())).await.unwrap();
-            let LibraryResponse::Song(song) = controller.lib_mail.recv().await.unwrap() else { unreachable!() };
+            let LibraryResponse::Song(song, _) = controller.lib_mail.recv().await.unwrap() else { unreachable!() };
             song.album_art(0).unwrap_or_else(|_| None).unwrap_or(DEFAULT_IMAGE.to_vec())
         })};
         res.respond(

@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::path::Path;
 use std::{
     fs::File,
     io::Read,
@@ -10,6 +11,7 @@ use std::time::Duration;
 
 // use chrono::Duration;
 use super::library::{AlbumArt, MusicLibrary, Song, Tag, URI};
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -28,8 +30,8 @@ nest! {
     #[derive(Debug, Clone, Deserialize, Serialize)]*
     #[derive(Default)]
     pub struct PlaylistFolder {
-        name: String,
-        items: Vec<
+        pub(crate) name: String,
+        pub(crate) items: Vec<
             pub enum PlaylistFolderItem {
                 Folder(PlaylistFolder),
                 List(Playlist)
@@ -38,15 +40,29 @@ nest! {
     }
 }
 
+impl PlaylistFolder {
+    pub fn query_uuid(&self, uuid: &Uuid) -> Option<&Playlist> {
+        for item in &self.items {
+            match item {
+                PlaylistFolderItem::Folder(folder) => return folder.query_uuid(uuid),
+                PlaylistFolderItem::List(ref playlist) => if &playlist.uuid == uuid {
+                    return Some(&playlist);
+                }
+            }
+        }
+        None
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Playlist {
-    uuid: Uuid,
-    title: String,
-    cover: Option<AlbumArt>,
-    tracks: Vec<Uuid>,
-    sort_order: SortOrder,
-    play_count: i32,
-    play_time: Duration,
+    pub(crate) uuid: Uuid,
+    pub(crate) title: String,
+    pub(crate) cover: Option<AlbumArt>,
+    pub(crate) tracks: Vec<Uuid>,
+    pub(crate) sort_order: SortOrder,
+    pub(crate) play_count: i32,
+    pub(crate) play_time: Duration,
 }
 
 impl Playlist {
@@ -115,7 +131,7 @@ impl Playlist {
         super::utils::read_file(PathBuf::from(path))
     }
 
-    pub fn to_m3u8(
+    pub fn to_m3u(
         &mut self,
         lib: Arc<RwLock<MusicLibrary>>,
         location: &str,
@@ -146,9 +162,9 @@ impl Playlist {
             })
             .collect::<Vec<MediaSegment>>();
 
-        let m3u8 = MediaPlaylist {
+        let m3u = MediaPlaylist {
             version: Some(6),
-            target_duration: 3.0,
+            target_duration: 3,
             media_sequence: 338559,
             discontinuity_sequence: 1234,
             end_list: true,
@@ -163,18 +179,15 @@ impl Playlist {
             .truncate(true)
             .write(true)
             .open(location)?;
-        m3u8.write_to(&mut file)?;
+        m3u.write_to(&mut file)?;
         Ok(())
     }
 
-    pub fn from_m3u8(
-        path: &str,
-        lib: Arc<RwLock<MusicLibrary>>,
+    pub fn from_m3u(
+        m3u_path: impl AsRef<Path>,
+        lib: &mut MusicLibrary,
     ) -> Result<Playlist, Box<dyn Error>> {
-        let mut file = match File::open(path) {
-            Ok(file) => file,
-            Err(e) => return Err(e.into()),
-        };
+        let mut file = File::open(&m3u_path)?;
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).unwrap();
 
@@ -182,7 +195,7 @@ impl Playlist {
 
         let playlist = match parsed {
             Result::Ok((_, playlist)) => playlist,
-            Result::Err(e) => panic!("Parsing error: \n{}", e),
+            Result::Err(e) => panic!("Parsing error\n{e}"),
         };
 
         match playlist {
@@ -192,20 +205,31 @@ impl Playlist {
             List2::MediaPlaylist(playlist_) => {
                 let mut uuids = Vec::new();
                 for seg in playlist_.segments {
-                    let path_ = PathBuf::from(seg.uri.to_owned());
-                    let mut lib = lib.write().unwrap();
+                    let seg_path = seg.uri.to_owned();
 
-                    let uuid = if let Some((song, _)) = lib.query_uri(&URI::Local(path_.clone())) {
+                    let song_path = if let Ok(path) = PathBuf::from(&seg_path).canonicalize() {
+                        path
+                    } else {
+                        println!("{seg_path}");
+                        continue;
+                    };
+
+                    let uuid = if let Some((song, _)) = lib.query_uri(&URI::Local(song_path.clone())) {
                         song.uuid
                     } else {
-                        let song_ = Song::from_file(&path_)?;
+                        let song_: Song = match Song::from_file(&song_path) {
+                            Ok(s) => s,
+                            Err(e) => panic!("{e}\npath: {}", song_path.display())
+                        };
                         let uuid = song_.uuid.to_owned();
-                        lib.add_song(song_)?;
+                        _ = lib.add_song(song_);  // TODO: Add proper error handling with Library
                         uuid
                     };
                     uuids.push(uuid);
                 }
                 let mut playlist = Playlist::new();
+
+                let path: &str = m3u_path.as_ref().to_str().unwrap();
 
                 #[cfg(target_family = "windows")]
                 {
@@ -213,7 +237,7 @@ impl Playlist {
                         .split('\\')
                         .last()
                         .unwrap_or_default()
-                        .strip_suffix(".m3u8")
+                        .strip_suffix(".m3u")
                         .unwrap_or_default()
                         .to_string();
                 }
@@ -223,7 +247,7 @@ impl Playlist {
                         .split("/")
                         .last()
                         .unwrap_or_default()
-                        .strip_suffix(".m3u8")
+                        .strip_suffix(".m3u")
                         .unwrap_or_default()
                         .to_string();
                 }
@@ -313,42 +337,72 @@ impl Default for Playlist {
     }
 }
 
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ExternalPlaylist {
+    pub uuid: Uuid,
+    pub title: String,
+    pub tracks: Vec<Song>,
+    pub sort_order: SortOrder,
+    pub play_count: i32,
+    pub play_time: Duration,
+}
+
+impl ExternalPlaylist {
+    pub(crate) fn from_playlist(playlist: &Playlist, library: &MusicLibrary) -> Self {
+        let tracks: Vec<Song> = playlist.tracks.iter().filter_map(|uuid| {
+            library.query_uuid(uuid).map(|res| res.0.clone())
+        }).collect_vec();
+
+        Self {
+            uuid: playlist.uuid.clone(),
+            title: playlist.title.clone(),
+            tracks,
+            sort_order: playlist.sort_order.clone(),
+            play_count: playlist.play_count,
+            play_time: playlist.play_time
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod test_super {
     use super::*;
-    use crate::config::tests::read_config_lib;
+    use crate::config::tests::{new_config_lib, read_config_lib};
 
     #[test]
-    fn list_to_m3u8() {
+    fn list_to_m3u() {
         let (_, lib) = read_config_lib();
         let mut playlist = Playlist::new();
         let tracks = lib.library.iter().map(|track| track.uuid).collect();
         playlist.set_tracks(tracks);
 
-        _ = playlist.to_m3u8(
+        playlist.to_m3u(
             Arc::new(RwLock::from(lib)),
-            ".\\test-config\\playlists\\playlist.m3u8",
-        );
-    }
-
-    fn m3u8_to_list() -> Playlist {
-        let (_, lib) = read_config_lib();
-        let arc = Arc::new(RwLock::from(lib));
-        let playlist =
-            Playlist::from_m3u8(".\\test-config\\playlists\\playlist.m3u8", arc).unwrap();
-
-        _ = playlist.to_file(".\\test-config\\playlists\\playlist");
-        dbg!(playlist)
+            ".\\test-config\\playlists\\playlist.m3u",
+        ).unwrap();
     }
 
     #[test]
-    fn out_queue_sort() {
-        let (_, lib) = read_config_lib();
-        let mut list = m3u8_to_list();
-        list.sort_order = SortOrder::Tag(vec![Tag::Album]);
+    fn m3u_to_list() {
+        let (_, mut lib) = read_config_lib();
 
-        let songs = &list.out_tracks(Arc::new(RwLock::from(lib)));
+        let playlist =
+            Playlist::from_m3u(".\\test-config\\playlists\\playlist", &mut lib).unwrap();
 
-        dbg!(songs);
+        _ = playlist.to_file(".\\test-config\\playlists\\playlist");
+        dbg!(&playlist, playlist.tracks.len());
     }
+
+    // #[test]
+    // fn out_queue_sort() {
+    //     let (_, lib) = read_config_lib();
+    //     let mut list = m3u_to_list();
+    //     list.sort_order = SortOrder::Tag(vec![Tag::Album]);
+
+    //     let songs = &list.out_tracks(Arc::new(RwLock::from(lib)));
+
+    //     dbg!(songs);
+    // }
 }

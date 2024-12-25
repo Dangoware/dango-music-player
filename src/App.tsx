@@ -13,6 +13,8 @@ function App() {
   const library = useState<JSX.Element[]>([]);
   const [queue, setQueue] = useState<JSX.Element[]>([]);
   const [playing, setPlaying] = useState(false);
+  const [playlists, setPlaylists] = useState<JSX.Element[]>([]);
+  const [viewName, setViewName] = useState("Library");
 
   const [nowPlaying, setNowPlaying] = useState<JSX.Element>(
     <NowPlaying
@@ -72,13 +74,13 @@ function App() {
   return (
     <main className="container">
       <div className="leftSide">
-        <PlaylistHead />
-        <MainView lib_ref={ library } />
+        <PlaylistHead playlists={ playlists } setPlaylists={ setPlaylists } setViewName={ setViewName } setLibrary={ library[1] } />
+        <MainView lib_ref={ library } viewName={ viewName } />
         <PlayBar playing={ playing } setPlaying={ setPlaying } />
       </div>
       <div className="rightSide">
         { nowPlaying }
-        <Queue songs={queue} setSongs={ setQueue } />
+        <Queue songs={ queue } setSongs={ setQueue } />
       </div>
 
     </main>
@@ -87,47 +89,86 @@ function App() {
 
 export default App;
 
-function getConfig(): any {
-  invoke('get_config').then( (_config) => {
-    let config = _config as Config;
-    if (config.libraries.libraries.length == 0) {
-      newWindow()
-    } else {
-      // console.log("else");
-      invoke('lib_already_created').then(() => {})
-    }
-  })
+interface PlaylistHeadProps {
+  playlists: JSX.Element[]
+  setPlaylists: React.Dispatch<React.SetStateAction<JSX.Element[]>>,
+  setViewName: React.Dispatch<React.SetStateAction<string>>,
+  setLibrary: React.Dispatch<React.SetStateAction<JSX.Element[]>>,
 }
 
-function newWindow() {
-  invoke('new_library_window').then(() => {})
-}
+function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary }: PlaylistHeadProps) {
 
-function PlaylistHead() {
+  let handle_import = () => {
+    invoke('import_playlist').then((_res) => {
+      let res = _res as any;
+
+      setPlaylists([
+        ...playlists,
+        <button onClick={ () => {
+          invoke('get_playlist', { uuid: res.uuid }).then((list) => {
+            console.log((list as any[]).length);
+
+            setLibrary([...(list as any[]).map((song) => {
+              // console.log(song);
+              return (
+                <Song
+                  key={ song.uuid }
+                  location={ song.location }
+                  uuid={ song.uuid }
+                  plays={ song.plays }
+                  duration={ song.duration }
+                  tags={ song.tags }
+                />
+              )
+            })])
+          })
+          setViewName( res.name )
+        } } key={ 'playlist_' + res.uuid }>{ res.name }</button>
+      ])
+      console.log(res.name);
+    })
+  }
   return (
     <section className="playlistHead">
-      <button>Library</button>
-      <button>Playlist 1</button>
-      <button>Playlist 2</button>
-      <button>Playlist 3</button>
-      <button>Playlist 4</button>
-      <button>Playlist 5</button>
-      <button>Playlist 6</button>
+      <button onClick={() => {
+        setViewName("Library");
+        invoke('get_library').then((lib) => {
+          setLibrary([...(lib as any[]).map((song) => {
+            console.log(song);
+
+            return (
+              <Song
+                key={ song.uuid }
+                location={ song.location }
+                uuid={ song.uuid }
+                plays={ song.plays }
+                duration={ song.duration }
+                tags={ song.tags }
+              />
+            )
+          })])
+        })
+      } }>Library</button>
+        { playlists }
+      <button onClick={ handle_import }>Import .m3u8 Playlist</button>
     </section>
   )
 }
 
 interface MainViewProps {
   lib_ref: [JSX.Element[], React.Dispatch<React.SetStateAction<JSX.Element[]>>],
+  viewName: string
 }
 
-function MainView({ lib_ref }: MainViewProps) {
+function MainView({ lib_ref, viewName }: MainViewProps) {
   const [library, setLibrary] = lib_ref;
 
   useEffect(() => {
     const unlisten = appWindow.listen<any>("library_loaded", (_) => {
+      console.log("library_loaded");
+
       invoke('get_library').then((lib) => {
-        setLibrary([...(lib as any[]).map((song, i) => {
+        setLibrary([...(lib as any[]).map((song) => {
           console.log(song);
 
           return (
@@ -146,9 +187,10 @@ function MainView({ lib_ref }: MainViewProps) {
     return () => { unlisten.then((f) => f()) }
   }, []);
 
+
   return (
     <div className="mainView">
-      <h1>Library</h1>
+      <h1>{ viewName }</h1>
       <div>{ library }</div>
     </div>
   )
@@ -262,4 +304,20 @@ function QueueSong({ song }: QueueSongProps) {
     </div>
     // </button>
   )
+}
+
+function getConfig(): any {
+  invoke('get_config').then( (_config) => {
+    let config = _config as Config;
+    if (config.libraries.libraries.length == 0) {
+      newWindow()
+    } else {
+      // console.log("else");
+      invoke('lib_already_created').then(() => {})
+    }
+  })
+}
+
+function newWindow() {
+  invoke('new_library_window').then(() => {})
 }

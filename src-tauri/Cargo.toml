@@ -33,6 +33,7 @@ mime = "0.3.17"
 file-format = "0.26.0"
 chrono = { version =  "0.4.38", features = ["serde"] }
 itertools = "0.13.0"
+rfd = "0.15.1"
 
 [features]
 default = [ "custom-protocol" ]
