@@ -1,13 +1,15 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use chrono::{DateTime, Utc, serde::ts_milliseconds_option};
 use crossbeam::channel::Sender;
-use dmp_core::{music_controller::controller::{ControllerHandle, LibraryCommand, LibraryResponse, PlayerResponse, QueueCommand, QueueResponse}, music_storage::library::{BannedType, Song, URI}};
+use dmp_core::{music_controller::controller::{ControllerHandle, LibraryCommand, LibraryResponse, PlayerResponse, QueueCommand, QueueResponse}, music_storage::library::{BannedType, Song, Tag, URI}};
 use itertools::Itertools;
 use kushi::QueueItemType;
 use serde::Serialize;
 use tauri::{ipc::Response, AppHandle, Emitter, State, Wry};
 use uuid::Uuid;
+
+use crate::commands;
 
 pub struct ArtworkRx(pub Sender<Vec<u8>>);
 
@@ -130,6 +132,7 @@ impl From<&Song> for _Song {
 #[tauri::command]
 pub async fn get_library(ctrl_handle: State<'_, ControllerHandle>) -> Result<Vec<_Song>, String> {
     ctrl_handle.lib_mail.send(LibraryCommand::AllSongs).await.unwrap();
+    println!("getting library");
     let LibraryResponse::AllSongs(songs) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!("It has been reached") };
 
     let _songs = songs.iter().map(|song| _Song::from(song)).collect::<Vec<_>>();
@@ -138,9 +141,40 @@ pub async fn get_library(ctrl_handle: State<'_, ControllerHandle>) -> Result<Vec
 }
 
 #[tauri::command]
-pub async fn get_song(ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
+pub async fn get_playlist(ctrl_handle: State<'_, ControllerHandle>, uuid: Uuid) -> Result<Vec<_Song>, String> {
+    ctrl_handle.lib_mail.send(LibraryCommand::Playlist(uuid)).await.unwrap();
+    let LibraryResponse::Playlist(playlist) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!("It has been reached") };
+
+    let songs = playlist.tracks.iter().map(|song| _Song::from(song)).collect::<Vec<_>>();
+    println!("Got Playlist {}, len {}", playlist.title, playlist.tracks.len());
+    Ok(songs)
+}
+
+#[tauri::command]
+pub async fn import_playlist(ctrl_handle: State<'_, ControllerHandle>) -> Result<PlaylistPayload, String> {
+    let file = rfd::AsyncFileDialog::new()
+    .add_filter("m3u8 Playlist", &["m3u8", "m3u"])
+    .set_title("Import a Playlist")
+    .pick_file()
+    .await
+    .unwrap();
+
+    ctrl_handle.lib_mail.send(LibraryCommand::ImportM3UPlayList(PathBuf::from(file.path()))).await.unwrap();
+    let LibraryResponse::ImportM3UPlayList(uuid, name) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!("It has been reached") };
+    println!("Imported Playlist {name}");
+    Ok(PlaylistPayload {uuid, name})
+}
+
+#[derive(Serialize)]
+pub struct PlaylistPayload {
+    uuid: Uuid,
+    name: String
+}
+
+#[tauri::command]
+pub async fn get_song(ctrl_handle: State<'_, ControllerHandle>) -> Result<_Song, String> {
     ctrl_handle.lib_mail.send(LibraryCommand::Song(Uuid::default())).await.unwrap();
-    let LibraryResponse::Song(_) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!("It has been reached") };
-    println!("got songs");
-    Ok(())
+    let LibraryResponse::Song(song, _) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!("It has been reached") };
+    println!("got song {}", &song.tags.get(&Tag::Title).unwrap_or(&String::new()));
+    Ok(_Song::from(&song))
 }

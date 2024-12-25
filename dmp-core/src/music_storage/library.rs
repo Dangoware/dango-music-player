@@ -2,6 +2,7 @@ use super::playlist::{Playlist, PlaylistFolder};
 // Crate things
 use super::utils::{find_images, normalize, read_file, write_file};
 use crate::config::Config;
+use crate::music_storage::playlist::PlaylistFolderItem;
 
 use std::cmp::Ordering;
 // Various std things
@@ -687,7 +688,7 @@ impl AlbumTrack {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MusicLibrary {
     pub name: String,
     pub uuid: Uuid,
@@ -1237,8 +1238,12 @@ impl MusicLibrary {
         Ok(albums)
     }
 
-    pub fn query_playlist_uuid(&self, uuid: &Uuid) -> Result<Playlist, Box<dyn Error>> {
-        todo!()
+    pub fn query_playlist_uuid(&self, uuid: &Uuid) -> Option<&Playlist> {
+        self.playlists.query_uuid(uuid)
+    }
+
+    pub fn push_playlist(&mut self, playlist: PlaylistFolderItem) {
+        self.playlists.items.push(playlist);
     }
 }
 
