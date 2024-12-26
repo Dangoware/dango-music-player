@@ -67,11 +67,11 @@ impl ExternalLibrary for ITunesLibrary {
                 key_selected = false;
 
                 //end the song to start a new one, and turn turn current song map into iTunesSong
-                if song_tags.contains_key(&"Location".to_string()) {
+                if song_tags.contains_key("Location") {
                     count3 += 1;
                     //check for skipped IDs
                     if &count3.to_string()
-                        != song_tags.get_key_value(&"Track ID".to_string()).unwrap().1
+                        != song_tags.get_key_value("Track ID").unwrap().1
                     {
                         count3 += 1;
                         count4 += 1;
@@ -196,10 +196,7 @@ impl ExternalLibrary for ITunesLibrary {
                 last_played: track.last_played,
                 date_added: track.date_added,
                 date_modified: track.date_modified,
-                album_art: match get_art(Path::new(&loc)) {
-                    Ok(e) => e,
-                    Err(_) => Vec::new(),
-                },
+                album_art: get_art(Path::new(&loc)).unwrap_or_default(),
                 tags: tags_,
                 internal_tags,
             };
@@ -252,10 +249,7 @@ fn get_art(file: &Path) -> Result<Vec<AlbumArt>, lofty::error::LoftyError> {
         }
         Err(_) => blank_tag,
     };
-    let mut img = match utils::find_images(file) {
-        Ok(e) => e,
-        Err(_) => Vec::new(),
-    };
+    let mut img = utils::find_images(file).unwrap_or_default();
     if !img.is_empty() {
         album_art.append(img.as_mut());
     }

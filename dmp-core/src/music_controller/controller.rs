@@ -168,8 +168,8 @@ impl ControllerHandle {
             },
             ControllerInput {
                 player_mail,
-                lib_mail: lib_mail,
-                queue_mail: queue_mail,
+                lib_mail,
+                queue_mail,
                 library,
                 config
             }
@@ -236,8 +236,6 @@ impl Controller {
                 ControllerState::new(path.clone())
             }
         };
-
-        let queue = queue;
 
         std::thread::scope(|scope| {
             let queue_mail = queue_mail;
@@ -363,7 +361,7 @@ impl Controller {
                             let LibraryResponse::AllSongs(songs) = lib_mail.recv().await.unwrap() else {
                                 unreachable!()
                             };
-                            lib_mail.send(LibraryCommand::Song(np_song.song.uuid.clone())).await.unwrap();
+                            lib_mail.send(LibraryCommand::Song(np_song.song.uuid)).await.unwrap();
                             let LibraryResponse::Song(_, i) = lib_mail.recv().await.unwrap() else {
                                 unreachable!()
                             };
@@ -436,7 +434,7 @@ impl Controller {
                         let QueueResponse::Ok = queue_mail.recv().await.unwrap() else {
                             unreachable!()
                         };
-                        queue_mail.send(QueueCommand::Append(QueueItem::from_item_type(QueueItemType::Single(QueueSong { song: song.clone(), location: location })), true)).await.unwrap();
+                        queue_mail.send(QueueCommand::Append(QueueItem::from_item_type(QueueItemType::Single(QueueSong { song: song.clone(), location })), true)).await.unwrap();
                         let QueueResponse::Ok = queue_mail.recv().await.unwrap() else {
                             unreachable!()
                         };
@@ -508,11 +506,11 @@ impl Controller {
                 },
                 LibraryCommand::ExternalPlaylist(uuid) => {
                     let playlist = library.query_playlist_uuid(&uuid).unwrap();
-                    lib_mail.send(LibraryResponse::ExternalPlaylist(ExternalPlaylist::from_playlist(playlist, &library))).await.unwrap();
+                    lib_mail.send(LibraryResponse::ExternalPlaylist(ExternalPlaylist::from_playlist(playlist, library))).await.unwrap();
                 }
                 LibraryCommand::ImportM3UPlayList(path) => {
                     let playlist = Playlist::from_m3u(path, library).unwrap();
-                    let uuid = playlist.uuid.clone();
+                    let uuid = playlist.uuid;
                     let name = playlist.title.clone();
                     library.playlists.items.push(PlaylistFolderItem::List(playlist));
 

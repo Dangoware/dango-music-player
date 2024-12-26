@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 // Various std things
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::fmt::Display;
 use std::io::Read;
 use std::ops::ControlFlow::{Break, Continue};
 use std::vec::IntoIter;
@@ -65,9 +66,10 @@ pub enum Tag {
     Field(String),
 }
 
-impl ToString for Tag {
-    fn to_string(&self) -> String {
-        match self {
+
+impl Display for Tag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let path_str: String = match self {
             Self::Title => "TrackTitle".into(),
             Self::Album => "AlbumTitle".into(),
             Self::Artist => "TrackArtist".into(),
@@ -78,7 +80,9 @@ impl ToString for Tag {
             Self::Disk => "DiscNumber".into(),
             Self::Key(key) => key.into(),
             Self::Field(f) => f.into(),
-        }
+        };
+
+        write!(f, "{}", path_str)
     }
 }
 
@@ -98,9 +102,9 @@ pub enum Field {
     DateModified(DateTime<Utc>),
 }
 
-impl ToString for Field {
-    fn to_string(&self) -> String {
-        match self {
+impl Display for Field {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let path_str = match self {
             Self::Location(location) => location.to_string(),
             Self::Plays(plays) => plays.to_string(),
             Self::Skips(skips) => skips.to_string(),
@@ -112,7 +116,9 @@ impl ToString for Field {
             Self::LastPlayed(last) => last.to_rfc2822(),
             Self::DateAdded(added) => added.to_rfc2822(),
             Self::DateModified(modified) => modified.to_rfc2822(),
-        }
+        };
+
+        write!(f, "{}", path_str)
     }
 }
 
@@ -205,7 +211,7 @@ impl Song {
             "rating" => self.rating.map(Field::Rating),
             "duration" => Some(Field::Duration(self.duration)),
             "play_time" => Some(Field::PlayTime(self.play_time)),
-            "format" => self.format.clone().map(|m| Field::Format(m)),
+            "format" => self.format.clone().map(Field::Format),
             _ => todo!(), // Other field types are not yet supported
         }
     }
@@ -220,7 +226,7 @@ impl Song {
         self.tags.remove(target_key);
     }
 
-    /// Creates a `Song` from a music file
+    /// Creates a [`Song`] from a music file
     pub fn from_file<P: ?Sized + AsRef<Path>>(target_file: &P) -> Result<Self, Box<dyn Error>> {
         let normal_options = lofty::config::ParseOptions::new().parsing_mode(lofty::config::ParsingMode::Relaxed);
 
@@ -320,7 +326,7 @@ impl Song {
         Ok(new_song)
     }
 
-    /// creates a `Vec<Song>` from a cue file
+    /// creates a [`Vec<Song>`] from a cue file
     pub fn from_cue(cuesheet: &Path) -> Result<Vec<(Self, PathBuf)>, Box<dyn Error>> {
         let mut tracks = Vec::new();
 
@@ -386,18 +392,14 @@ impl Song {
 
                 // Get some useful tags
                 let mut tags: BTreeMap<Tag, String> = BTreeMap::new();
-                match album_title {
-                    Some(title) => {
-                        tags.insert(Tag::Album, title.clone());
-                    }
-                    None => (),
+                if let Some(title) = album_title {
+                    tags.insert(Tag::Album, title.clone());
                 }
-                match album_artist {
-                    Some(artist) => {
-                        tags.insert(Tag::Artist, artist.clone());
-                    }
-                    None => (),
+
+                if let Some(artist) = album_artist {
+                    tags.insert(Tag::Artist, artist.clone());
                 }
+
                 tags.insert(Tag::Track, track.no.parse().unwrap_or((i + 1).to_string()));
                 match track.title.clone() {
                     Some(title) => tags.insert(Tag::Title, title),
@@ -573,14 +575,15 @@ impl URI {
     }
 }
 
-impl ToString for URI {
-    fn to_string(&self) -> String {
+impl Display for URI {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let path_str = match self {
             URI::Local(location) => location.as_path().to_string_lossy(),
             URI::Cue { location, .. } => location.as_path().to_string_lossy(),
             URI::Remote(_, location) => location.into(),
         };
-        path_str.to_string()
+
+        write!(f, "{}", path_str)
     }
 }
 
@@ -629,7 +632,7 @@ impl Album {
     fn tracks(&self) -> Vec<(u16, Uuid)> {
         let mut songs = Vec::new();
         for disc in self.discs.values() {
-            songs.extend_from_slice(&disc)
+            songs.extend_from_slice(disc)
         }
         songs
     }

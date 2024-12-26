@@ -46,7 +46,7 @@ impl PlaylistFolder {
             match item {
                 PlaylistFolderItem::Folder(folder) => return folder.query_uuid(uuid),
                 PlaylistFolderItem::List(ref playlist) => if &playlist.uuid == uuid {
-                    return Some(&playlist);
+                    return Some(playlist);
                 }
             }
         }
@@ -368,7 +368,7 @@ impl ExternalPlaylist {
         }).collect_vec();
 
         Self {
-            uuid: playlist.uuid.clone(),
+            uuid: playlist.uuid,
             title: playlist.title.clone(),
             tracks,
             sort_order: playlist.sort_order.clone(),
@@ -381,7 +381,7 @@ impl ExternalPlaylist {
         let mut i = 0;
         if self.contains(uuid) {
             for track in &self.tracks {
-                if &uuid == &track.uuid {
+                if uuid == track.uuid {
                     return Some(i);
                 }
                 i += 1;
