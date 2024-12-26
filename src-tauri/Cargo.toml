@@ -28,12 +28,12 @@ futures = "0.3.31"
 crossbeam = "0.8.4"
 directories = "5.0.1"
 uuid = { version = "1.11.0", features = ["v4", "serde"] }
-ciborium = "0.2.2"
 mime = "0.3.17"
 file-format = "0.26.0"
 chrono = { version =  "0.4.38", features = ["serde"] }
 itertools = "0.13.0"
 rfd = "0.15.1"
+colog = "1.3.0"
 
 [features]
 default = [ "custom-protocol" ]

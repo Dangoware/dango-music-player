@@ -1,5 +1,7 @@
 use file_format::FileFormat;
-use lofty::{AudioFile, LoftyError, ParseOptions, Probe, TagType, TaggedFileExt};
+use lofty::file::{AudioFile as _, TaggedFileExt as _};
+use lofty::probe::Probe;
+use lofty::tag::TagType;
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 use std::collections::{BTreeMap, HashMap};
@@ -221,7 +223,7 @@ fn to_tag(string: String) -> Tag {
         _ => Tag::Key(string),
     }
 }
-fn get_duration(file: &Path) -> Result<StdDur, lofty::LoftyError> {
+fn get_duration(file: &Path) -> Result<StdDur, lofty::error::LoftyError> {
     let dur = match Probe::open(file)?.read() {
         Ok(tagged_file) => tagged_file.properties().duration(),
 
@@ -229,12 +231,12 @@ fn get_duration(file: &Path) -> Result<StdDur, lofty::LoftyError> {
     };
     Ok(dur)
 }
-fn get_art(file: &Path) -> Result<Vec<AlbumArt>, LoftyError> {
+fn get_art(file: &Path) -> Result<Vec<AlbumArt>, lofty::error::LoftyError> {
     let mut album_art: Vec<AlbumArt> = Vec::new();
 
-    let blank_tag = &lofty::Tag::new(TagType::Id3v2);
-    let normal_options = ParseOptions::new().parsing_mode(lofty::ParsingMode::Relaxed);
-    let tagged_file: lofty::TaggedFile;
+    let blank_tag = &lofty::tag::Tag::new(TagType::Id3v2);
+    let normal_options = lofty::config::ParseOptions::new().parsing_mode(lofty::config::ParsingMode::Relaxed);
+    let tagged_file: lofty::file::TaggedFile;
 
     let tag = match Probe::open(file)?.options(normal_options).read() {
         Ok(e) => {
@@ -288,7 +290,7 @@ impl ITunesSong {
         Default::default()
     }
 
-    fn from_hashmap(map: &mut HashMap<String, String>) -> Result<ITunesSong, LoftyError> {
+    fn from_hashmap(map: &mut HashMap<String, String>) -> Result<ITunesSong, lofty::error::LoftyError> {
         let mut song = ITunesSong::new();
         //get the path with the first bit chopped off
         let path_: String = map.get_key_value("Location").unwrap().1.clone();
@@ -339,10 +341,7 @@ impl ITunesSong {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        path::{Path, PathBuf},
-        sync::{Arc, RwLock},
-    };
+    use std::path::{Path, PathBuf};
 
     use crate::{
         config::{Config, ConfigLibrary},

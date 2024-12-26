@@ -1,7 +1,7 @@
 use std::{
     fs::{self, File, OpenOptions},
     io::{Error, Read, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 use serde::{Deserialize, Serialize};
@@ -189,9 +189,7 @@ pub enum ConfigError {
 pub mod tests {
     use super::{Config, ConfigLibrary};
     use crate::music_storage::library::MusicLibrary;
-    use std::{
-        path::PathBuf,
-    };
+    use std::path::PathBuf;
 
     pub fn new_config_lib() -> (Config, MusicLibrary) {
         _ = std::fs::create_dir_all("test-config/music/");

@@ -14,9 +14,4 @@ pub mod music_controller {
     pub mod queue;
 }
 
-pub mod music_player {
-    pub mod gstreamer;
-    pub mod player;
-}
-
 pub mod config;

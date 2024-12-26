@@ -3,37 +3,35 @@
 //! other functions
 #![allow(while_true)]
 
-use itertools::Itertools;
 use kushi::{Queue, QueueItemType};
 use kushi::{QueueError, QueueItem};
+use prismriver::{Prismriver, Volume};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
 use std::error::Error;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::config::{self, ConfigError};
-use crate::music_player::player::{Player, PlayerError};
+use crate::config::ConfigError;
 use crate::music_storage::library::Song;
 use crate::music_storage::playlist::{ExternalPlaylist, Playlist, PlaylistFolderItem};
 use crate::{config::Config, music_storage::library::MusicLibrary};
 
 use super::queue::{QueueAlbum, QueueSong};
 
-pub struct Controller<'a, P>(&'a PhantomData<P>);
+pub struct Controller();
 
 #[derive(Error, Debug)]
 pub enum ControllerError {
     #[error("{0:?}")]
     QueueError(#[from] QueueError),
     #[error("{0:?}")]
-    PlayerError(#[from] PlayerError),
+    PlayerError(#[from] prismriver::Error),
     #[error("{0:?}")]
     ConfigError(#[from] ConfigError),
 }
@@ -213,7 +211,7 @@ impl ControllerState {
 }
 
 #[allow(unused_variables)]
-impl<'c, P: Player + Send + Sync> Controller<'c, P> {
+impl Controller {
     pub async fn start(
         ControllerInput {
             player_mail,
@@ -222,10 +220,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
             mut library,
             config
         }: ControllerInput
-    ) -> Result<(), Box<dyn Error>>
-    where
-        P: Player,
-    {
+    ) -> Result<(), Box<dyn Error>> {
         let queue: Queue<QueueSong, QueueAlbum> = Queue {
             items: Vec::new(),
             played: Vec::new(),
@@ -250,13 +245,13 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                 futures::executor::block_on(async {
                     moro::async_scope!(|scope| {
                         println!("async scope created");
-                        let player = Arc::new(RwLock::new(P::new().unwrap()));
+                        let player = Arc::new(RwLock::new(Prismriver::new()));
 
                         let _player = player.clone();
                         let _lib_mail = lib_mail.0.clone();
                         scope
                             .spawn(async move {
-                                Controller::<P>::player_command_loop(
+                                Controller::player_command_loop(
                                     _player,
                                     player_mail.1,
                                     queue_mail.0,
@@ -268,7 +263,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                             });
                         scope
                             .spawn(async move {
-                                Controller::<P>::player_event_loop(
+                                Controller::player_event_loop(
                                     player,
                                     player_mail.0
                                 )
@@ -277,7 +272,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                             });
                         scope
                             .spawn(async {
-                                Controller::<P>::library_loop(
+                                Controller::library_loop(
                                     lib_mail.1,
                                     &mut library,
                                     config,
@@ -292,7 +287,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
 
             let b = scope.spawn(|| {
                 futures::executor::block_on(async {
-                    Controller::<P>::queue_loop(queue, queue_mail.1).await;
+                    Controller::queue_loop(queue, queue_mail.1).await;
                 })
             });
             a.join().unwrap();
@@ -303,7 +298,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
     }
 
     async fn player_command_loop(
-        player: Arc<RwLock<P>>,
+        player: Arc<RwLock<Prismriver>>,
         player_mail: MailMan<PlayerResponse, PlayerCommand>,
         queue_mail: MailMan<QueueCommand, QueueResponse>,
         lib_mail: MailMan<LibraryCommand, LibraryResponse>,
@@ -311,9 +306,8 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
     ) -> Result<(), ()> {
         let mut first = true;
         {
-            let volume = state.volume as f64;
-            player.write().unwrap().set_volume(volume);
-            println!("volume set to {volume}");
+            player.write().unwrap().set_volume(Volume::new(state.volume));
+            println!("volume set to {}", state.volume);
         }
         while true {
             let _mail = player_mail.recv().await;
@@ -324,20 +318,24 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                             queue_mail.send(QueueCommand::NowPlaying).await.unwrap();
                             let QueueResponse::Item(item) = queue_mail.recv().await.unwrap() else { unimplemented!() };
                             let QueueItemType::Single(song) = item.item else { unimplemented!("This is temporary, handle queueItemTypes at some point") };
-                            player.write().unwrap().enqueue_next(song.song.primary_uri().unwrap().0).unwrap();
+
+                            let prism_uri = prismriver::utils::path_to_uri(&song.song.primary_uri().unwrap().0.as_path().unwrap()).unwrap();
+                            player.write().unwrap().load_new(&prism_uri).unwrap();
+                            player.write().unwrap().play();
+
                             player_mail.send(PlayerResponse::NowPlaying(song.song)).await.unwrap();
                             first = false
                         } else {
-                            player.write().unwrap().play().unwrap();
+                            player.write().unwrap().play();
                             player_mail.send(PlayerResponse::Empty).await.unwrap();
                         }
                     }
                     PlayerCommand::Pause => {
-                        player.write().unwrap().pause().unwrap();
+                        player.write().unwrap().pause();
                         player_mail.send(PlayerResponse::Empty).await.unwrap();
                     }
                     PlayerCommand::SetVolume(volume) => {
-                        player.write().unwrap().set_volume(volume as f64);
+                        player.write().unwrap().set_volume(Volume::new(volume));
                         println!("volume set to {volume}");
                         player_mail.send(PlayerResponse::Empty).await.unwrap();
 
@@ -352,7 +350,11 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                                 QueueItemType::Single(song) => song.song.primary_uri().unwrap().0,
                                 _ => unimplemented!(),
                             };
-                            player.write().unwrap().enqueue_next(uri).unwrap();
+
+                            let prism_uri = prismriver::utils::path_to_uri(&uri.as_path().unwrap()).unwrap();
+                            player.write().unwrap().load_new(&prism_uri).unwrap();
+                            player.write().unwrap().play();
+
                             let QueueItemType::Single(np_song) = item.item else { panic!("This is temporary, handle queueItemTypes at some point")};
 
                             // Append next song in library
@@ -398,6 +400,11 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                                 QueueItemType::Single(song) => song.song.primary_uri().unwrap().0,
                                 _ => unimplemented!(),
                             };
+
+                            let prism_uri = prismriver::utils::path_to_uri(&uri.as_path().unwrap()).unwrap();
+                            player.write().unwrap().load_new(&prism_uri).unwrap();
+                            player.write().unwrap().play();
+
                             let QueueItemType::Single(np_song) = item.item else { panic!("This is temporary, handle queueItemTypes at some point")};
                             player_mail.send(PlayerResponse::NowPlaying(np_song.song.clone())).await.unwrap();
                         }
@@ -410,11 +417,9 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                         if let QueueResponse::Item(item) = queue_mail.recv().await.unwrap() {
                             match item.item {
                                 QueueItemType::Single(song) => {
-                                    player
-                                        .write()
-                                        .unwrap()
-                                        .enqueue_next(song.song.primary_uri().unwrap().0)
-                                        .unwrap();
+                                    let prism_uri = prismriver::utils::path_to_uri(&song.song.primary_uri().unwrap().0.as_path().unwrap()).unwrap();
+                                    player.write().unwrap().load_new(&prism_uri).unwrap();
+                                    player.write().unwrap().play();
                                 }
                                 _ => unimplemented!(),
                             }
@@ -436,7 +441,10 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                             unreachable!()
                         };
 
-                        player.write().unwrap().enqueue_next(song.primary_uri().unwrap().0).unwrap();
+                        // TODO: Handle non Local URIs here, and whenever `load_new()` or `load_gapless()` is called
+                        let prism_uri = prismriver::utils::path_to_uri(&song.primary_uri().unwrap().0.as_path().unwrap()).unwrap();
+                        player.write().unwrap().load_new(&prism_uri).unwrap();
+                        player.write().unwrap().play();
 
                         // how grab all the songs in a certain subset of the library, I reckon?
                         // ...
@@ -486,7 +494,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
 
     async fn library_loop(
         lib_mail: MailMan<LibraryResponse, LibraryCommand>,
-        library: &'c mut MusicLibrary,
+        library: &mut MusicLibrary,
         config: Arc<RwLock<Config>>,
     ) -> Result<(), ()> {
         while true {
@@ -511,7 +519,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
                     lib_mail.send(LibraryResponse::ImportM3UPlayList(uuid, name)).await.unwrap();
                 }
                 LibraryCommand::Save => {
-                    library.save({config.read().unwrap().libraries.get_library(&library.uuid).unwrap().path.clone()}).unwrap();
+                    library.save(config.read().unwrap().libraries.get_library(&library.uuid).unwrap().path.clone()).unwrap();
                     lib_mail.send(LibraryResponse::Ok).await.unwrap();
                 }
                 LibraryCommand::Playlists => {
@@ -527,7 +535,7 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
     }
 
     async fn player_event_loop(
-        player: Arc<RwLock<P>>,
+        player: Arc<RwLock<Prismriver>>,
         player_mail: MailMan<PlayerCommand, PlayerResponse>,
     ) -> Result<(), ()> {
         // just pretend this does something
@@ -586,82 +594,3 @@ impl<'c, P: Player + Send + Sync> Controller<'c, P> {
         }
     }
 }
-
-#[cfg(test)]
-mod test_super {
-    use std::{
-        path::PathBuf,
-        sync::{Arc, RwLock},
-        thread::spawn,
-    };
-
-    use crate::{
-        config::{tests::new_config_lib, Config},
-        music_controller::controller::{
-            LibraryCommand, LibraryResponse, MailMan, PlayerCommand, PlayerResponse, ControllerHandle
-        },
-        music_player::gstreamer::GStreamer,
-        music_storage::library::MusicLibrary,
-    };
-
-    use super::Controller;
-
-    #[tokio::test]
-    async fn construct_controller() {
-        // use if you don't have a config setup and add music to the music folder
-        new_config_lib();
-
-        let config = Config::read_file(PathBuf::from(std::env!("CONFIG-PATH"))).unwrap();
-        let library = {
-            MusicLibrary::init(
-                config.libraries.get_default().unwrap().path.clone(),
-                config.libraries.get_default().unwrap().uuid,
-            )
-            .unwrap()
-        };
-
-        let (handle, input) = ControllerHandle::new(library, Arc::new(RwLock::new(config)));
-
-        let b = spawn(move || {
-            futures::executor::block_on(async {
-                handle.player_mail
-                    .send(PlayerCommand::SetVolume(0.01))
-                    .await
-                    .unwrap();
-                loop {
-                    let buf: String = text_io::read!();
-                    dbg!(&buf);
-                    handle.player_mail
-                        .send(match buf.to_lowercase().as_str() {
-                            "next" => PlayerCommand::NextSong,
-                            "prev" => PlayerCommand::PrevSong,
-                            "pause" => PlayerCommand::Pause,
-                            "play" => PlayerCommand::Play,
-                            x if x.parse::<usize>().is_ok() => {
-                                PlayerCommand::Enqueue(x.parse::<usize>().unwrap())
-                            }
-                            _ => continue,
-                        })
-                        .await
-                        .unwrap();
-                    println!("sent it");
-                    println!("{:?}", handle.player_mail.recv().await.unwrap())
-                }
-            })
-        });
-
-        let a = spawn(move || {
-            futures::executor::block_on(async {
-
-
-                Controller::<GStreamer>::start(input)
-                .await
-                .unwrap();
-            });
-        });
-
-        b.join().unwrap();
-        a.join().unwrap();
-    }
-}
-

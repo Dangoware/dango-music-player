@@ -1,12 +1,11 @@
 use super::playlist::{Playlist, PlaylistFolder};
 // Crate things
 use super::utils::{find_images, normalize, read_file, write_file};
-use crate::config::Config;
 use crate::music_storage::playlist::PlaylistFolderItem;
 
 use std::cmp::Ordering;
 // Various std things
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::io::Read;
 use std::ops::ControlFlow::{Break, Continue};
@@ -14,9 +13,10 @@ use std::vec::IntoIter;
 
 // Files
 use file_format::{FileFormat, Kind};
-use glib::filename_to_uri;
 
-use lofty::{AudioFile, ItemKey, ItemValue, ParseOptions, Probe, TagType, TaggedFileExt};
+use lofty::file::{AudioFile as _, TaggedFileExt as _};
+use lofty::probe::Probe;
+use lofty::tag::{ItemKey, ItemValue, TagType};
 use rcue::parser::parse_from_file;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -28,12 +28,11 @@ use chrono::{serde::ts_milliseconds_option, DateTime, Utc};
 use std::time::Duration;
 
 // Serialization/Compression
-use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 
 // Fun parallel stuff
 use rayon::prelude::*;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub enum AlbumArt {
@@ -225,10 +224,10 @@ impl Song {
 
     /// Creates a `Song` from a music file
     pub fn from_file<P: ?Sized + AsRef<Path>>(target_file: &P) -> Result<Self, Box<dyn Error>> {
-        let normal_options = ParseOptions::new().parsing_mode(lofty::ParsingMode::Relaxed);
+        let normal_options = lofty::config::ParseOptions::new().parsing_mode(lofty::config::ParsingMode::Relaxed);
 
-        let blank_tag = &lofty::Tag::new(TagType::Id3v2);
-        let tagged_file: lofty::TaggedFile;
+        let blank_tag = &lofty::tag::Tag::new(TagType::Id3v2);
+        let tagged_file: lofty::file::TaggedFile;
         let mut duration = Duration::from_secs(0);
         let tag = match Probe::open(target_file)?.options(normal_options).read() {
             Ok(file) => {
@@ -273,7 +272,7 @@ impl Song {
             let value = match item.value() {
                 ItemValue::Text(value) => value.clone(),
                 ItemValue::Locator(value) => value.clone(),
-                ItemValue::Binary(bin) => format!("BIN#{}", general_purpose::STANDARD.encode(bin)),
+                ItemValue::Binary(_) => continue, // TODO: Ignoring binary values for now
             };
 
             tags.insert(key, value);
@@ -548,10 +547,10 @@ impl URI {
 
     pub fn as_uri(&self) -> String {
         let path_str = match self {
-            URI::Local(location) => filename_to_uri(location, None)
+            URI::Local(location) => prismriver::utils::path_to_uri(location)
                 .expect("couldn't convert path to URI")
                 .to_string(),
-            URI::Cue { location, .. } => filename_to_uri(location, None)
+            URI::Cue { location, .. } => prismriver::utils::path_to_uri(location)
                 .expect("couldn't convert path to URI")
                 .to_string(),
             URI::Remote(_, location) => location.clone(),

@@ -3,5 +3,7 @@
 
 
 fn main() {
+    colog::init();
+
     dango_music_player_lib::run()
 }

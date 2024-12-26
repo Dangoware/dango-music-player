@@ -2,8 +2,8 @@ use std::{fs, path::PathBuf, str::FromStr, thread::spawn};
 
 use commands::{add_song_to_queue, play_now};
 use crossbeam::channel::{unbounded, Receiver, Sender};
-use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle, LibraryResponse}, music_player::gstreamer::GStreamer, music_storage::library::{AlbumArt, MusicLibrary}};
-use tauri::{http::Response, Emitter, Manager, State, Url, WebviewWindowBuilder, Wry};
+use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle, LibraryResponse}, music_storage::library::MusicLibrary};
+use tauri::{http::Response, Emitter, Manager, State, WebviewWindowBuilder, Wry};
 use uuid::Uuid;
 
 use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next, get_queue, import_playlist, get_playlist, get_playlists};
@@ -55,7 +55,7 @@ pub fn run() {
 
         handle_rx.send(handle).unwrap();
 
-        let _controller = futures::executor::block_on(Controller::<GStreamer>::start(input)).unwrap();
+        let _controller = futures::executor::block_on(Controller::start(input)).unwrap();
     });
     let app = tauri::Builder::default()
     .plugin(tauri_plugin_shell::init())
