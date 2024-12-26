@@ -21,7 +21,7 @@ impl Default for ConfigLibrary {
     fn default() -> Self {
         ConfigLibrary {
             name: String::new(),
-            path: PathBuf::from("library"),
+            path: PathBuf::default(),
             uuid: Uuid::new_v4(),
             scan_folders: None,
         }
