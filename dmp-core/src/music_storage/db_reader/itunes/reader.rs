@@ -188,7 +188,7 @@ impl ExternalLibrary for ITunesLibrary {
                 },
                 rating: track.rating,
                 format: match FileFormat::from_file(PathBuf::from(&loc)) {
-                    Ok(e) => Some(e),
+                    Ok(e) => Some(e.media_type().to_string()),
                     Err(_) => None,
                 },
                 duration: dur,

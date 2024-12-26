@@ -90,7 +90,7 @@ pub enum Field {
     Skips(i32),
     Favorited(bool),
     Rating(u8),
-    Format(FileFormat),
+    Format(String),
     Duration(Duration),
     PlayTime(Duration),
     LastPlayed(DateTime<Utc>),
@@ -106,10 +106,7 @@ impl ToString for Field {
             Self::Skips(skips) => skips.to_string(),
             Self::Favorited(fav) => fav.to_string(),
             Self::Rating(rating) => rating.to_string(),
-            Self::Format(format) => match format.short_name() {
-                Some(name) => name.to_string(),
-                None => format.to_string(),
-            },
+            Self::Format(format) => format.clone(),
             Self::Duration(duration) => duration.as_millis().to_string(),
             Self::PlayTime(time) => time.as_millis().to_string(),
             Self::LastPlayed(last) => last.to_rfc2822(),
@@ -167,7 +164,8 @@ pub struct Song {
     pub favorited: bool,
     pub banned: Option<BannedType>,
     pub rating: Option<u8>,
-    pub format: Option<FileFormat>,
+    /// MIME type
+    pub format: Option<String>,
     pub duration: Duration,
     pub play_time: Duration,
     #[serde(with = "ts_milliseconds_option")]
@@ -207,7 +205,7 @@ impl Song {
             "rating" => self.rating.map(Field::Rating),
             "duration" => Some(Field::Duration(self.duration)),
             "play_time" => Some(Field::PlayTime(self.play_time)),
-            "format" => self.format.map(Field::Format),
+            "format" => self.format.clone().map(|m| Field::Format(m)),
             _ => todo!(), // Other field types are not yet supported
         }
     }
@@ -309,7 +307,7 @@ impl Song {
             favorited: false,
             banned: None,
             rating: None,
-            format,
+            format: format.map(|f| f.media_type().to_string()),
             duration,
             play_time: Duration::from_secs(0),
             last_played: None,
@@ -432,7 +430,7 @@ impl Song {
                     favorited: false,
                     banned: None,
                     rating: None,
-                    format,
+                    format: format.map(|f| f.media_type().to_string()),
                     duration,
                     play_time: Duration::from_secs(0),
                     last_played: None,

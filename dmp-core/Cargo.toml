@@ -13,15 +13,7 @@ categories = []
 
 [dependencies]
 kushi = { path = "../kushi-queue" }
-file-format = { version = "0.23.0", features = [
-    "reader-asf",
-    "reader-ebml",
-    "reader-mp4",
-    "reader-rm",
-    "reader-txt",
-    "reader-xml",
-    "serde",
-] }
+file-format = { version = "0.26", features = ["reader"] }
 lofty = "0.21"
 serde = { version = "1.0.195", features = ["derive"] }
 walkdir = "2.4.0"
@@ -39,16 +31,10 @@ thiserror = "1.0.56"
 uuid = { version = "1.6.1", features = ["v4", "serde"] }
 serde_json = "1.0.111"
 deunicode = "1.4.2"
-opener = { version = "0.7.0", features = ["reveal"] }
-tempfile = "3.10.1"
 nestify = "0.3.3"
 moro = "0.4.0"
-moro-local = "0.4.0"
 futures = "0.3.30"
-text_io = "0.1.12"
-tokio = { version = "1.40.0", features = ["macros", "rt"] }
 async-channel = "2.3.1"
 ciborium = "0.2.2"
 itertools = "0.13.0"
-directories = "5.0.1"
 prismriver = { git = "https://github.com/Dangoware/prismriver.git" }

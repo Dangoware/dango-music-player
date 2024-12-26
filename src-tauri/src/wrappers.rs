@@ -2,14 +2,12 @@ use std::{collections::BTreeMap, path::PathBuf};
 
 use chrono::{DateTime, Utc, serde::ts_milliseconds_option};
 use crossbeam::channel::Sender;
-use dmp_core::{music_controller::controller::{ControllerHandle, LibraryCommand, LibraryResponse, PlayerResponse, QueueCommand, QueueResponse}, music_storage::library::{BannedType, Song, Tag, URI}};
+use dmp_core::{music_controller::controller::{ControllerHandle, LibraryCommand, LibraryResponse, PlayerResponse, QueueCommand, QueueResponse}, music_storage::library::{Song, Tag, URI}};
 use itertools::Itertools;
 use kushi::QueueItemType;
 use serde::Serialize;
-use tauri::{ipc::Response, AppHandle, Emitter, State, Wry};
+use tauri::{AppHandle, Emitter, State, Wry};
 use uuid::Uuid;
-
-use crate::commands;
 
 pub struct ArtworkRx(pub Sender<Vec<u8>>);
 
@@ -120,7 +118,7 @@ impl From<&Song> for _Song {
             uuid: value.uuid.clone(),
             plays: value.plays.clone(),
             duration: value.duration.as_secs().to_string(),
-            format: value.format.map(|format| format.to_string()),
+            format: value.format.clone().map(|format| format.to_string()),
             last_played: value.last_played,
             date_added: value.date_added,
             date_modified: value.date_modified,
