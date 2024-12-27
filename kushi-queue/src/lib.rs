@@ -196,7 +196,7 @@ impl<
 
         let empty = self.items.is_empty();
         if !empty {
-            self.items.get_mut(i).expect("There should be an item at index {i}").state == QueueState::NoState;
+            self.items.get_mut(i).expect("There should be an item at index {i}").state = QueueState::NoState;
         }
 
         let len = items.len();

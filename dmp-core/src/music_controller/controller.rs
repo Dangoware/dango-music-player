@@ -312,21 +312,8 @@ impl Controller {
             if let Ok(mail) = _mail {
                 match mail {
                     PlayerCommand::Play => {
-                        if first {
-                            queue_mail.send(QueueCommand::NowPlaying).await.unwrap();
-                            let QueueResponse::Item(item) = queue_mail.recv().await.unwrap() else { unimplemented!() };
-                            let QueueItemType::Single(song) = item.item else { unimplemented!("This is temporary, handle queueItemTypes at some point") };
-
-                            let prism_uri = prismriver::utils::path_to_uri(&song.song.primary_uri().unwrap().0.as_path().unwrap()).unwrap();
-                            player.write().unwrap().load_new(&prism_uri).unwrap();
-                            player.write().unwrap().play();
-
-                            player_mail.send(PlayerResponse::NowPlaying(song.song)).await.unwrap();
-                            first = false
-                        } else {
-                            player.write().unwrap().play();
-                            player_mail.send(PlayerResponse::Empty).await.unwrap();
-                        }
+                        player.write().unwrap().play();
+                        player_mail.send(PlayerResponse::Empty).await.unwrap();
                     }
                     PlayerCommand::Pause => {
                         player.write().unwrap().pause();
@@ -350,6 +337,7 @@ impl Controller {
                             };
 
                             let prism_uri = prismriver::utils::path_to_uri(&uri.as_path().unwrap()).unwrap();
+                            println!("Playing song at path: {:?}", prism_uri);
                             player.write().unwrap().load_new(&prism_uri).unwrap();
                             player.write().unwrap().play();
 

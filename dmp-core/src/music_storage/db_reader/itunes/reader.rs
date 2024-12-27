@@ -351,6 +351,7 @@ mod tests {
             PathBuf::from("test-config/library2"),
             String::from("library2"),
             None,
+            None
         );
         config.libraries.libraries.push(config_lib.clone());
 

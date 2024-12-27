@@ -2,7 +2,7 @@ use ciborium::{from_reader, into_writer};
 use deunicode::deunicode_with_tofu;
 use file_format::{FileFormat, Kind};
 use std::error::Error;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -53,7 +53,7 @@ pub(super) fn read_file<T: for<'de> serde::Deserialize<'de>>(
     path: PathBuf,
 ) -> Result<T, Box<dyn Error>> {
     // Create a new snap reader over the file
-    let file_reader = BufReader::new(File::open(path)?);
+    let file_reader = BufReader::new(OpenOptions::new().read(true).open(path)?);
     //let mut d = snap::read::FrameDecoder::new(file_reader);
 
     // Decode the library from the serialized data into the vec

@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import "./App.css";
 import { Config } from "./types";
-import { EventEmitter } from "@tauri-apps/plugin-shell";
-import { listen } from "@tauri-apps/api/event";
+// import { EventEmitter } from "@tauri-apps/plugin-shell";
+// import { listen } from "@tauri-apps/api/event";
 // import { fetch } from "@tauri-apps/plugin-http";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
@@ -26,7 +26,7 @@ function App() {
   );
 
   useEffect(() => {
-    const unlisten = appWindow.listen<any>("now_playing_change", ({ event, payload }) => {
+    const unlisten = appWindow.listen<any>("now_playing_change", ({ payload, }) => {
         // console.log(event);
         setNowPlaying(
           <NowPlaying
@@ -80,7 +80,7 @@ function App() {
       </div>
       <div className="rightSide">
         { nowPlaying }
-        <Queue songs={ queue } setSongs={ setQueue } />
+        <Queue songs={ queue } />
       </div>
 
     </main>
@@ -201,8 +201,6 @@ function MainView({ lib_ref, viewName }: MainViewProps) {
   useEffect(() => {
     const unlisten = appWindow.listen<any>("library_loaded", (_) => {
       console.log("library_loaded");
-      invoke('get_playlists').then(() => {})
-
       invoke('get_library').then((lib) => {
         setLibrary([...(lib as any[]).map((song) => {
 
@@ -219,6 +217,8 @@ function MainView({ lib_ref, viewName }: MainViewProps) {
           )
         })])
       })
+
+      invoke('get_playlists').then(() => {})
     })
     return () => { unlisten.then((f) => f()) }
   }, []);
@@ -313,9 +313,8 @@ function NowPlaying({ title, artist, album, artwork }: NowPlayingProps) {
 
 interface QueueProps {
   songs: JSX.Element[],
-  setSongs: React.Dispatch<React.SetStateAction<JSX.Element[]>>
 }
-function Queue({ songs, setSongs }: QueueProps) {
+function Queue({ songs }: QueueProps) {
   return (
     <section className="Queue">
       { songs }
