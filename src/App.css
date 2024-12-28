@@ -1,6 +1,11 @@
+* {
+  padding: 0;
+  margin: 0;
+}
+
 .container {
   position: absolute;
-  top: -1px;
+  top: 0px;
   left: 0;
   height: 100%;
   width: 100%;
@@ -11,32 +16,64 @@
 }
 
 .leftSide {
-  width: 80%;
+  flex-shrink: 2;
   height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-.rightSide {
-  position: relative;
-  align-self:flex-end;
-  width: 20%;
-  height: 100%;
-  background-color: #c1bcd1;
   display: flex;
   flex-direction: column;
 }
 
+.rightSide {
+  display: flex;
+  flex-grow: 2;
+  flex-direction: column;
+  position: relative;
+  box-sizing: border-box;
+
+  align-self: flex-end;
+  height: 100%;
+  background-color: #c1bcd1;
+
+  /* Change to resize width */
+  min-width: 380px;
+  width: 380px;
+}
+
 .playlistHead {
   position: relative;
-  height: 3.5%;
+  height: 40px;
   width: 100%;
   background-color: #876765;
 }
 
 .mainView {
   background-color: #f5eab2;
-  height: 91.5%;
+  height: 100%;
   overflow-y: scroll;
+}
+
+.mainView > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.song {
+  display: grid;
+  cursor: default;
+
+  /* This needs to be adjusted when adding or removing columns */
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 30px;
+
+  /* For tags */
+  p {
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+}
+
+.song:hover {
+  background-color: grey;
 }
 
 #playBar {
@@ -53,24 +90,37 @@
   display: flex;
   justify-content: space-around;
 }
+
 #seekBar {
   width: 100%;
 }
 
 .nowPlaying {
-  text-align: center;
-  height: 25%;
-}
-#nowPlayingArtwork {
-  width: 90%;
-  padding: 5%;
+  font-size: 14pt;
+  width: 100%;
+  padding: 10px;
+  box-sizing: border-box;
+  margin-bottom: 5px;
+
+  p, h3 {
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  img {
+    aspect-ratio: 1;
+    object-fit: contain;
+    width: 100%;
+    padding: 5%;
+    display: block;
+    box-sizing: border-box;
+  }
 }
 
 .Queue {
   position: relative;
-  bottom: -25%;
   background-color: burlywood;
-  height: 50%;
   display: flex;
   flex-direction: column;
   overflow-y: scroll;
@@ -83,23 +133,32 @@
 }
 
 .queueSong {
-  height: 15%;
-  width: 90%;
+  height: 100px;
+  width: 100%;
   display: flex;
 }
 
 .queueSongCoverArt {
-  width: 25%;
-  height: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  max-width: 75px;
+  padding: 5px;
+  box-sizing: border-box;
 }
 
 .queueSongTags {
   display: flex;
   flex-direction: column;
-}
+  margin: 0;
+  margin-left: 5px;
+  font-size: 14pt;
+  padding: 5px 0;
 
-.song {
-  display: flex;
-  justify-content: left;
-  gap: 1%;
+  p:first-child {
+    font-weight: bold;
+  }
+
+  p {
+    margin: 0;
+  }
 }

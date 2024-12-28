@@ -37,7 +37,7 @@ pub async fn pause(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>
 
 #[tauri::command]
 pub async fn set_volume(ctrl_handle: State<'_, ControllerHandle>, volume: String) -> Result<(), String> {
-    let volume = volume.parse::<f32>().unwrap() / 1000.0;
+    let volume = volume.parse::<f32>().unwrap() / 100.0;
     ctrl_handle.player_mail.send(dmp_core::music_controller::controller::PlayerCommand::SetVolume(volume)).await.unwrap();
     let PlayerResponse::Empty = ctrl_handle.player_mail.recv().await.unwrap() else {
         unreachable!()

@@ -249,18 +249,24 @@ function Song(props: SongProps) {
   // console.log(props.tags);
 
   return(
-    <div className="song">
+    <div onClick={() => {
+      invoke("play_now", { uuid: props.uuid, location: props.playerLocation }).then(() => {})
+    }} className="song">
       <p className="title">{ props.tags.TrackTitle }</p>
-      <p className="album">{ props.tags.Album }</p>
+      <p className="album">{ props.tags.AlbumTitle }</p>
       <p className="artist">{ props.tags.AlbumArtist }</p>
-      <p className="duration">{ props.duration }</p>
-      <button onClick={(_) => {
+      <p className="duration">
+        { Math.round(+props.duration / 60) }:
+        { (+props.duration % 60).toString().padStart(2, "0") }
+      </p>
+
+      {/*<button onClick={(_) => {
         invoke('add_song_to_queue', { uuid: props.uuid, location: props.playerLocation }).then(() => {} )
       }}
       >Add to Queue</button>
       <button onClick={() => {
         invoke("play_now", { uuid: props.uuid, location: props.playerLocation }).then(() => {})
-      }}>Play Now</button>
+      }}>Play Now</button>*/}
     </div>
   )
 }
@@ -304,7 +310,7 @@ function NowPlaying({ title, artist, album, artwork }: NowPlayingProps) {
   return (
     <section className="nowPlaying">
         { artwork }
-      <h2>{ title }</h2>
+      <h3>{ title }</h3>
       <p>{ artist }</p>
       <p>{ album }</p>
     </section>
@@ -334,8 +340,8 @@ function QueueSong({ song }: QueueSongProps) {
       <div className="queueSong">
       <img className="queueSongCoverArt" src={ convertFileSrc('abc') + '?' + song.uuid } key={ 'coverArt_' + song.uuid }/>
       <div className="queueSongTags">
-        <h3 className="queueSongTitle">{ song.tags.TrackTitle }</h3>
-        <h4 className="queueSongArtist">{ song.tags.TrackArtist }</h4>
+        <p className="queueSongTitle">{ song.tags.TrackTitle }</p>
+        <p className="queueSongArtist">{ song.tags.TrackArtist }</p>
       </div>
     </div>
     // </button>
