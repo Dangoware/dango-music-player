@@ -159,9 +159,9 @@ pub struct ControllerInput {
 }
 
 pub struct ControllerHandle {
-    pub lib_mail: MailMan<LibraryCommand, LibraryResponse>,
-    pub player_mail: MailMan<PlayerCommand, PlayerResponse>,
-    pub queue_mail: MailMan<QueueCommand, QueueResponse>,
+    lib_mail: MailMan<LibraryCommand, LibraryResponse>,
+    player_mail: MailMan<PlayerCommand, PlayerResponse>,
+    queue_mail: MailMan<QueueCommand, QueueResponse>,
 }
 
 impl ControllerHandle {
