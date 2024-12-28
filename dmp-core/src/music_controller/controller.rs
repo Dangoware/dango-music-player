@@ -359,7 +359,7 @@ impl Controller {
                             lib_mail.send(LibraryCommand::AllSongs).await.unwrap();
 
                             let LibraryResponse::AllSongs(songs) = lib_mail.recv().await.unwrap() else {
-                                unreachable!()
+                                continue;
                             };
                             lib_mail.send(LibraryCommand::Song(np_song.song.uuid)).await.unwrap();
                             let LibraryResponse::Song(_, i) = lib_mail.recv().await.unwrap() else {

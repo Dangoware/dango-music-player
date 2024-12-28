@@ -92,20 +92,23 @@ pub fn run() {
             .unwrap()
             .to_string();
 
-        let bytes = if query.as_str() == "default" { DEFAULT_IMAGE.to_vec() }
-        else {
-            futures::executor::block_on(async move {
+        let bytes = if query.as_str() == "default" {
+            Some(DEFAULT_IMAGE.to_vec())
+        } else {futures::executor::block_on(async move {
             let controller = ctx.app_handle().state::<ControllerHandle>();
             controller.lib_mail.send(dmp_core::music_controller::controller::LibraryCommand::Song(Uuid::parse_str(query.as_str()).unwrap())).await.unwrap();
-            let LibraryResponse::Song(song, _) = controller.lib_mail.recv().await.unwrap() else { unreachable!() };
-            song.album_art(0).unwrap_or_else(|_| None).unwrap_or(DEFAULT_IMAGE.to_vec())
+            let LibraryResponse::Song(song, _) = controller.lib_mail.recv().await.unwrap() else {
+                return None
+            };
+            Some(song.album_art(0).unwrap_or_else(|_| None).unwrap_or(DEFAULT_IMAGE.to_vec()))
         })};
+
         res.respond(
             Response::builder()
             .header("Origin", "*")
-            .header("Content-Length", bytes.len())
+            .header("Content-Length", bytes.as_ref().unwrap_or(&vec![]).len())
             .status(200)
-            .body(bytes)
+            .body(bytes.unwrap_or_default())
             .unwrap()
         );
     })

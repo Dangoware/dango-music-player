@@ -55,7 +55,7 @@ pub async fn get_volume(ctrl_handle: State<'_, ControllerHandle>) -> Result<(), 
 pub async fn next(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
     ctrl_handle.player_mail.send(dmp_core::music_controller::controller::PlayerCommand::NextSong).await.unwrap();
     let PlayerResponse::NowPlaying(song) = ctrl_handle.player_mail.recv().await.unwrap() else {
-        unreachable!()
+        return Ok(())
     };
     println!("next");
     app.emit("now_playing_change", _Song::from(&song)).unwrap();
