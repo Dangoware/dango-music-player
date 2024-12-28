@@ -13,35 +13,31 @@ pub struct ArtworkRx(pub Sender<Vec<u8>>);
 
 #[tauri::command]
 pub async fn play(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
-    ctrl_handle.player_mail.send(dmp_core::music_controller::controller::PlayerCommand::Play).await.unwrap();
-    let res = ctrl_handle.player_mail.recv().await.unwrap();
-    if let PlayerResponse::Empty = res {}
-    else if let PlayerResponse::NowPlaying(song) = res {
-        app.emit("now_playing_change", _Song::from(&song)).unwrap();
-    } else {
-        unreachable!()
-    };
-    app.emit("playing", ()).unwrap();
-    Ok(())
+    match ctrl_handle.play().await {
+        Ok(()) => {
+            app.emit("playing", ()).unwrap();
+            Ok(())
+        },
+        Err(e) => Err(e.to_string())
+    }
 }
 
 #[tauri::command]
 pub async fn pause(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
-    ctrl_handle.player_mail.send(dmp_core::music_controller::controller::PlayerCommand::Pause).await.unwrap();
-    let PlayerResponse::Empty = ctrl_handle.player_mail.recv().await.unwrap() else {
-        unreachable!()
-    };
-    app.emit("paused", ()).unwrap();
-    Ok(())
+    match ctrl_handle.pause().await {
+        Ok(()) => {
+            app.emit("paused", ()).unwrap();
+            Ok(())
+        }
+        Err(e) => Err(e.to_string())
+    }
+
 }
 
 #[tauri::command]
 pub async fn set_volume(ctrl_handle: State<'_, ControllerHandle>, volume: String) -> Result<(), String> {
     let volume = volume.parse::<f32>().unwrap() / 100.0;
-    ctrl_handle.player_mail.send(dmp_core::music_controller::controller::PlayerCommand::SetVolume(volume)).await.unwrap();
-    let PlayerResponse::Empty = ctrl_handle.player_mail.recv().await.unwrap() else {
-        unreachable!()
-    };
+    ctrl_handle.set_volume(volume).await;
     Ok(())
 }
 
@@ -53,11 +49,10 @@ pub async fn get_volume(ctrl_handle: State<'_, ControllerHandle>) -> Result<(), 
 
 #[tauri::command]
 pub async fn next(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
-    ctrl_handle.player_mail.send(dmp_core::music_controller::controller::PlayerCommand::NextSong).await.unwrap();
-    let PlayerResponse::NowPlaying(song) = ctrl_handle.player_mail.recv().await.unwrap() else {
-        return Ok(())
+    let song = match ctrl_handle.next().await {
+        Ok(s) => s,
+        Err(e) => return Err(e.to_string())
     };
-    println!("next");
     app.emit("now_playing_change", _Song::from(&song)).unwrap();
     app.emit("queue_updated", ()).unwrap();
     app.emit("playing", ()).unwrap();
@@ -66,9 +61,9 @@ pub async fn next(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>)
 
 #[tauri::command]
 pub async fn prev(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
-    ctrl_handle.player_mail.send(dmp_core::music_controller::controller::PlayerCommand::PrevSong).await.unwrap();
-    let PlayerResponse::NowPlaying(song) = ctrl_handle.player_mail.recv().await.unwrap() else {
-        unreachable!()
+    let song = match ctrl_handle.prev().await {
+        Ok(s) => s,
+        Err(e) => return Err(e.to_string())
     };
     println!("prev");
     app.emit("now_playing_change", _Song::from(&song)).unwrap();
@@ -84,14 +79,28 @@ pub async fn now_playing(ctrl_handle: State<'_, ControllerHandle>) -> Result<(),
 
 #[tauri::command]
 pub async fn get_queue(ctrl_handle: State<'_, ControllerHandle>) -> Result<Vec<_Song>, String> {
-    ctrl_handle.queue_mail.send(QueueCommand::Get).await.unwrap();
-    let QueueResponse::GetAll(queue) = ctrl_handle.queue_mail.recv().await.unwrap() else {
-        unreachable!()
-    };
-    Ok(queue.into_iter().map(|item| {
-        let QueueItemType::Single(song) = item.item else { unreachable!("There should be no albums in the queue right now") };
-        _Song::from(&song.song)
-    }).collect_vec())
+    Ok(
+        ctrl_handle
+            .queue_get_all()
+            .await
+            .into_iter()
+            .map(|item| {
+                let QueueItemType::Single(song) = item.item else { unreachable!("There should be no albums in the queue right now") };
+                _Song::from(&song.song)
+            }
+        ).collect_vec()
+    )
+}
+
+#[tauri::command]
+pub async fn remove_from_queue(app: AppHandle<Wry>, ctrl_handle: ControllerHandle, index: usize) -> Result<(), String> {
+    match ctrl_handle.queue_remove(index).await {
+        Ok(_) => {
+            app.emit("queue_updated", ()).unwrap();
+            Ok(())
+        }
+        Err(e) => Err(e.to_string())
+    }
 }
 
 //Grab Album art from custom protocol
@@ -129,19 +138,21 @@ impl From<&Song> for _Song {
 
 #[tauri::command]
 pub async fn get_library(ctrl_handle: State<'_, ControllerHandle>) -> Result<Vec<_Song>, String> {
-    ctrl_handle.lib_mail.send(LibraryCommand::AllSongs).await.unwrap();
-    println!("getting library");
-    let LibraryResponse::AllSongs(songs) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!("It has been reached") };
-
-    let _songs = songs.iter().map(|song| _Song::from(song)).collect::<Vec<_>>();
-
-    Ok(_songs)
+    let songs = ctrl_handle
+        .lib_get_all()
+        .await
+        .iter()
+        .map(|song| _Song::from(song))
+        .collect_vec();
+    Ok(songs)
 }
 
 #[tauri::command]
 pub async fn get_playlist(ctrl_handle: State<'_, ControllerHandle>, uuid: Uuid) -> Result<Vec<_Song>, String> {
-    ctrl_handle.lib_mail.send(LibraryCommand::ExternalPlaylist(uuid)).await.unwrap();
-    let LibraryResponse::ExternalPlaylist(playlist) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!("It has been reached") };
+    let playlist = match ctrl_handle.playlist_get(uuid).await {
+        Ok(list) => list,
+        Err(_) => todo!()
+    };
 
     let songs = playlist.tracks.iter().map(|song| _Song::from(song)).collect::<Vec<_>>();
     println!("Got Playlist {}, len {}", playlist.title, playlist.tracks.len());
@@ -150,11 +161,7 @@ pub async fn get_playlist(ctrl_handle: State<'_, ControllerHandle>, uuid: Uuid) 
 
 #[tauri::command]
 pub async fn get_playlists(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
-    println!("getting Playlists");
-    ctrl_handle.lib_mail.send(LibraryCommand::Playlists).await.unwrap();
-    let LibraryResponse::Playlists(lists) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!() };
-    println!("gotten playlists");
-
+    let lists = ctrl_handle.playlist_get_all().await;
     app.emit("playlists_gotten", lists.into_iter().map(|(uuid, name)| PlaylistPayload { uuid, name }).collect_vec()).unwrap();
     Ok(())
 }
@@ -168,10 +175,9 @@ pub async fn import_playlist(ctrl_handle: State<'_, ControllerHandle>) -> Result
     .await
     .unwrap();
 
-    ctrl_handle.lib_mail.send(LibraryCommand::ImportM3UPlayList(PathBuf::from(file.path()))).await.unwrap();
-    let LibraryResponse::ImportM3UPlayList(uuid, name) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!("It has been reached") };
-    ctrl_handle.lib_mail.send(LibraryCommand::Save).await.unwrap();
-    let LibraryResponse::Ok = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!() };
+    let (uuid, name) = ctrl_handle.playlist_import_m3u(PathBuf::from(file.path())).await.unwrap();
+    ctrl_handle.lib_save().await;
+
     println!("Imported Playlist {name}");
     Ok(PlaylistPayload {uuid, name})
 }
@@ -183,9 +189,8 @@ pub struct PlaylistPayload {
 }
 
 #[tauri::command]
-pub async fn get_song(ctrl_handle: State<'_, ControllerHandle>) -> Result<_Song, String> {
-    ctrl_handle.lib_mail.send(LibraryCommand::Song(Uuid::default())).await.unwrap();
-    let LibraryResponse::Song(song, _) = ctrl_handle.lib_mail.recv().await.unwrap() else { unreachable!("It has been reached") };
+pub async fn get_song(ctrl_handle: State<'_, ControllerHandle>, uuid: Uuid) -> Result<_Song, String> {
+    let song = ctrl_handle.lib_get_song(uuid).await.0;
     println!("got song {}", &song.tags.get(&Tag::Title).unwrap_or(&String::new()));
     Ok(_Song::from(&song))
 }

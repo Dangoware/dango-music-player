@@ -10,23 +10,20 @@ use crate::wrappers::_Song;
 #[tauri::command]
 pub async fn add_song_to_queue(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>, uuid: Uuid, location: PlayerLocation) -> Result<(), String> {
     dbg!(&location);
-    ctrl_handle.lib_mail.send(dmp_core::music_controller::controller::LibraryCommand::Song(uuid)).await.unwrap();
-    let LibraryResponse::Song(song, _) = ctrl_handle.lib_mail.recv().await.unwrap() else {
-        unreachable!()
-    };
-    ctrl_handle.queue_mail.send(dmp_core::music_controller::controller::QueueCommand::Append(QueueItem::from_item_type(kushi::QueueItemType::Single(QueueSong { song, location })), true)).await.unwrap();
-    let QueueResponse::Ok = ctrl_handle.queue_mail.recv().await.unwrap() else {
-        panic!()
-    };
+    let (song, _) = ctrl_handle.lib_get_song(uuid).await;
+    match ctrl_handle.queue_append(QueueItem::from_item_type(kushi::QueueItemType::Single(QueueSong { song, location }))).await {
+        Ok(()) => (),
+        Err(e) => return Err(e.to_string())
+    }
     app.emit("queue_updated", ()).unwrap();
     Ok(())
 }
 
 #[tauri::command]
 pub async fn play_now(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>, uuid: Uuid, location: PlayerLocation) -> Result<(), String> {
-    ctrl_handle.player_mail.send(PlayerCommand::PlayNow(uuid, location)).await.unwrap();
-    let PlayerResponse::NowPlaying(song) = ctrl_handle.player_mail.recv().await.unwrap() else {
-        unreachable!()
+    let song = match ctrl_handle.play_now(uuid, location).await {
+        Ok(song) => song,
+        Err(e) => return Err(e.to_string())
     };
     app.emit("queue_updated", ()).unwrap();
     app.emit("now_playing_change", _Song::from(&song)).unwrap();
