@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 
 use chrono::{DateTime, Utc, serde::ts_milliseconds_option};
 use crossbeam::channel::Sender;
-use dmp_core::{music_controller::controller::{ControllerHandle, LibraryCommand, LibraryResponse, PlayerResponse, QueueCommand, QueueResponse}, music_storage::library::{Song, Tag, URI}};
+use dmp_core::{music_controller::controller::{ControllerHandle, LibraryCommand, LibraryResponse, PlayerLocation, PlayerResponse, QueueCommand, QueueResponse}, music_storage::library::{Song, Tag, URI}};
 use itertools::Itertools;
 use kushi::QueueItemType;
 use serde::Serialize;
@@ -78,7 +78,7 @@ pub async fn now_playing(ctrl_handle: State<'_, ControllerHandle>) -> Result<(),
 }
 
 #[tauri::command]
-pub async fn get_queue(ctrl_handle: State<'_, ControllerHandle>) -> Result<Vec<_Song>, String> {
+pub async fn get_queue(ctrl_handle: State<'_, ControllerHandle>) -> Result<Vec<(_Song, PlayerLocation)>, String> {
     Ok(
         ctrl_handle
             .queue_get_all()
@@ -86,14 +86,14 @@ pub async fn get_queue(ctrl_handle: State<'_, ControllerHandle>) -> Result<Vec<_
             .into_iter()
             .map(|item| {
                 let QueueItemType::Single(song) = item.item else { unreachable!("There should be no albums in the queue right now") };
-                _Song::from(&song.song)
+                (_Song::from(&song.song), song.location)
             }
         ).collect_vec()
     )
 }
 
 #[tauri::command]
-pub async fn remove_from_queue(app: AppHandle<Wry>, ctrl_handle: ControllerHandle, index: usize) -> Result<(), String> {
+pub async fn remove_from_queue(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>, index: usize) -> Result<(), String> {
     match ctrl_handle.queue_remove(index).await {
         Ok(_) => {
             app.emit("queue_updated", ()).unwrap();

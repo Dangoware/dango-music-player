@@ -6,7 +6,7 @@ use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{C
 use tauri::{http::Response, Emitter, Manager, State, WebviewWindowBuilder, Wry};
 use uuid::Uuid;
 
-use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next, get_queue, import_playlist, get_playlist, get_playlists};
+use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next, get_queue, import_playlist, get_playlist, get_playlists, remove_from_queue};
 
 pub mod wrappers;
 pub mod commands;
@@ -80,7 +80,8 @@ pub fn run() {
         play_now,
         import_playlist,
         get_playlist,
-        get_playlists
+        get_playlists,
+        remove_from_queue
     ]).manage(ConfigRx(rx))
     .manage(LibRx(lib_rx))
     .manage(HandleTx(handle_tx))

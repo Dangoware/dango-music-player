@@ -47,7 +47,14 @@ function App() {
         invoke('get_queue').then((_songs) => {
           let songs = _songs as any[]
             setQueue(
-              songs.filter((_, i) => i != 0).map((song) => <QueueSong song={ song } key={ song.uuid + '_' + Math.floor((Math.random() * 100_000) + 1) + '_' + Date.now() } />)
+              songs.filter((_, i) => i != 0).map((song, i) =>
+                <QueueSong
+                  song={ song[0] }
+                  location={ song[1] as "Library" | {"Playlist" : string}}
+                  index={i+1}
+                  key={ song.uuid + '_' + Math.floor((Math.random() * 100_000) + 1) + '_' + Date.now() }
+                />
+              )
             )
         })
     })
@@ -329,22 +336,30 @@ function Queue({ songs }: QueueProps) {
 }
 
 interface QueueSongProps {
-  song: any
+  song: any,
+  location: "Library" | {"Playlist": string},
+  index: number,
 }
 
-function QueueSong({ song }: QueueSongProps) {
+function QueueSong({ song, location, index }: QueueSongProps) {
   console.log(song.tags);
 
+  let removeFromQueue = () => {
+    invoke('remove_from_queue', { index: index }).then(() => {})
+  }
+
+  let playNow = () => {
+    invoke('play_now', { uuid: song.uuid, location: location }).then(() => {})
+  }
+
   return (
-    // <button className="queueSongButton">
-      <div className="queueSong">
+    <div className="queueSong"  onAuxClick={ removeFromQueue } onClickCapture={ playNow }>
       <img className="queueSongCoverArt" src={ convertFileSrc('abc') + '?' + song.uuid } key={ 'coverArt_' + song.uuid }/>
       <div className="queueSongTags">
         <p className="queueSongTitle">{ song.tags.TrackTitle }</p>
         <p className="queueSongArtist">{ song.tags.TrackArtist }</p>
       </div>
     </div>
-    // </button>
   )
 }
 
