@@ -22,22 +22,26 @@ pub fn run() {
     let controller_thread = spawn(move || {
         let mut config = { tx.recv().unwrap() } ;
         let scan_path = { lib_tx.recv().unwrap() };
-        let save_path = dbg!(config.libraries.library_folder.join("library.dlib"));
+        let _temp_config = ConfigLibrary::default();
+        let _lib = config.libraries.get_default().unwrap_or(&_temp_config);
+
+        let save_path = if _lib.path == PathBuf::default() {
+            scan_path.as_ref().unwrap().clone().canonicalize().unwrap().join("library.dlib")
+        } else {
+            _lib.path.clone()
+        };
+        println!("save_path: {}\nscan_path:{scan_path:?}", save_path.display());
 
         let mut library = MusicLibrary::init(
             save_path.clone(),
-            if let Ok(lib) = config.libraries.get_default() {
-                lib.uuid
-            } else {
-                Uuid::new_v4()
-            }
+            _lib.uuid
         ).unwrap();
 
         let scan_path = scan_path.unwrap_or_else(|| config.libraries.get_default().unwrap().scan_folders.as_ref().unwrap()[0].clone());
 
         if config.libraries.get_default().is_err() {
             library.scan_folder(&scan_path).unwrap();
-            config.push_library( ConfigLibrary::new(save_path.clone(), String::from("Library"), Some(vec![scan_path.clone()])));
+            config.push_library( ConfigLibrary::new(save_path.clone(), String::from("Library"), Some(vec![scan_path.clone()]), Some(library.uuid)));
         }
         if library.library.is_empty() {
             println!("library is empty");
@@ -135,7 +139,6 @@ struct HandleTx(Receiver<ControllerHandle>);
 async fn get_config(state: State<'_, ConfigRx>) -> Result<Config, String> {
     if let Some(dir) = directories::ProjectDirs::from("", "Dangoware", "dmp") {
         let path = dir.config_dir();
-        // dbg!(&path);
         fs::create_dir_all(path).or_else(|err| {
             if err.kind() == std::io::ErrorKind::AlreadyExists {
                 Ok(())
@@ -143,8 +146,6 @@ async fn get_config(state: State<'_, ConfigRx>) -> Result<Config, String> {
                 Err(err)
             }
         }).unwrap();
-
-        // dbg!(&dir);
 
         let config = if let Ok(mut c) = Config::read_file(PathBuf::from(path).join("config")) {
             if c.state_path == PathBuf::default() {
