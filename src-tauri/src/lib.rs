@@ -2,6 +2,7 @@ use std::{fs, path::PathBuf, str::FromStr, thread::spawn};
 
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle, LibraryResponse}, music_storage::library::MusicLibrary};
+use rfd::FileHandle;
 use tauri::{http::Response, Emitter, Manager, State, WebviewWindowBuilder, Wry};
 use uuid::Uuid;
 
@@ -66,8 +67,7 @@ pub fn run() {
     .plugin(tauri_plugin_shell::init())
     .invoke_handler(tauri::generate_handler![
         get_config,
-        new_library_window,
-        create_library,
+        create_new_library,
         get_library,
         play,
         pause,
@@ -126,11 +126,11 @@ pub fn run() {
     app
     .run(|_app_handle, event| match event {
         tauri::RunEvent::ExitRequested { api, .. } => {
-            api.prevent_exit();
+            // api.prevent_exit();
+            panic!("does this kill the player?")
         }
         _ => {}
     });
-    std::mem::drop(controller_thread)
 }
 
 struct ConfigRx(Sender<Config>);
@@ -175,31 +175,19 @@ async fn get_config(state: State<'_, ConfigRx>) -> Result<Config, String> {
 }
 
 #[tauri::command]
-async fn new_library_window(app: tauri::AppHandle<Wry>) -> Result<(), String> {
-    WebviewWindowBuilder::new(
-        &app,
-        "library_create",
-        tauri::WebviewUrl::App(PathBuf::from_str("/src/create_library_window/index.html").unwrap())
-    ).title("Create a Library")
-    .focused(true)
-    .maximizable(false)
-    .build()
-    .unwrap();
-
-    Ok(())
-}
-
-
-#[tauri::command]
-async fn create_library(
+async fn create_new_library(
     app: tauri::AppHandle<Wry>,
     lib_rx: State<'_, LibRx>,
     handle_tx: State<'_, HandleTx>,
-    window: tauri::Window<Wry>,
-    path: String
 ) -> Result<(), String> {
-    println!("{path}");
-    let path = PathBuf::from(path.trim().trim_matches('"'));
+    let dir = rfd::AsyncFileDialog::new()
+    .set_title("Pick a library path")
+    .pick_folder()
+    .await
+    .unwrap();
+
+    let path = dir.path().canonicalize().unwrap();
+    println!("{}", path.display());
 
     if !path.exists() {
         panic!("Path {} does not exist!", path.display())
@@ -210,8 +198,6 @@ async fn create_library(
     lib_rx.inner().0.send(Some(path)).unwrap();
     app.manage(handle_tx.inner().0.recv().unwrap());
     app.emit("library_loaded", ()).unwrap();
-
-    window.close().unwrap();
     Ok(())
 }
 

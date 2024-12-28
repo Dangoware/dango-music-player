@@ -262,7 +262,7 @@ function Song(props: SongProps) {
     <div onClick={() => {
       invoke("play_now", { uuid: props.uuid, location: props.playerLocation }).then(() => {})
     }} className="song">
-      <p className="artist">{ props.tags.AlbumArtist }</p>
+      <p className="artist">{ props.tags.TrackArtist }</p>
       <p className="title">{ props.tags.TrackTitle }</p>
       <p className="album">{ props.tags.AlbumTitle }</p>
       <p className="duration">
@@ -372,14 +372,10 @@ function getConfig(): any {
   invoke('get_config').then( (_config) => {
     let config = _config as Config;
     if (config.libraries.libraries.length == 0) {
-      newWindow()
+      invoke('create_new_library').then(() => {})
     } else {
       // console.log("else");
       invoke('lib_already_created').then(() => {})
     }
   })
-}
-
-function newWindow() {
-  invoke('new_library_window').then(() => {})
 }
