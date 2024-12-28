@@ -319,7 +319,9 @@ interface NowPlayingProps {
 function NowPlaying({ title, artist, album, artwork }: NowPlayingProps) {
   return (
     <section className="nowPlaying">
+      <div className="artworkWrapper">
         { artwork }
+      </div>
       <h3>{ title }</h3>
       <p>{ artist }</p>
       <p>{ album }</p>
