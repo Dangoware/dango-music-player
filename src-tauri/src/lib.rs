@@ -1,12 +1,13 @@
 use std::{fs, path::PathBuf, str::FromStr, thread::spawn};
 
-use commands::{add_song_to_queue, play_now};
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle, LibraryResponse}, music_storage::library::MusicLibrary};
 use tauri::{http::Response, Emitter, Manager, State, WebviewWindowBuilder, Wry};
 use uuid::Uuid;
 
 use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next, get_queue, import_playlist, get_playlist, get_playlists, remove_from_queue};
+use commands::{add_song_to_queue, play_now, display_album_art};
+
 
 pub mod wrappers;
 pub mod commands;
@@ -81,10 +82,12 @@ pub fn run() {
         import_playlist,
         get_playlist,
         get_playlists,
-        remove_from_queue
+        remove_from_queue,
+        display_album_art,
     ]).manage(ConfigRx(rx))
     .manage(LibRx(lib_rx))
     .manage(HandleTx(handle_tx))
+    .manage(tempfile::TempDir::new().unwrap())
     .register_asynchronous_uri_scheme_protocol("asset", move |ctx, req, res| {
         let query = req
             .clone()

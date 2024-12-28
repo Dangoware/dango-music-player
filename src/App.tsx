@@ -27,13 +27,16 @@ function App() {
 
   useEffect(() => {
     const unlisten = appWindow.listen<any>("now_playing_change", ({ payload, }) => {
+        const displayArtwork = () => {
+          invoke('display_album_art', { uuid: payload.uuid }).then(() => {})
+        }
         // console.log(event);
         setNowPlaying(
           <NowPlaying
             title={ payload.tags.TrackTitle }
             album={ payload.tags.AlbumTitle }
-            artist={ payload.tags["DISPLAY ARTIST"] }
-            artwork={ <img src={convertFileSrc("abc") + "?" + payload.uuid } id="nowPlayingArtwork" alt="Now Playing Artwork" key={payload.uuid} /> }
+            artist={ payload.tags.TrackArtist }
+            artwork={ <img src={convertFileSrc("abc") + "?" + payload.uuid } id="nowPlayingArtwork" alt="Now Playing Artwork" key={payload.uuid} onDoubleClick={ displayArtwork } /> }
           />
         )
 
@@ -259,9 +262,9 @@ function Song(props: SongProps) {
     <div onClick={() => {
       invoke("play_now", { uuid: props.uuid, location: props.playerLocation }).then(() => {})
     }} className="song">
+      <p className="artist">{ props.tags.AlbumArtist }</p>
       <p className="title">{ props.tags.TrackTitle }</p>
       <p className="album">{ props.tags.AlbumTitle }</p>
-      <p className="artist">{ props.tags.AlbumArtist }</p>
       <p className="duration">
         { Math.round(+props.duration / 60) }:
         { (+props.duration % 60).toString().padStart(2, "0") }
