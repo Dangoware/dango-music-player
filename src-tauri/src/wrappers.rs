@@ -43,7 +43,6 @@ pub async fn set_volume(ctrl_handle: State<'_, ControllerHandle>, volume: String
 
 #[tauri::command]
 pub async fn get_volume(ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
-
     Ok(())
 }
 
