@@ -20,7 +20,6 @@ pub fn run() {
     let (rx, tx) = unbounded::<Config>();
     let (lib_rx, lib_tx) = unbounded::<Option<PathBuf>>();
     let (handle_rx, handle_tx) = unbounded::<ControllerHandle>();
-    let (playback_handle_rx, playback_handle_tx) = unbounded::<crossbeam::channel::Receiver<PlaybackInfo>>();
 
     let controller_thread = spawn(move || {
         let mut config = { tx.recv().unwrap() } ;
@@ -55,7 +54,7 @@ pub fn run() {
 
         library.save(save_path).unwrap();
 
-        let (handle, input, playback_tx) = ControllerHandle::new(
+        let (handle, input, playback_info) = ControllerHandle::new(
             library,
             std::sync::Arc::new(std::sync::RwLock::new(config))
         );

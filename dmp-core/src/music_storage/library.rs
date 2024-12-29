@@ -1033,7 +1033,6 @@ impl MusicLibrary {
         sort_by: &Vec<Tag>,     // Tags to sort the resulting data by
     ) -> Option<Vec<&Song>> {
         let songs = Arc::new(Mutex::new(Vec::new()));
-        //let matcher = SkimMatcherV2::default();
 
         self.library.par_iter().for_each(|track| {
             for tag in target_tags {
@@ -1047,18 +1046,6 @@ impl MusicLibrary {
                         None => continue,
                     },
                 };
-
-                /*
-                let match_level = match matcher.fuzzy_match(&normalize(&track_result), &normalize(query_string)) {
-                    Some(conf) => conf,
-                    None => continue
-                };
-
-                if match_level > 100 {
-                    songs.lock().unwrap().push(track);
-                    return;
-                }
-                */
 
                 if normalize(&track_result.to_string())
                     .contains(&normalize(&query_string.to_owned()))
@@ -1249,13 +1236,13 @@ impl MusicLibrary {
 
 #[cfg(test)]
 mod test {
-    use std::{
-        path::PathBuf,
-        sync::{Arc, RwLock},
-    };
+    use std::{path::PathBuf, time::Instant};
+    use crate::music_storage::library::Tag;
+
+    use uuid::Uuid;
 
     use crate::{
-        config::{tests::new_config_lib, Config},
+        config::Config,
         music_storage::library::MusicLibrary,
     };
 
@@ -1269,5 +1256,32 @@ mod test {
         )
         .unwrap();
         dbg!(a);
+    }
+
+    #[test]
+    fn library_search() {
+        let lib = MusicLibrary::init(
+            PathBuf::from("/media/g2/Storage4/Media-Files/Music/Albums/library.dlib"),
+            Uuid::new_v4(),
+        ).unwrap();
+
+        let timer = Instant::now();
+        let result = lib.query_tracks(
+            &String::from(""),
+            &vec![],
+            &vec![
+                Tag::Field("location".to_string()),
+                Tag::Album,
+                Tag::Disk,
+                Tag::Track,
+            ],
+        ).unwrap();
+        println!("{} songs in {}ms", result.len(), timer.elapsed().as_millis());
+
+        /*
+        for song in result {
+            println!("{:?}", song.tags.get(&Tag::Title));
+        }
+        */
     }
 }

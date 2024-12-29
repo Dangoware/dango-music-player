@@ -4,12 +4,14 @@
 #![allow(while_true)]
 
 use chrono::TimeDelta;
+use crossbeam::atomic::AtomicCell;
 use kushi::{Queue, QueueItemType};
 use kushi::{QueueError, QueueItem};
 use prismriver::{Prismriver, Volume, Error as PrismError};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -158,7 +160,7 @@ pub struct ControllerInput {
     ),
     library: MusicLibrary,
     config: Arc<RwLock<Config>>,
-    playback_info: crossbeam::channel::Sender<PlaybackInfo>,
+    playback_info: Arc<AtomicCell<PlaybackInfo>>,
 }
 
 pub struct ControllerHandle {
@@ -168,11 +170,11 @@ pub struct ControllerHandle {
 }
 
 impl ControllerHandle {
-    pub fn new(library: MusicLibrary, config: Arc<RwLock<Config>>) -> (Self, ControllerInput, crossbeam::channel::Receiver<PlaybackInfo>) {
+    pub fn new(library: MusicLibrary, config: Arc<RwLock<Config>>) -> (Self, ControllerInput, Arc<AtomicCell<PlaybackInfo>>) {
         let lib_mail = MailMan::double();
         let player_mail = MailMan::double();
         let queue_mail = MailMan::double();
-        let (playback_info_rx, playback_info_tx) = crossbeam::channel::bounded(1);
+        let playback_info = Arc::new(AtomicCell::new(PlaybackInfo::default()));
         (
             ControllerHandle {
                 lib_mail: lib_mail.0.clone(),
@@ -185,9 +187,9 @@ impl ControllerHandle {
                 queue_mail,
                 library,
                 config,
-                playback_info: playback_info_rx,
+                playback_info: Arc::clone(&playback_info),
             },
-            playback_info_tx,
+            playback_info,
         )
     }
 }
@@ -253,53 +255,46 @@ impl Controller {
             }
         };
 
-        std::thread::scope(|scope| {
-            let queue_mail = queue_mail;
-            let a = scope.spawn(|| {
-                futures::executor::block_on(async {
-                    moro::async_scope!(|scope| {
-                        println!("async scope created");
-                        let player = Arc::new(RwLock::new(Prismriver::new()));
+        let player = Arc::new(RwLock::new(Prismriver::new()));
 
-                        let _player = player.clone();
-                        let _lib_mail = lib_mail.0.clone();
-                        let _queue_mail = queue_mail.0.clone();
-                        scope
-                            .spawn(async move {
-                                Controller::player_command_loop(
-                                    _player,
-                                    player_mail.1,
-                                    _queue_mail,
-                                    _lib_mail,
-                                    state,
-                                )
-                                .await
-                                .unwrap();
-                            });
-                        scope
-                            .spawn(async move {
-                                Controller::player_monitor_loop(
-                                    player,
-                                    player_mail.0,
-                                    queue_mail.0,
-                                    playback_info,
-                                )
+        std::thread::scope(|scope| {
+            let a = scope.spawn({
+                let player = Arc::clone(&player);
+                let queue_mail = queue_mail.clone();
+                move || {
+                    futures::executor::block_on(async {
+                        moro::async_scope!(|scope| {
+                            println!("async scope created");
+
+                            let _player = player.clone();
+                            let _lib_mail = lib_mail.0.clone();
+                            let _queue_mail = queue_mail.0.clone();
+                            scope
+                                .spawn(async move {
+                                    Controller::player_command_loop(
+                                        _player,
+                                        player_mail.1,
+                                        _queue_mail,
+                                        _lib_mail,
+                                        state,
+                                    )
                                     .await
                                     .unwrap();
-                            });
-                        scope
-                            .spawn(async {
-                                Controller::library_loop(
-                                    lib_mail.1,
-                                    &mut library,
-                                    config,
-                                )
-                                    .await
-                                    .unwrap();
-                            });
+                                });
+                            scope
+                                .spawn(async {
+                                    Controller::library_loop(
+                                        lib_mail.1,
+                                        &mut library,
+                                        config,
+                                    )
+                                        .await
+                                        .unwrap();
+                                });
+                        })
+                        .await;
                     })
-                    .await;
-                })
+                }
             });
 
             let b = scope.spawn(|| {
@@ -307,8 +302,19 @@ impl Controller {
                     Controller::queue_loop(queue, queue_mail.1).await;
                 })
             });
+
+            let c = scope.spawn(|| {
+                Controller::player_monitor_loop(
+                    player,
+                    player_mail.0,
+                    queue_mail.0,
+                    playback_info,
+                ).unwrap();
+            });
+
             a.join().unwrap();
             b.join().unwrap();
+            c.join().unwrap();
         });
 
         Ok(())
@@ -532,20 +538,48 @@ impl Controller {
         Ok(())
     }
 
-    async fn player_monitor_loop(
+    fn player_monitor_loop(
         player: Arc<RwLock<Prismriver>>,
         player_mail: MailMan<PlayerCommand, PlayerResponse>,
         queue_mail: MailMan<QueueCommand, QueueResponse>,
-        player_info: crossbeam_channel::Sender<PlaybackInfo>
+        player_info: Arc<AtomicCell<PlaybackInfo>>,
     ) -> Result<(), ()> {
+
+        let finished_recv = player.read().unwrap().get_finished_recv();
+
+        std::thread::scope(|s| {
+            // Thread for timing and metadata
+            s.spawn({
+                let player = Arc::clone(&player);
+                move || {
+                    while true {
+                        let player = player.read().unwrap();
+                        player_info.store(PlaybackInfo {
+                            duration: player.duration(),
+                            position: player.position(),
+                            metadata: player.metadata(),
+                        });
+                        drop(player);
+
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                }
+            });
+
+            // Thread for End of Track
+            s.spawn(move || {
+                while true {
+                    let _ = finished_recv.recv();
+
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            });
+        });
+
+             // Check for duration and spit it out
+             // Check for end of song to get the next
+
         Ok(())
-        // std::thread::scope(|s| {
-        // });
-
-        //     // Check for duration and spit it out
-        //     // Check for end of song to get the next
-
-        // Ok(())
     }
 
 
@@ -590,6 +624,7 @@ impl Controller {
         }
         Ok(())
     }
+
     async fn queue_loop(
         mut queue: Queue<QueueSong, QueueAlbum>,
         queue_mail: MailMan<QueueResponse, QueueCommand>,
@@ -646,8 +681,9 @@ impl Controller {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PlaybackInfo {
-    pub duration: TimeDelta,
-    pub position: TimeDelta
+    pub duration: Option<TimeDelta>,
+    pub position: Option<TimeDelta>,
+    pub metadata: HashMap<String, String>,
 }
