@@ -1,7 +1,7 @@
-use std::{fs, path::PathBuf, str::FromStr, thread::spawn};
+use std::{fs, path::PathBuf, str::FromStr, thread::{scope, spawn}};
 
 use crossbeam::channel::{unbounded, Receiver, Sender};
-use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle, LibraryResponse}, music_storage::library::MusicLibrary};
+use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle, LibraryResponse, PlaybackInfo}, music_storage::library::MusicLibrary};
 use rfd::FileHandle;
 use tauri::{http::Response, Emitter, Manager, State, WebviewWindowBuilder, Wry};
 use uuid::Uuid;
@@ -20,6 +20,7 @@ pub fn run() {
     let (rx, tx) = unbounded::<Config>();
     let (lib_rx, lib_tx) = unbounded::<Option<PathBuf>>();
     let (handle_rx, handle_tx) = unbounded::<ControllerHandle>();
+    let (playback_handle_rx, playback_handle_tx) = unbounded::<crossbeam::channel::Receiver<PlaybackInfo>>();
 
     let controller_thread = spawn(move || {
         let mut config = { tx.recv().unwrap() } ;
@@ -54,14 +55,23 @@ pub fn run() {
 
         library.save(save_path).unwrap();
 
-        let (handle, input) = ControllerHandle::new(
+        let (handle, input, playback_tx) = ControllerHandle::new(
             library,
             std::sync::Arc::new(std::sync::RwLock::new(config))
         );
 
         handle_rx.send(handle).unwrap();
 
-        let _controller = futures::executor::block_on(Controller::start(input)).unwrap();
+        scope(|s| {
+            s.spawn(|| {
+                let _controller = futures::executor::block_on(Controller::start(input)).unwrap();
+            });
+            s.spawn(|| {
+
+            });
+        })
+
+
     });
     let app = tauri::Builder::default()
     .plugin(tauri_plugin_shell::init())

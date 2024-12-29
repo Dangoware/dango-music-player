@@ -40,15 +40,17 @@ pub async fn display_album_art(ctrl_handle: State<'_, ControllerHandle>, temp_di
         Ok(art) => {
             let mut art = art.unwrap();
             let path = temp_dir.path().join(format!("CoverArt_{uuid}.{}", file_format::FileFormat::from_bytes(&art).extension()));
-            // TODO: This can be optimised later
-            let mut file = OpenOptions::new()
-                .create(true)
-                .truncate(true)
-                .write(true)
-                .read(true)
-                .open(path.clone())
-                .unwrap();
-            file.write_all(&mut art).unwrap();
+            if !path.exists() {
+                // TODO: This can be optimised later
+                let mut file = OpenOptions::new()
+                    .create(true)
+                    .truncate(true)
+                    .write(true)
+                    .read(true)
+                    .open(path.clone())
+                    .unwrap();
+                file.write_all(&mut art).unwrap();
+            }
             opener::open(path).unwrap();
         }
         Err(e) => return Err(e.to_string())

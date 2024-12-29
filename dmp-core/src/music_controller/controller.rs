@@ -3,6 +3,7 @@
 //! other functions
 #![allow(while_true)]
 
+use chrono::TimeDelta;
 use kushi::{Queue, QueueItemType};
 use kushi::{QueueError, QueueItem};
 use prismriver::{Prismriver, Volume, Error as PrismError};
@@ -14,6 +15,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -156,6 +158,7 @@ pub struct ControllerInput {
     ),
     library: MusicLibrary,
     config: Arc<RwLock<Config>>,
+    playback_info: crossbeam::channel::Sender<PlaybackInfo>,
 }
 
 pub struct ControllerHandle {
@@ -165,11 +168,11 @@ pub struct ControllerHandle {
 }
 
 impl ControllerHandle {
-    pub fn new(library: MusicLibrary, config: Arc<RwLock<Config>>) -> (Self, ControllerInput) {
+    pub fn new(library: MusicLibrary, config: Arc<RwLock<Config>>) -> (Self, ControllerInput, crossbeam::channel::Receiver<PlaybackInfo>) {
         let lib_mail = MailMan::double();
         let player_mail = MailMan::double();
         let queue_mail = MailMan::double();
-
+        let (playback_info_rx, playback_info_tx) = crossbeam::channel::bounded(1);
         (
             ControllerHandle {
                 lib_mail: lib_mail.0.clone(),
@@ -181,8 +184,10 @@ impl ControllerHandle {
                 lib_mail,
                 queue_mail,
                 library,
-                config
-            }
+                config,
+                playback_info: playback_info_rx,
+            },
+            playback_info_tx,
         )
     }
 }
@@ -228,7 +233,8 @@ impl Controller {
             lib_mail,
             queue_mail,
             mut library,
-            config
+            config,
+            playback_info,
         }: ControllerInput
     ) -> Result<(), Box<dyn Error>> {
         let queue: Queue<QueueSong, QueueAlbum> = Queue {
@@ -257,12 +263,13 @@ impl Controller {
 
                         let _player = player.clone();
                         let _lib_mail = lib_mail.0.clone();
+                        let _queue_mail = queue_mail.0.clone();
                         scope
                             .spawn(async move {
                                 Controller::player_command_loop(
                                     _player,
                                     player_mail.1,
-                                    queue_mail.0,
+                                    _queue_mail,
                                     _lib_mail,
                                     state,
                                 )
@@ -271,9 +278,11 @@ impl Controller {
                             });
                         scope
                             .spawn(async move {
-                                Controller::player_event_loop(
+                                Controller::player_monitor_loop(
                                     player,
-                                    player_mail.0
+                                    player_mail.0,
+                                    queue_mail.0,
+                                    playback_info,
                                 )
                                     .await
                                     .unwrap();
@@ -523,6 +532,23 @@ impl Controller {
         Ok(())
     }
 
+    async fn player_monitor_loop(
+        player: Arc<RwLock<Prismriver>>,
+        player_mail: MailMan<PlayerCommand, PlayerResponse>,
+        queue_mail: MailMan<QueueCommand, QueueResponse>,
+        player_info: crossbeam_channel::Sender<PlaybackInfo>
+    ) -> Result<(), ()> {
+        Ok(())
+        // std::thread::scope(|s| {
+        // });
+
+        //     // Check for duration and spit it out
+        //     // Check for end of song to get the next
+
+        // Ok(())
+    }
+
+
     async fn library_loop(
         lib_mail: MailMan<LibraryResponse, LibraryCommand>,
         library: &mut MusicLibrary,
@@ -564,15 +590,6 @@ impl Controller {
         }
         Ok(())
     }
-
-    async fn player_event_loop(
-        player: Arc<RwLock<Prismriver>>,
-        player_mail: MailMan<PlayerCommand, PlayerResponse>,
-    ) -> Result<(), ()> {
-        // just pretend this does something
-        Ok(())
-    }
-
     async fn queue_loop(
         mut queue: Queue<QueueSong, QueueAlbum>,
         queue_mail: MailMan<QueueResponse, QueueCommand>,
@@ -627,4 +644,10 @@ impl Controller {
             }
         }
     }
+}
+
+#[derive(Debug)]
+pub struct PlaybackInfo {
+    pub duration: TimeDelta,
+    pub position: TimeDelta
 }
