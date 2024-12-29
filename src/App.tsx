@@ -70,6 +70,7 @@ function App() {
     })
     return () => { unlisten.then((f) => f()) }
   }, []);
+
   useEffect(() => {
     const unlisten = appWindow.listen<any>("paused", (_) => {
         setPlaying(false)
@@ -82,17 +83,20 @@ function App() {
   }, [])
 
   return (
-    <main className="container">
-      <div className="leftSide">
-        <PlaylistHead playlists={ playlists } setPlaylists={ setPlaylists } setViewName={ setViewName } setLibrary={ library[1] } />
-        <MainView lib_ref={ library } viewName={ viewName } />
+    <main>
+      <div className="container">
+        <div className="leftSide">
+          <PlaylistHead playlists={ playlists } setPlaylists={ setPlaylists } setViewName={ setViewName } setLibrary={ library[1] } />
+          <MainView lib_ref={ library } viewName={ viewName } />
+        </div>
+        <div className="rightSide">
+          { nowPlaying }
+          <Queue songs={ queue } />
+        </div>
+      </div>
+      <div className="bottom">
         <PlayBar playing={ playing } setPlaying={ setPlaying } />
       </div>
-      <div className="rightSide">
-        { nowPlaying }
-        <Queue songs={ queue } />
-      </div>
-
     </main>
   );
 }
@@ -281,30 +285,36 @@ function Song(props: SongProps) {
   )
 }
 
-
 interface PlayBarProps {
   playing: boolean,
   setPlaying: React.Dispatch<React.SetStateAction<boolean>>
 }
+
 function PlayBar({ playing, setPlaying }: PlayBarProps) {
   return (
     <section id="playBar" className="playBar">
-      <div className="topHalf">
-        <div>
-          <button>shuffle</button>
-          <button>loop</button>
-        </div>
-        <button onClick={ () => invoke('prev').then(() => {}) }>prev</button>
-        <button onClick={ (_) => {
-          setPlaying( playing ? false : true );
-          invoke( playing ? 'pause' : 'play' ).then(() => {})
-        }}>{ playing ? 'pause' : 'play' }</button>
-        <button onClick={ () => invoke('next').then(() => {}) }>next</button>
-        <input type="range" name="volume" id="volumeSlider" onChange={ (volume) => {
-          invoke('set_volume', { volume: volume.target.value }).then(() => {})
-        }} />
+      <div className="seekBar">
+        <div className="seekOverlay" id="seekOverlay"></div>
       </div>
-      <input type="range" name="seek" id="seekBar" />
+      <div className="bottomSpaced">
+        <div className="bottomLeft">
+          <button onClick={ (_) => {
+            setPlaying( playing ? false : true );
+            invoke( playing ? 'pause' : 'play' ).then(() => {})
+          }}>{ playing ? '⏸' : '⏵' }</button>
+          <button onClick={ () => invoke('stop').then(() => {}) }>⏹</button>
+          <button onClick={ () => invoke('prev').then(() => {}) }>⏮</button>
+          <button onClick={ () => invoke('next').then(() => {}) }>⏭</button>
+        </div>
+        <div className="bottomRight">
+          <button>🔀</button>
+          <button>🔁</button>
+          <input type="range" name="volume" id="volumeSlider" onChange={ (volume) => {
+            invoke('set_volume', { volume: volume.target.value }).then(() => {})
+          }} />
+          <p id="timeDisplay"></p>
+        </div>
+      </div>
     </section>
   )
 }
@@ -332,6 +342,7 @@ function NowPlaying({ title, artist, album, artwork }: NowPlayingProps) {
 interface QueueProps {
   songs: JSX.Element[],
 }
+
 function Queue({ songs }: QueueProps) {
   return (
     <section className="Queue">
