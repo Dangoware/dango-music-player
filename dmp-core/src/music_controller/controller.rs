@@ -84,6 +84,7 @@ pub enum PlayerCommand {
     PrevSong,
     Pause,
     Play,
+    Stop,
     Seek(i64),
     Enqueue(usize),
     SetVolume(f32),
@@ -348,6 +349,11 @@ impl Controller {
 
                     PlayerCommand::Pause => {
                         player.write().unwrap().pause();
+                        player_mail.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
+                    }
+
+                    PlayerCommand::Stop => {
+                        player.write().unwrap().stop();
                         player_mail.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
                     }
 

@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 
 use chrono::{DateTime, Utc, serde::ts_milliseconds_option};
 use crossbeam::channel::Sender;
-use dmp_core::{music_controller::controller::{ControllerHandle, LibraryCommand, LibraryResponse, PlayerLocation, PlayerResponse, QueueCommand, QueueResponse}, music_storage::library::{Song, Tag, URI}};
+use dmp_core::{music_controller::controller::{ControllerHandle, PlayerLocation}, music_storage::library::{Song, Tag, URI}};
 use itertools::Itertools;
 use kushi::QueueItemType;
 use serde::Serialize;
@@ -31,7 +31,17 @@ pub async fn pause(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>
         }
         Err(e) => Err(e.to_string())
     }
+}
 
+#[tauri::command]
+pub async fn stop(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
+    match ctrl_handle.stop().await {
+        Ok(()) => {
+            app.emit("stop", ()).unwrap();
+            Ok(())
+        }
+        Err(e) => Err(e.to_string())
+    }
 }
 
 #[tauri::command]

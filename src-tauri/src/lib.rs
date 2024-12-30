@@ -6,11 +6,11 @@ use crossbeam::channel::{bounded, unbounded, Receiver, Sender};
 use discord_presence::{models::{Activity, ActivityButton, ActivityTimestamps, ActivityType}, Event};
 use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle, LibraryResponse, PlaybackInfo}, music_storage::library::{MusicLibrary, Song}};
 use futures::channel::oneshot;
-use parking_lot::lock_api::{RawRwLock, RwLock};
+use parking_lot::RwLock;
 use rfd::FileHandle;
 use tauri::{http::Response, Emitter, Manager, State, WebviewWindowBuilder, Wry};
 use uuid::Uuid;
-use wrappers::_Song;
+use wrappers::{_Song, stop};
 
 use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next, get_queue, import_playlist, get_playlist, get_playlists, remove_from_queue, seek};
 use commands::{add_song_to_queue, play_now, display_album_art};
@@ -97,6 +97,7 @@ pub fn run() {
         get_library,
         play,
         pause,
+        stop,
         set_volume,
         next,
         prev,
@@ -123,7 +124,7 @@ pub fn run() {
         .name("PlaybackInfo handler".to_string())
         .spawn(move || {
             let mut _info = Arc::new(RwLock::new(PlaybackInfo::default()));
-            let mut _now_playing: Arc<RwLock<_, Option<Song>>> = Arc::new(RwLock::new(None));
+            let mut _now_playing = Arc::new(RwLock::new(None));
 
             scope(|s| {
                 let info = _info.clone();
@@ -153,36 +154,6 @@ pub fn run() {
 
                 let info = _info.clone();
                 let now_playing = _now_playing.clone();
-                s.spawn(|| {
-                    let info = info;
-                    let now_playing = now_playing;
-                    let mut rpc_client = discord_presence::Client::new(std::env!("DISCORD_SECRET").parse::<u64>().unwrap());
-                    rpc_client.start();
-                    rpc_client.block_until_event(Event::Connected).unwrap();
-                    rpc_client.set_activity(|_| {
-                        Activity {
-                            state: Some("Idle".to_string()),
-                            _type: Some(ActivityType::Listening),
-                            buttons: vec![ActivityButton {
-                                label: Some("Try the Player!(beta)".to_string()),
-                                url: Some("https://github.com/Dangoware/dango-music-player".to_string())
-                            }],
-                            ..Default::default()
-                        }
-                    }).unwrap();
-
-                    while true {
-                        rpc_client.set_activity(|mut a| {
-                            if let Some(song) = now_playing.read().clone() {
-
-                                a.timestamps = info.read().duration.map(|dur| ActivityTimestamps::new().end(dur.num_milliseconds() as u64) );
-                                a.details = Some(format!("{} 🍡 {}" song.tags. ))
-                            }
-                            a
-                        });
-                    }
-                });
-
 
             });
         }).unwrap();
@@ -228,7 +199,7 @@ pub fn run() {
     .run(|_app_handle, event| match event {
         tauri::RunEvent::ExitRequested { api, .. } => {
             // api.prevent_exit();
-            panic!("does this kill the player?")
+            //panic!("does this kill the player?")
         }
         _ => {}
     });

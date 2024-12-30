@@ -304,8 +304,7 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
 
       setPosition(_pos);
       setDuration(_dur);
-      let progress = (Math.floor((_pos/_dur)*100));
-      console.log(progress + '%');
+      let progress = ((_pos/_dur) * 100);
       setSeekBarSize(progress)
     })
     return () => { unlisten.then((f) => f()) }
@@ -341,10 +340,10 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
             invoke('set_volume', { volume: volume.target.value }).then(() => {})
           }} />
           <p id="timeDisplay">
-          { Math.round(+position / 60) }:
-          { (+position % 60).toString().padStart(2, "0") } /
-          { Math.round(+duration / 60) }:
-          { (+duration % 60).toString().padStart(2, "0") }
+            { Math.round(+position / 60).toString().padStart(2, "0") }:
+            { (+position % 60).toString().padStart(2, "0") }/
+            { Math.round(+duration / 60).toString().padStart(2, "0") }:
+            { (+duration % 60).toString().padStart(2, "0") }
           </p>
         </div>
       </div>

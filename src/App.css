@@ -52,6 +52,7 @@ main {
 
   /* Change to resize width */
   width: 350px;
+  min-width: 350px;
 }
 
 .bottom {
@@ -137,6 +138,9 @@ main {
   .bottomRight {
     display: flex;
     justify-content: space-around;
+    align-items: center;
+    color: var(--highlightTextColor);
+    margin-top: 14px;
   }
 
   button {
@@ -146,12 +150,23 @@ main {
     width: 50px;
     height: 100%;
     margin-right: 15px;
-    color: #FFF;
+    color: var(--mediumTextColor);
+    cursor: pointer;
   }
+}
+
+.playBar button:hover {
+  color: var(--highlightTextColor);
 }
 
 #seekBar {
   width: 100%;
+}
+
+#timeDisplay {
+  font-family: monospace;
+  font-size: 14px;
+  margin: 0 20px;
 }
 
 .nowPlaying {
@@ -243,4 +258,5 @@ main {
 .unselectable {
   -webkit-user-select: none;
   user-select: none;
+  cursor: default;
 }
