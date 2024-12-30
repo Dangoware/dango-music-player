@@ -24,7 +24,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::config::ConfigError;
-use crate::music_storage::library::Song;
+use crate::music_storage::library::{self, Song, Tag};
 use crate::music_storage::playlist::{ExternalPlaylist, Playlist, PlaylistFolderItem};
 use crate::{config::Config, music_storage::library::MusicLibrary};
 
@@ -80,6 +80,8 @@ impl<Tx: Send, Rx: Send> MailMan<Tx, Rx> {
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 pub enum PlayerCommand {
+    AllSongsInOrder,
+    SongInOrder(Uuid),
     NextSong,
     PrevSong,
     Pause,
@@ -94,7 +96,9 @@ pub enum PlayerCommand {
 #[derive(Debug, PartialEq, Clone)]
 pub enum PlayerResponse {
     Empty(Result<(), PlayerError>),
-    NowPlaying(Result<Song, QueueError>)
+    NowPlaying(Result<Song, QueueError>),
+    AllSongsInOrder(Vec<Song>),
+    SongInOrder(Song, usize),
 }
 
 #[derive(Error, Debug, PartialEq, Clone)]
@@ -107,8 +111,8 @@ pub enum PlayerError {
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 pub enum LibraryCommand {
-    Song(Uuid),
-    AllSongs,
+    Song(Uuid, Vec<library::Tag>),
+    AllSongs(Vec<library::Tag>),
     GetLibrary,
     ExternalPlaylist(Uuid),
     Playlist(Uuid),
@@ -207,6 +211,7 @@ pub struct ControllerState {
     path: PathBuf,
     volume: f32,
     now_playing: Uuid,
+    sort_order: Vec<Tag>,
 }
 
 impl ControllerState {
@@ -214,6 +219,12 @@ impl ControllerState {
         ControllerState {
             path,
             volume: 0.35,
+            sort_order: vec![
+                Tag::Field("location".to_string()),
+                Tag::Album,
+                Tag::Disk,
+                Tag::Track,
+            ],
             ..Default::default()
         }
     }
@@ -342,6 +353,22 @@ impl Controller {
             let _mail = player_mail.recv().await;
             if let Ok(mail) = _mail {
                 match mail {
+                    PlayerCommand::AllSongsInOrder => {
+                        lib_mail.send(LibraryCommand::AllSongs(state.sort_order.clone())).await.unwrap();
+                        let LibraryResponse::AllSongs(songs) = lib_mail.recv().await.unwrap() else {
+                            continue;
+                        };
+                        player_mail.send(PlayerResponse::AllSongsInOrder(songs)).await.unwrap();
+                    }
+
+                    PlayerCommand::SongInOrder(uuid) => {
+                        lib_mail.send(LibraryCommand::Song(uuid, state.sort_order.clone())).await.unwrap();
+                        let LibraryResponse::Song(song, index) = lib_mail.recv().await.unwrap() else {
+                            continue;
+                        };
+                        player_mail.send(PlayerResponse::SongInOrder(song, index)).await.unwrap();
+                    }
+
                     PlayerCommand::Play => {
                         player.write().unwrap().play();
                         player_mail.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
@@ -390,11 +417,12 @@ impl Controller {
                                 let QueueItemType::Single(np_song) = item.item else { panic!("This is temporary, handle queueItemTypes at some point")};
 
                                 // Append next song in library
-                                lib_mail.send(LibraryCommand::AllSongs).await.unwrap();
+                                dbg!(&state.sort_order);
+                                lib_mail.send(LibraryCommand::AllSongs(state.sort_order.clone())).await.unwrap();
                                 let LibraryResponse::AllSongs(songs) = lib_mail.recv().await.unwrap() else {
                                     continue;
                                 };
-                                lib_mail.send(LibraryCommand::Song(np_song.song.uuid)).await.unwrap();
+                                lib_mail.send(LibraryCommand::Song(np_song.song.uuid, state.sort_order.clone())).await.unwrap();
                                 let LibraryResponse::Song(_, i) = lib_mail.recv().await.unwrap() else {
                                     unreachable!()
                                 };
@@ -483,7 +511,7 @@ impl Controller {
 
                     PlayerCommand::PlayNow(uuid, location) => {
                         // TODO: This assumes the uuid doesn't point to an album. we've been over this.
-                        lib_mail.send(LibraryCommand::Song(uuid)).await.unwrap();
+                        lib_mail.send(LibraryCommand::Song(uuid, state.sort_order.clone())).await.unwrap();
                         let LibraryResponse::Song(song, index) = lib_mail.recv().await.unwrap() else {
                             unreachable!()
                         };
@@ -517,7 +545,7 @@ impl Controller {
 
                         let (songs, index) = match location {
                             PlayerLocation::Library => {
-                                lib_mail.send(LibraryCommand::AllSongs).await.unwrap();
+                                lib_mail.send(LibraryCommand::AllSongs(state.sort_order.clone())).await.unwrap();
                                 let LibraryResponse::AllSongs(songs) = lib_mail.recv().await.unwrap() else {
                                     unreachable!()
                                 };
@@ -623,12 +651,19 @@ impl Controller {
     ) -> Result<(), ()> {
         while true {
             match lib_mail.recv().await.unwrap() {
-                LibraryCommand::Song(uuid) => {
-                    let (song, i) = library.query_uuid(&uuid).unwrap();
+                LibraryCommand::Song(uuid, sort_order) => {
+                    let (song, _) = library.query_uuid(&uuid).unwrap();
+                    let i = library.uuid_index(&uuid, &sort_order).unwrap();
                     lib_mail.send(LibraryResponse::Song(song.clone(), i)).await.unwrap();
                 }
-                LibraryCommand::AllSongs => {
-                    lib_mail.send(LibraryResponse::AllSongs(library.library.clone())).await.unwrap();
+                LibraryCommand::AllSongs(sort_order) => {
+                    let songs = library.query_tracks(
+                        &String::from(""),
+                        &vec![Tag::Title],
+                        &sort_order,
+                    ).unwrap().iter().map(|s| (*s).clone()).collect();
+
+                    lib_mail.send(LibraryResponse::AllSongs(songs)).await.unwrap();
                 },
                 LibraryCommand::ExternalPlaylist(uuid) => {
                     let playlist = library.query_playlist_uuid(&uuid).unwrap();

@@ -10,16 +10,16 @@ use super::{controller::{ControllerHandle, LibraryCommand, LibraryResponse, Play
 impl ControllerHandle {
     // The Library Section
     pub async fn lib_get_song(&self, uuid: Uuid) -> (Song, usize) {
-        self.lib_mail.send(LibraryCommand::Song(uuid)).await.unwrap();
-        let LibraryResponse::Song(song, index) = self.lib_mail.recv().await.unwrap() else {
+        self.player_mail.send(PlayerCommand::SongInOrder(uuid)).await.unwrap();
+        let PlayerResponse::SongInOrder(song, index) = self.player_mail.recv().await.unwrap() else {
             unreachable!()
         };
         (song, index)
     }
 
     pub async fn lib_get_all(&self) -> Vec<Song> {
-        self.lib_mail.send(LibraryCommand::AllSongs).await.unwrap();
-        let LibraryResponse::AllSongs(songs) = self.lib_mail.recv().await.unwrap() else {
+        self.player_mail.send(PlayerCommand::AllSongsInOrder).await.unwrap();
+        let PlayerResponse::AllSongsInOrder(songs) = self.player_mail.recv().await.unwrap() else {
             unreachable!("It has been reached")
         };
         songs

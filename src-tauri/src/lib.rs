@@ -4,7 +4,7 @@ use std::{borrow::BorrowMut, fs, ops::Deref, path::PathBuf, sync::{atomic::Order
 
 use crossbeam::channel::{bounded, unbounded, Receiver, Sender};
 use discord_presence::{models::{Activity, ActivityButton, ActivityTimestamps, ActivityType}, Event};
-use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle, LibraryResponse, PlaybackInfo}, music_storage::library::{MusicLibrary, Song}};
+use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle, LibraryCommand, LibraryResponse, PlaybackInfo, PlayerCommand, PlayerResponse}, music_storage::library::{MusicLibrary, Song}};
 use futures::channel::oneshot;
 use parking_lot::RwLock;
 use rfd::FileHandle;
@@ -176,8 +176,8 @@ pub fn run() {
             Some(DEFAULT_IMAGE.to_vec())
         } else {futures::executor::block_on(async move {
             let controller = ctx.app_handle().state::<ControllerHandle>();
-            controller.lib_mail.send(dmp_core::music_controller::controller::LibraryCommand::Song(Uuid::parse_str(query.as_str()).unwrap())).await.unwrap();
-            let LibraryResponse::Song(song, _) = controller.lib_mail.recv().await.unwrap() else {
+            controller.player_mail.send(PlayerCommand::SongInOrder(Uuid::parse_str(query.as_str()).unwrap())).await.unwrap();
+            let PlayerResponse::SongInOrder(song, _) = controller.player_mail.recv().await.unwrap() else {
                 return None
             };
             Some(song.album_art(0).unwrap_or_else(|_| None).unwrap_or(DEFAULT_IMAGE.to_vec()))

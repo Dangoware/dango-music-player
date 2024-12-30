@@ -818,6 +818,28 @@ impl MusicLibrary {
         }
     }
 
+    pub fn uuid_index(&self, uuid: &Uuid, sort_order: &Vec<Tag>) -> Option<usize> {
+        let result = self.query_tracks(
+            &String::from(""),
+            &vec![Tag::Title],
+            sort_order,
+        )?;
+
+        let result = result.par_iter()
+            .enumerate()
+            .try_for_each(|(i, track)| {
+                if uuid == &track.uuid {
+                    return std::ops::ControlFlow::Break(i);
+                }
+                Continue(())
+            });
+
+        match result {
+            Break(i) => Some(i),
+            Continue(_) => None,
+        }
+    }
+
     /// Queries for a [Song] by its [PathBuf], returning a `Vec<&Song>`
     /// with matching `PathBuf`s
     fn query_path(&self, path: PathBuf) -> Option<Vec<&Song>> {
