@@ -31,3 +31,4 @@ Cargo.lock
 .cargo
 
 test-config
+.txt

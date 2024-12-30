@@ -36,7 +36,6 @@ rfd = "0.15.1"
 colog = "1.3.0"
 tempfile = "3.14.0"
 opener = "0.7.2"
-discord-presence = { version = "1.4.1", features = ["activity_type"] }
 parking_lot = "0.12.3"
 
 [features]

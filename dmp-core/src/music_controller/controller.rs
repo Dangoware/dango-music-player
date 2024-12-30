@@ -3,13 +3,14 @@
 //! other functions
 #![allow(while_true)]
 
-use async_channel::unbounded;
+use async_channel::{bounded, unbounded};
 use chrono::TimeDelta;
 use crossbeam::atomic::AtomicCell;
 use crossbeam_channel::{Receiver, Sender};
 use kushi::{Queue, QueueItemType};
 use kushi::{QueueError, QueueItem};
-use prismriver::{Prismriver, Volume, Error as PrismError};
+use parking_lot::RwLock;
+use prismriver::{Error as PrismError, Prismriver, State as PrismState, Volume};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
@@ -18,7 +19,7 @@ use std::error::Error;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc};
 use std::time::Duration;
 use thiserror::Error;
 use uuid::Uuid;
@@ -28,6 +29,7 @@ use crate::music_storage::library::Song;
 use crate::music_storage::playlist::{ExternalPlaylist, Playlist, PlaylistFolderItem};
 use crate::{config::Config, music_storage::library::MusicLibrary};
 
+use super::connections::{ConnectionsInput, ConnectionsNotification, ControllerConnections};
 use super::queue::{QueueAlbum, QueueSong};
 
 pub struct Controller();
@@ -166,6 +168,7 @@ pub struct ControllerInput {
     config: Arc<RwLock<Config>>,
     playback_info: Arc<AtomicCell<PlaybackInfo>>,
     notify_next_song: Sender<Song>,
+    connections: Option<ConnectionsInput>
 }
 
 pub struct ControllerHandle {
@@ -175,7 +178,7 @@ pub struct ControllerHandle {
 }
 
 impl ControllerHandle {
-    pub fn new(library: MusicLibrary, config: Arc<RwLock<Config>>) -> (Self, ControllerInput, Arc<AtomicCell<PlaybackInfo>>, Receiver<Song>) {
+    pub fn new(library: MusicLibrary, config: Arc<RwLock<Config>>, connections: Option<ConnectionsInput>) -> (Self, ControllerInput, Arc<AtomicCell<PlaybackInfo>>, Receiver<Song>) {
         let lib_mail = MailMan::double();
         let player_mail = MailMan::double();
         let queue_mail = MailMan::double();
@@ -195,6 +198,7 @@ impl ControllerHandle {
                 config,
                 playback_info: Arc::clone(&playback_info),
                 notify_next_song: notify_next_song.0,
+                connections,
             },
             playback_info,
             notify_next_song.1
@@ -246,6 +250,7 @@ impl Controller {
             config,
             playback_info,
             notify_next_song,
+            connections,
         }: ControllerInput
     ) -> Result<(), Box<dyn Error>> {
         let queue: Queue<QueueSong, QueueAlbum> = Queue {
@@ -256,7 +261,7 @@ impl Controller {
         };
 
         let state = {
-            let path = &config.read().unwrap().state_path;
+            let path = &config.read().state_path;
             if let Ok(state) = ControllerState::read_file(path) {
                 state
             } else {
@@ -264,24 +269,26 @@ impl Controller {
             }
         };
 
-        let player = Arc::new(RwLock::new(Prismriver::new()));
-
         std::thread::scope(|scope| {
+            let player = Prismriver::new();
+            let player_state = player.state.clone();
+            let player_timing = player.get_timing_recv();
+            let finished_tx = player.get_finished_recv();
+            let (notifications_rx, notifications_tx) = crossbeam_channel::unbounded::<ConnectionsNotification>();
+
             let a = scope.spawn({
-                let player = Arc::clone(&player);
                 let queue_mail = queue_mail.clone();
                 move || {
                     futures::executor::block_on(async {
                         moro::async_scope!(|scope| {
                             println!("async scope created");
 
-                            let _player = player.clone();
                             let _lib_mail = lib_mail.0.clone();
                             let _queue_mail = queue_mail.0.clone();
                             scope
                                 .spawn(async move {
                                     Controller::player_command_loop(
-                                        _player,
+                                        player,
                                         player_mail.1,
                                         _queue_mail,
                                         _lib_mail,
@@ -314,14 +321,26 @@ impl Controller {
 
             let c = scope.spawn(|| {
                 Controller::player_monitor_loop(
-                    player,
+                    player_state,
+                    player_timing,
+                    finished_tx,
                     player_mail.0,
                     queue_mail.0,
-                    playback_info,
                     notify_next_song,
+                    notifications_rx,
+                    playback_info,
                 ).unwrap();
             });
 
+            if let Some(inner) = connections {
+                dbg!(&inner);
+                let d = scope.spawn(|| {
+                    Controller::handle_connections( ControllerConnections {
+                        notifications_tx,
+                        inner,
+                    });
+                });
+            }
             a.join().unwrap();
             b.join().unwrap();
             c.join().unwrap();
@@ -331,41 +350,42 @@ impl Controller {
     }
 
     async fn player_command_loop(
-        player: Arc<RwLock<Prismriver>>,
+        mut player: Prismriver,
         player_mail: MailMan<PlayerResponse, PlayerCommand>,
         queue_mail: MailMan<QueueCommand, QueueResponse>,
         lib_mail: MailMan<LibraryCommand, LibraryResponse>,
         mut state: ControllerState,
     ) -> Result<(), ()> {
-        player.write().unwrap().set_volume(Volume::new(state.volume));
+        player.set_volume(Volume::new(state.volume));
         'outer: while true {
             let _mail = player_mail.recv().await;
             if let Ok(mail) = _mail {
                 match mail {
                     PlayerCommand::Play => {
-                        player.write().unwrap().play();
+                        player.play();
                         player_mail.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
                     }
 
                     PlayerCommand::Pause => {
-                        player.write().unwrap().pause();
+                        player.pause();
                         player_mail.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
                     }
 
                     PlayerCommand::Stop => {
-                        player.write().unwrap().stop();
+                        player.stop();
                         player_mail.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
                     }
 
                     PlayerCommand::Seek(time) => {
-                        let res = player.write().unwrap().seek_to(TimeDelta::milliseconds(time));
+                        let res = player.seek_to(TimeDelta::milliseconds(time));
                         player_mail.send(PlayerResponse::Empty(res.map_err(|e| e.into()))).await.unwrap();
                     }
 
                     PlayerCommand::SetVolume(volume) => {
-                        player.write().unwrap().set_volume(Volume::new(volume));
+                        player.set_volume(Volume::new(volume));
                         player_mail.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
 
+                        // make this async or something
                         state.volume = volume;
                         _ = state.write_file()
                     }
@@ -384,8 +404,8 @@ impl Controller {
                                 println!("Playing song at path: {:?}", prism_uri);
 
                                 // handle error here for unknown formats
-                                player.write().unwrap().load_new(&prism_uri).unwrap();
-                                player.write().unwrap().play();
+                                player.load_new(&prism_uri).unwrap();
+                                player.play();
 
                                 let QueueItemType::Single(np_song) = item.item else { panic!("This is temporary, handle queueItemTypes at some point")};
 
@@ -441,8 +461,8 @@ impl Controller {
                                 };
 
                                 let prism_uri = prismriver::utils::path_to_uri(&uri.as_path().unwrap()).unwrap();
-                                player.write().unwrap().load_new(&prism_uri).unwrap();
-                                player.write().unwrap().play();
+                                player.load_new(&prism_uri).unwrap();
+                                player.play();
 
                                 let QueueItemType::Single(np_song) = item.item else { panic!("This is temporary, handle queueItemTypes at some point")};
                                 player_mail.send(PlayerResponse::NowPlaying(Ok(np_song.song.clone()))).await.unwrap();
@@ -467,8 +487,8 @@ impl Controller {
                                 match item.item {
                                     QueueItemType::Single(song) => {
                                         let prism_uri = prismriver::utils::path_to_uri(&song.song.primary_uri().unwrap().0.as_path().unwrap()).unwrap();
-                                        player.write().unwrap().load_new(&prism_uri).unwrap();
-                                        player.write().unwrap().play();
+                                        player.load_new(&prism_uri).unwrap();
+                                        player.play();
                                     }
                                     _ => unimplemented!(),
                                 }
@@ -508,8 +528,8 @@ impl Controller {
 
                         // TODO: Handle non Local URIs here, and whenever `load_new()` or `load_gapless()` is called
                         let prism_uri = prismriver::utils::path_to_uri(&song.primary_uri().unwrap().0.as_path().unwrap()).unwrap();
-                        player.write().unwrap().load_new(&prism_uri).unwrap();
-                        player.write().unwrap().play();
+                        player.load_new(&prism_uri).unwrap();
+                        player.play();
 
                         // how grab all the songs in a certain subset of the library, I reckon?
                         // ...
@@ -563,36 +583,33 @@ impl Controller {
     }
 
     fn player_monitor_loop(
-        player: Arc<RwLock<Prismriver>>,
+        playback_state: Arc<std::sync::RwLock<PrismState>>,
+        playback_time_tx: Receiver<(Option<TimeDelta>, Option<TimeDelta>)>,
+        finished_recv: Receiver<()>,
         player_mail: MailMan<PlayerCommand, PlayerResponse>,
         queue_mail: MailMan<QueueCommand, QueueResponse>,
-        player_info: Arc<AtomicCell<PlaybackInfo>>,
         notify_next_song: Sender<Song>,
+        notify_connections_: Sender<ConnectionsNotification>,
+        playback_info: Arc<AtomicCell<PlaybackInfo>>
     ) -> Result<(), ()> {
-
-        let finished_recv = player.read().unwrap().get_finished_recv();
-
         std::thread::scope(|s| {
             // Thread for timing and metadata
+            let notify_connections = notify_connections_.clone();
             s.spawn({
-                // let player = Arc::clone(&player);
                 move || {
+                    println!("playback monitor started");
                     while true {
-                        let player = player.read().unwrap();
-                        player_info.store(PlaybackInfo {
-                            duration: player.duration(),
-                            position: player.position(),
-                            metadata: player.metadata(),
-                        });
-                        drop(player);
-
-                        std::thread::sleep(Duration::from_millis(100));
+                        let (position, duration) = playback_time_tx.recv().unwrap();
+                        notify_connections.send(ConnectionsNotification::Playback { position: position.clone(), duration: duration.clone() }).unwrap();
+                        playback_info.store(PlaybackInfo { position, duration });
                     }
                 }
             });
 
             // Thread for End of Track
+            let notify_connections = notify_connections_.clone();
             s.spawn(move || { futures::executor::block_on(async {
+                println!("EOS monitor started");
                 while true {
                     let _ = finished_recv.recv();
                     println!("End of song");
@@ -602,16 +619,31 @@ impl Controller {
                         unreachable!()
                     };
                     if let Ok(song) = res {
-                        notify_next_song.send(song).unwrap();
+                        notify_next_song.send(song.clone()).unwrap();
+                        notify_connections.send(ConnectionsNotification::SongChange(song)).unwrap();
                     }
                 }
                 std::thread::sleep(Duration::from_millis(100));
             });});
+
+            let notify_connections = notify_connections_.clone();
+            s.spawn(move || {
+                let mut state = PrismState::Stopped;
+                while true {
+                    let _state = playback_state.read().unwrap().to_owned();
+                    if  _state != state {
+                        state = _state;
+                        println!("State Changed to {state:?}");
+                        notify_connections.send(ConnectionsNotification::StateChange(state.clone())).unwrap();
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            });
         });
 
-             // Check for duration and spit it out
-             // Check for end of song to get the next
 
+
+        println!("Monitor Loops Ended");
         Ok(())
     }
 
@@ -643,7 +675,7 @@ impl Controller {
                     lib_mail.send(LibraryResponse::ImportM3UPlayList(uuid, name)).await.unwrap();
                 }
                 LibraryCommand::Save => {
-                    library.save(config.read().unwrap().libraries.get_library(&library.uuid).unwrap().path.clone()).unwrap();
+                    library.save(config.read().libraries.get_library(&library.uuid).unwrap().path.clone()).unwrap();
                     lib_mail.send(LibraryResponse::Ok).await.unwrap();
                 }
                 LibraryCommand::Playlists => {
@@ -716,7 +748,6 @@ impl Controller {
 
 #[derive(Debug, Default, Serialize, Clone)]
 pub struct PlaybackInfo {
-    pub duration: Option<TimeDelta>,
     pub position: Option<TimeDelta>,
-    pub metadata: HashMap<String, String>,
+    pub duration: Option<TimeDelta>,
 }

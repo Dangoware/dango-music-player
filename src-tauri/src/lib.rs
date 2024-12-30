@@ -3,8 +3,7 @@
 use std::{borrow::BorrowMut, fs, ops::Deref, path::PathBuf, sync::{atomic::Ordering, Arc}, thread::{scope, spawn}, time::Duration};
 
 use crossbeam::channel::{bounded, unbounded, Receiver, Sender};
-use discord_presence::{models::{Activity, ActivityButton, ActivityTimestamps, ActivityType}, Event};
-use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle, LibraryResponse, PlaybackInfo}, music_storage::library::{MusicLibrary, Song}};
+use dmp_core::{config::{Config, ConfigLibrary}, music_controller::{connections::ConnectionsInput, controller::{Controller, ControllerHandle, LibraryResponse, PlaybackInfo}}, music_storage::library::{MusicLibrary, Song, Tag}};
 use futures::channel::oneshot;
 use parking_lot::RwLock;
 use rfd::FileHandle;
@@ -77,7 +76,10 @@ pub fn run() {
             next_song_notification,
         ) = ControllerHandle::new(
             library,
-            std::sync::Arc::new(std::sync::RwLock::new(config))
+            std::sync::Arc::new(RwLock::new(config)),
+            Some(ConnectionsInput {
+                discord_rpc_client_id: std::option_env!("DISCORD_CLIENT_ID").map(|id| id.parse::<u64>().unwrap()),
+            }),
         );
 
         handle_rx.send(handle).unwrap();
@@ -123,8 +125,8 @@ pub fn run() {
         std::thread::Builder::new()
         .name("PlaybackInfo handler".to_string())
         .spawn(move || {
-            let mut _info = Arc::new(RwLock::new(PlaybackInfo::default()));
-            let mut _now_playing = Arc::new(RwLock::new(None));
+            let mut _info: Arc<RwLock<PlaybackInfo>> = Arc::new(RwLock::new(PlaybackInfo::default()));
+            let mut _now_playing: Arc<RwLock<Option<Song>>> = Arc::new(RwLock::new(None));
 
             scope(|s| {
                 let info = _info.clone();
@@ -148,13 +150,9 @@ pub fn run() {
                         app.emit("now_playing_change", _Song::from(&song)).unwrap();
                         app.emit("queue_updated", ()).unwrap();
                         app.emit("playing", ()).unwrap();
-                        now_playing.write().insert(song);
+                        _ = now_playing.write().insert(song);
                     }
                 });
-
-                let info = _info.clone();
-                let now_playing = _now_playing.clone();
-
             });
         }).unwrap();
 

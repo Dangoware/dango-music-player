@@ -299,12 +299,12 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
   useEffect(() => {
     const unlisten = appWindow.listen<any>("playback_info", ({ payload, }) => {
       const info = payload as playbackInfo;
-      const _pos = Array.isArray(info.position) ? info.position![0] : 0;
-      const _dur = Array.isArray(info.duration) ? info.duration![0] : 0;
+      const pos_ = Array.isArray(info.position) ? info.position![0] : 0;
+      const dur_ = Array.isArray(info.duration) ? info.duration![0] : 0;
 
-      setPosition(_pos);
-      setDuration(_dur);
-      let progress = ((_pos/_dur) * 100);
+      setPosition(pos_);
+      setDuration(dur_);
+      let progress = ((dur_/pos_) * 100);
       setSeekBarSize(progress)
     })
     return () => { unlisten.then((f) => f()) }
@@ -313,7 +313,7 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
   const seek = (event: React.MouseEvent<HTMLDivElement>) => {
     event.stopPropagation();
     let rect = seekBarRef.current!.getBoundingClientRect();
-    let val = ((event.clientX-rect.left) / (rect.width))*duration;
+    let val = ((event.clientX-rect.left) / (rect.width))*position;
 
     invoke('seek', { time: Math.round(val * 1000) }).then()
   };
@@ -340,9 +340,9 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
             invoke('set_volume', { volume: volume.target.value }).then(() => {})
           }} />
           <p id="timeDisplay">
-            { Math.round(+position / 60).toString().padStart(2, "0") }:
-            { (+position % 60).toString().padStart(2, "0") }/
             { Math.round(+duration / 60).toString().padStart(2, "0") }:
+            { (+position % 60).toString().padStart(2, "0") }/
+            { Math.round(+position / 60).toString().padStart(2, "0") }:
             { (+duration % 60).toString().padStart(2, "0") }
           </p>
         </div>

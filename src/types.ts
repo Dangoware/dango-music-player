@@ -63,7 +63,6 @@ export enum BannedType {
 }
 
 export interface playbackInfo {
-    duration?: number[],
     position?: [number, number],
-    metadata: Map<string, string>
+    duration?: [number, number],
 }
