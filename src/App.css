@@ -239,3 +239,8 @@ main {
   margin: 0;
   color: var(--mediumTextColor);
 }
+
+.unselectable {
+  -webkit-user-select: none;
+  user-select: none;
+}

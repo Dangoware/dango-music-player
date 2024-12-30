@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import React, { createRef, useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import "./App.css";
-import { Config } from "./types";
+import { Config, playbackInfo } from "./types";
 // import { EventEmitter } from "@tauri-apps/plugin-shell";
 // import { listen } from "@tauri-apps/api/event";
 // import { fetch } from "@tauri-apps/plugin-http";
@@ -263,13 +263,13 @@ function Song(props: SongProps) {
   // console.log(props.tags);
 
   return(
-    <div onClick={() => {
+    <div onDoubleClick={() => {
       invoke("play_now", { uuid: props.uuid, location: props.playerLocation }).then(() => {})
     }} className="song">
-      <p className="artist">{ props.tags.TrackArtist }</p>
-      <p className="title">{ props.tags.TrackTitle }</p>
-      <p className="album">{ props.tags.AlbumTitle }</p>
-      <p className="duration">
+      <p className="artist unselectable">{ props.tags.TrackArtist }</p>
+      <p className="title  unselectable">{ props.tags.TrackTitle }</p>
+      <p className="album  unselectable">{ props.tags.AlbumTitle }</p>
+      <p className="duration  unselectable">
         { Math.round(+props.duration / 60) }:
         { (+props.duration % 60).toString().padStart(2, "0") }
       </p>
@@ -291,10 +291,38 @@ interface PlayBarProps {
 }
 
 function PlayBar({ playing, setPlaying }: PlayBarProps) {
+  const [position, setPosition] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [seekBarSize, setSeekBarSize] = useState(0);
+  const seekBarRef = React.createRef<HTMLDivElement>();
+
+  useEffect(() => {
+    const unlisten = appWindow.listen<any>("playback_info", ({ payload, }) => {
+      const info = payload as playbackInfo;
+      const _pos = Array.isArray(info.position) ? info.position![0] : 0;
+      const _dur = Array.isArray(info.duration) ? info.duration![0] : 0;
+
+      setPosition(_pos);
+      setDuration(_dur);
+      let progress = (Math.floor((_pos/_dur)*100));
+      console.log(progress + '%');
+      setSeekBarSize(progress)
+    })
+    return () => { unlisten.then((f) => f()) }
+  }, []);
+
+  const seek = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    let rect = seekBarRef.current!.getBoundingClientRect();
+    let val = ((event.clientX-rect.left) / (rect.width))*duration;
+
+    invoke('seek', { time: Math.round(val * 1000) }).then()
+  };
+
   return (
-    <section id="playBar" className="playBar">
-      <div className="seekBar">
-        <div className="seekOverlay" id="seekOverlay"></div>
+    <section id="playBar" className="playBar unselectable">
+      <div className="seekBar" ref={ seekBarRef } onClick={ seek } onDrag={ seek }>
+        <div className="seekOverlay" id="seekOverlay" style={{ width: seekBarSize + '%' } }></div>
       </div>
       <div className="bottomSpaced">
         <div className="bottomLeft">
@@ -312,7 +340,12 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
           <input type="range" name="volume" id="volumeSlider" onChange={ (volume) => {
             invoke('set_volume', { volume: volume.target.value }).then(() => {})
           }} />
-          <p id="timeDisplay"></p>
+          <p id="timeDisplay">
+          { Math.round(+position / 60) }:
+          { (+position % 60).toString().padStart(2, "0") } /
+          { Math.round(+duration / 60) }:
+          { (+duration % 60).toString().padStart(2, "0") }
+          </p>
         </div>
       </div>
     </section>
@@ -329,7 +362,7 @@ interface NowPlayingProps {
 function NowPlaying({ title, artist, album, artwork }: NowPlayingProps) {
   return (
     <section className="nowPlaying">
-      <div className="artworkWrapper">
+      <div className="artworkWrapper unselectable">
         { artwork }
       </div>
       <h3>{ title }</h3>
@@ -358,7 +391,7 @@ interface QueueSongProps {
 }
 
 function QueueSong({ song, location, index }: QueueSongProps) {
-  console.log(song.tags);
+  // console.log(song.tags);
 
   let removeFromQueue = () => {
     invoke('remove_from_queue', { index: index }).then(() => {})

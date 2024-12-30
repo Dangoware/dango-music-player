@@ -106,6 +106,14 @@ impl ControllerHandle {
         res
     }
 
+    pub async fn seek(&self, time: i64) -> Result<(), PlayerError> {
+        self.player_mail.send(PlayerCommand::Seek(time)).await.unwrap();
+        let PlayerResponse::Empty(res) = self.player_mail.recv().await.unwrap() else {
+            unreachable!()
+        };
+        res
+    }
+
     pub async fn set_volume(&self, volume: f32) -> () {
         self.player_mail.send(PlayerCommand::SetVolume(volume)).await.unwrap();
         let PlayerResponse::Empty(Ok(())) = self.player_mail.recv().await.unwrap() else {

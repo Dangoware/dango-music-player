@@ -1,12 +1,18 @@
-use std::{fs, path::PathBuf, str::FromStr, thread::{scope, spawn}};
+#![allow(while_true)]
 
-use crossbeam::channel::{unbounded, Receiver, Sender};
-use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle, LibraryResponse, PlaybackInfo}, music_storage::library::MusicLibrary};
+use std::{borrow::BorrowMut, fs, ops::Deref, path::PathBuf, sync::{atomic::Ordering, Arc}, thread::{scope, spawn}, time::Duration};
+
+use crossbeam::channel::{bounded, unbounded, Receiver, Sender};
+use discord_presence::{models::{Activity, ActivityButton, ActivityTimestamps, ActivityType}, Event};
+use dmp_core::{config::{Config, ConfigLibrary}, music_controller::controller::{Controller, ControllerHandle, LibraryResponse, PlaybackInfo}, music_storage::library::{MusicLibrary, Song}};
+use futures::channel::oneshot;
+use parking_lot::lock_api::{RawRwLock, RwLock};
 use rfd::FileHandle;
 use tauri::{http::Response, Emitter, Manager, State, WebviewWindowBuilder, Wry};
 use uuid::Uuid;
+use wrappers::_Song;
 
-use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next, get_queue, import_playlist, get_playlist, get_playlists, remove_from_queue};
+use crate::wrappers::{get_library, play, pause, prev, set_volume, get_song, next, get_queue, import_playlist, get_playlist, get_playlists, remove_from_queue, seek};
 use commands::{add_song_to_queue, play_now, display_album_art};
 
 
@@ -20,15 +26,25 @@ pub fn run() {
     let (rx, tx) = unbounded::<Config>();
     let (lib_rx, lib_tx) = unbounded::<Option<PathBuf>>();
     let (handle_rx, handle_tx) = unbounded::<ControllerHandle>();
+    let (playback_info_rx, playback_info_tx) = bounded(1);
+    let (next_rx, next_tx) = bounded(1);
 
-    let controller_thread = spawn(move || {
+    let _controller_thread = spawn(move || {
         let mut config = { tx.recv().unwrap() } ;
         let scan_path = { lib_tx.recv().unwrap() };
         let _temp_config = ConfigLibrary::default();
         let _lib = config.libraries.get_default().unwrap_or(&_temp_config);
 
         let save_path = if _lib.path == PathBuf::default() {
-            scan_path.as_ref().unwrap().clone().canonicalize().unwrap().join("library.dlib")
+            let p = scan_path.as_ref().unwrap().clone().canonicalize().unwrap();
+
+            if cfg!(windows) {
+                p.join("library_windows.dlib")
+            } else if cfg!(unix) {
+                p.join("library_unix.dlib")
+            } else {
+                p.join("library.dlib")
+            }
         } else {
             _lib.path.clone()
         };
@@ -54,21 +70,22 @@ pub fn run() {
 
         library.save(save_path).unwrap();
 
-        let (handle, input, playback_info) = ControllerHandle::new(
+        let (
+            handle,
+            input,
+            playback_info,
+            next_song_notification,
+        ) = ControllerHandle::new(
             library,
             std::sync::Arc::new(std::sync::RwLock::new(config))
         );
 
         handle_rx.send(handle).unwrap();
+        playback_info_rx.send(playback_info).unwrap();
+        next_rx.send(next_song_notification).unwrap();
 
-        scope(|s| {
-            s.spawn(|| {
-                let _controller = futures::executor::block_on(Controller::start(input)).unwrap();
-            });
-            s.spawn(|| {
+        let _controller = futures::executor::block_on(Controller::start(input)).unwrap();
 
-            });
-        })
 
 
     });
@@ -93,10 +110,85 @@ pub fn run() {
         get_playlists,
         remove_from_queue,
         display_album_art,
+        seek,
     ]).manage(ConfigRx(rx))
     .manage(LibRx(lib_rx))
     .manage(HandleTx(handle_tx))
     .manage(tempfile::TempDir::new().unwrap())
+    .setup(|app| {
+        let _app = app.handle().clone();
+        let app = _app.clone();
+
+        std::thread::Builder::new()
+        .name("PlaybackInfo handler".to_string())
+        .spawn(move || {
+            let mut _info = Arc::new(RwLock::new(PlaybackInfo::default()));
+            let mut _now_playing: Arc<RwLock<_, Option<Song>>> = Arc::new(RwLock::new(None));
+
+            scope(|s| {
+                let info = _info.clone();
+                s.spawn(|| {
+                    let info = info;
+                    let playback_info = playback_info_tx.recv().unwrap();
+                    while true {
+                        let i = playback_info.take();
+                        app.emit("playback_info", i.clone()).unwrap();
+                        *info.write() = i;
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                });
+
+                let now_playing = _now_playing.clone();
+                s.spawn(|| {
+                    let now_playing = now_playing;
+                    let next_song_notification = next_tx.recv().unwrap();
+                    while true {
+                        let song = next_song_notification.recv().unwrap();
+                        app.emit("now_playing_change", _Song::from(&song)).unwrap();
+                        app.emit("queue_updated", ()).unwrap();
+                        app.emit("playing", ()).unwrap();
+                        now_playing.write().insert(song);
+                    }
+                });
+
+                let info = _info.clone();
+                let now_playing = _now_playing.clone();
+                s.spawn(|| {
+                    let info = info;
+                    let now_playing = now_playing;
+                    let mut rpc_client = discord_presence::Client::new(std::env!("DISCORD_SECRET").parse::<u64>().unwrap());
+                    rpc_client.start();
+                    rpc_client.block_until_event(Event::Connected).unwrap();
+                    rpc_client.set_activity(|_| {
+                        Activity {
+                            state: Some("Idle".to_string()),
+                            _type: Some(ActivityType::Listening),
+                            buttons: vec![ActivityButton {
+                                label: Some("Try the Player!(beta)".to_string()),
+                                url: Some("https://github.com/Dangoware/dango-music-player".to_string())
+                            }],
+                            ..Default::default()
+                        }
+                    }).unwrap();
+
+                    while true {
+                        rpc_client.set_activity(|mut a| {
+                            if let Some(song) = now_playing.read().clone() {
+
+                                a.timestamps = info.read().duration.map(|dur| ActivityTimestamps::new().end(dur.num_milliseconds() as u64) );
+                                a.details = Some(format!("{} 🍡 {}" song.tags. ))
+                            }
+                            a
+                        });
+                    }
+                });
+
+
+            });
+        }).unwrap();
+
+        Ok(())
+    })
     .register_asynchronous_uri_scheme_protocol("asset", move |ctx, req, res| {
         let query = req
             .clone()

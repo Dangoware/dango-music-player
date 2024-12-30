@@ -3,8 +3,10 @@
 //! other functions
 #![allow(while_true)]
 
+use async_channel::unbounded;
 use chrono::TimeDelta;
 use crossbeam::atomic::AtomicCell;
+use crossbeam_channel::{Receiver, Sender};
 use kushi::{Queue, QueueItemType};
 use kushi::{QueueError, QueueItem};
 use prismriver::{Prismriver, Volume, Error as PrismError};
@@ -82,6 +84,7 @@ pub enum PlayerCommand {
     PrevSong,
     Pause,
     Play,
+    Seek(i64),
     Enqueue(usize),
     SetVolume(f32),
     PlayNow(Uuid, PlayerLocation),
@@ -161,6 +164,7 @@ pub struct ControllerInput {
     library: MusicLibrary,
     config: Arc<RwLock<Config>>,
     playback_info: Arc<AtomicCell<PlaybackInfo>>,
+    notify_next_song: Sender<Song>,
 }
 
 pub struct ControllerHandle {
@@ -170,11 +174,12 @@ pub struct ControllerHandle {
 }
 
 impl ControllerHandle {
-    pub fn new(library: MusicLibrary, config: Arc<RwLock<Config>>) -> (Self, ControllerInput, Arc<AtomicCell<PlaybackInfo>>) {
+    pub fn new(library: MusicLibrary, config: Arc<RwLock<Config>>) -> (Self, ControllerInput, Arc<AtomicCell<PlaybackInfo>>, Receiver<Song>) {
         let lib_mail = MailMan::double();
         let player_mail = MailMan::double();
         let queue_mail = MailMan::double();
         let playback_info = Arc::new(AtomicCell::new(PlaybackInfo::default()));
+        let notify_next_song = crossbeam::channel::unbounded::<Song>();
         (
             ControllerHandle {
                 lib_mail: lib_mail.0.clone(),
@@ -188,8 +193,10 @@ impl ControllerHandle {
                 library,
                 config,
                 playback_info: Arc::clone(&playback_info),
+                notify_next_song: notify_next_song.0,
             },
             playback_info,
+            notify_next_song.1
         )
     }
 }
@@ -237,6 +244,7 @@ impl Controller {
             mut library,
             config,
             playback_info,
+            notify_next_song,
         }: ControllerInput
     ) -> Result<(), Box<dyn Error>> {
         let queue: Queue<QueueSong, QueueAlbum> = Queue {
@@ -309,6 +317,7 @@ impl Controller {
                     player_mail.0,
                     queue_mail.0,
                     playback_info,
+                    notify_next_song,
                 ).unwrap();
             });
 
@@ -328,7 +337,6 @@ impl Controller {
         mut state: ControllerState,
     ) -> Result<(), ()> {
         player.write().unwrap().set_volume(Volume::new(state.volume));
-        println!("volume set to {}", state.volume);
         'outer: while true {
             let _mail = player_mail.recv().await;
             if let Ok(mail) = _mail {
@@ -343,9 +351,13 @@ impl Controller {
                         player_mail.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
                     }
 
+                    PlayerCommand::Seek(time) => {
+                        let res = player.write().unwrap().seek_to(TimeDelta::milliseconds(time));
+                        player_mail.send(PlayerResponse::Empty(res.map_err(|e| e.into()))).await.unwrap();
+                    }
+
                     PlayerCommand::SetVolume(volume) => {
                         player.write().unwrap().set_volume(Volume::new(volume));
-                        println!("volume set to {volume}");
                         player_mail.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
 
                         state.volume = volume;
@@ -403,6 +415,9 @@ impl Controller {
                                 }
 
                                 player_mail.send(PlayerResponse::NowPlaying(Ok(np_song.song.clone()))).await.unwrap();
+
+                                state.now_playing = np_song.song.uuid;
+                                _ = state.write_file();
                             } QueueResponse::Item(Err(e)) => {
                                 player_mail.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
                             }
@@ -425,6 +440,9 @@ impl Controller {
 
                                 let QueueItemType::Single(np_song) = item.item else { panic!("This is temporary, handle queueItemTypes at some point")};
                                 player_mail.send(PlayerResponse::NowPlaying(Ok(np_song.song.clone()))).await.unwrap();
+
+                                state.now_playing = np_song.song.uuid;
+                                _ = state.write_file();
                             }
                             QueueResponse::Item(Err(e)) => {
                                 player_mail.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
@@ -543,6 +561,7 @@ impl Controller {
         player_mail: MailMan<PlayerCommand, PlayerResponse>,
         queue_mail: MailMan<QueueCommand, QueueResponse>,
         player_info: Arc<AtomicCell<PlaybackInfo>>,
+        notify_next_song: Sender<Song>,
     ) -> Result<(), ()> {
 
         let finished_recv = player.read().unwrap().get_finished_recv();
@@ -550,7 +569,7 @@ impl Controller {
         std::thread::scope(|s| {
             // Thread for timing and metadata
             s.spawn({
-                let player = Arc::clone(&player);
+                // let player = Arc::clone(&player);
                 move || {
                     while true {
                         let player = player.read().unwrap();
@@ -567,13 +586,21 @@ impl Controller {
             });
 
             // Thread for End of Track
-            s.spawn(move || {
+            s.spawn(move || { futures::executor::block_on(async {
                 while true {
                     let _ = finished_recv.recv();
+                    println!("End of song");
 
-                    std::thread::sleep(Duration::from_millis(100));
+                    player_mail.send(PlayerCommand::NextSong).await.unwrap();
+                    let PlayerResponse::NowPlaying(res) = player_mail.recv().await.unwrap() else {
+                        unreachable!()
+                    };
+                    if let Ok(song) = res {
+                        notify_next_song.send(song).unwrap();
+                    }
                 }
-            });
+                std::thread::sleep(Duration::from_millis(100));
+            });});
         });
 
              // Check for duration and spit it out
@@ -681,7 +708,7 @@ impl Controller {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Clone)]
 pub struct PlaybackInfo {
     pub duration: Option<TimeDelta>,
     pub position: Option<TimeDelta>,

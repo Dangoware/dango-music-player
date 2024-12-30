@@ -193,3 +193,8 @@ pub async fn get_song(ctrl_handle: State<'_, ControllerHandle>, uuid: Uuid) -> R
     println!("got song {}", &song.tags.get(&Tag::Title).unwrap_or(&String::new()));
     Ok(_Song::from(&song))
 }
+
+#[tauri::command]
+pub async fn seek(ctrl_handle: State<'_, ControllerHandle>, time: i64) -> Result<(), String> {
+    ctrl_handle.seek(time).await.map_err(|e| e.to_string())
+}
