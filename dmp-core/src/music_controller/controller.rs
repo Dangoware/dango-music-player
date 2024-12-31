@@ -28,6 +28,7 @@ use crate::music_storage::playlist::{ExternalPlaylist, Playlist, PlaylistFolderI
 use crate::{config::Config, music_storage::library::MusicLibrary};
 
 use super::connections::{ConnectionsInput, ConnectionsNotification, ControllerConnections};
+use super::controller_handle::{LibraryCommandInput, PlayerCommandInput, QueueCommandInput};
 use super::queue::{QueueAlbum, QueueSong};
 
 pub struct Controller();
@@ -151,16 +152,16 @@ pub enum QueueResponse {
 
 pub struct ControllerInput {
     player_mail: (
-        MailMan<PlayerCommand, PlayerResponse>,
-        MailMan<PlayerResponse, PlayerCommand>,
+        async_channel::Sender<PlayerCommandInput>,
+        async_channel::Receiver<PlayerCommandInput>
     ),
     lib_mail: (
-        MailMan<LibraryCommand, LibraryResponse>,
-        MailMan<LibraryResponse, LibraryCommand>
+        async_channel::Sender<LibraryCommandInput>,
+        async_channel::Receiver<LibraryCommandInput>
     ),
     queue_mail: (
-        MailMan<QueueCommand, QueueResponse>,
-        MailMan<QueueResponse, QueueCommand>
+        async_channel::Sender<QueueCommandInput>,
+        async_channel::Receiver<QueueCommandInput>
     ),
     library: MusicLibrary,
     config: Arc<RwLock<Config>>,
@@ -170,28 +171,28 @@ pub struct ControllerInput {
 }
 
 pub struct ControllerHandle {
-    pub lib_mail: MailMan<LibraryCommand, LibraryResponse>,
-    pub player_mail: MailMan<PlayerCommand, PlayerResponse>,
-    pub queue_mail: MailMan<QueueCommand, QueueResponse>,
+    pub(super) lib_mail_rx: async_channel::Sender<LibraryCommandInput>,
+    pub(super) player_mail_rx: async_channel::Sender<PlayerCommandInput>,
+    pub(super)  queue_mail_rx: async_channel::Sender<QueueCommandInput>,
 }
 
 impl ControllerHandle {
     pub fn new(library: MusicLibrary, config: Arc<RwLock<Config>>, connections: Option<ConnectionsInput>) -> (Self, ControllerInput, Arc<AtomicCell<PlaybackInfo>>, Receiver<Song>) {
-        let lib_mail = MailMan::double();
-        let player_mail = MailMan::double();
-        let queue_mail = MailMan::double();
+        let (lib_mail_rx, lib_mail_tx) = async_channel::unbounded();
+        let (player_mail_rx, player_mail_tx) = async_channel::unbounded();
+        let (queue_mail_rx, queue_mail_tx)= async_channel::unbounded();
         let playback_info = Arc::new(AtomicCell::new(PlaybackInfo::default()));
         let notify_next_song = crossbeam::channel::unbounded::<Song>();
         (
             ControllerHandle {
-                lib_mail: lib_mail.0.clone(),
-                player_mail: player_mail.0.clone(),
-                queue_mail: queue_mail.0.clone()
+                lib_mail_rx: lib_mail_rx.clone(),
+                player_mail_rx: player_mail_rx.clone(),
+                queue_mail_rx: queue_mail_rx.clone()
             },
             ControllerInput {
-                player_mail,
-                lib_mail,
-                queue_mail,
+                player_mail: (player_mail_rx, player_mail_tx),
+                lib_mail: (lib_mail_rx, lib_mail_tx),
+                queue_mail: (queue_mail_rx, queue_mail_tx),
                 library,
                 config,
                 playback_info: Arc::clone(&playback_info),
@@ -351,40 +352,40 @@ impl Controller {
 
     async fn player_command_loop(
         mut player: Prismriver,
-        player_mail: MailMan<PlayerResponse, PlayerCommand>,
-        queue_mail: MailMan<QueueCommand, QueueResponse>,
-        lib_mail: MailMan<LibraryCommand, LibraryResponse>,
+        player_mail: async_channel::Receiver<PlayerCommandInput>,
+        queue_mail: async_channel::Sender<QueueCommandInput>,
+        lib_mail: async_channel::Sender<LibraryCommandInput>,
         notify_connections_: Sender<ConnectionsNotification>,
         mut state: ControllerState,
     ) -> Result<(), ()> {
         player.set_volume(Volume::new(state.volume));
         'outer: while true {
             let _mail = player_mail.recv().await;
-            if let Ok(mail) = _mail {
-                match mail {
+            if let Ok(PlayerCommandInput {res_rx, command}) = _mail {
+                match command {
                     PlayerCommand::Play => {
                         player.play();
-                        player_mail.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
+                        res_rx.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
                     }
 
                     PlayerCommand::Pause => {
                         player.pause();
-                        player_mail.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
+                        res_rx.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
                     }
 
                     PlayerCommand::Stop => {
                         player.stop();
-                        player_mail.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
+                        res_rx.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
                     }
 
                     PlayerCommand::Seek(time) => {
                         let res = player.seek_to(TimeDelta::milliseconds(time));
-                        player_mail.send(PlayerResponse::Empty(res.map_err(|e| e.into()))).await.unwrap();
+                        res_rx.send(PlayerResponse::Empty(res.map_err(|e| e.into()))).await.unwrap();
                     }
 
                     PlayerCommand::SetVolume(volume) => {
                         player.set_volume(Volume::new(volume));
-                        player_mail.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
+                        res_rx.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
 
                         // make this async or something
                         state.volume = volume;
@@ -392,9 +393,10 @@ impl Controller {
                     }
 
                     PlayerCommand::NextSong => {
-                        queue_mail.send(QueueCommand::Next).await.unwrap();
+                        let (command, tx) = QueueCommandInput::command(QueueCommand::Next);
+                        queue_mail.send(command).await.unwrap();
 
-                        match queue_mail.recv().await.unwrap() {
+                        match tx.recv().await.unwrap() {
                             QueueResponse::Item(Ok(item)) => {
                                 let uri = match &item.item {
                                     QueueItemType::Single(song) => song.song.primary_uri().unwrap().0,
@@ -410,17 +412,20 @@ impl Controller {
 
                                 let QueueItemType::Single(np_song) = item.item else { panic!("This is temporary, handle queueItemTypes at some point")};
 
+                                let (command, tx) = LibraryCommandInput::command(LibraryCommand::AllSongs);
                                 // Append next song in library
-                                lib_mail.send(LibraryCommand::AllSongs).await.unwrap();
-                                let LibraryResponse::AllSongs(songs) = lib_mail.recv().await.unwrap() else {
+                                lib_mail.send(command).await.unwrap();
+                                let LibraryResponse::AllSongs(songs) = tx.recv().await.unwrap() else {
                                     continue;
                                 };
-                                lib_mail.send(LibraryCommand::Song(np_song.song.uuid)).await.unwrap();
-                                let LibraryResponse::Song(_, i) = lib_mail.recv().await.unwrap() else {
+
+                                let (command, tx) = LibraryCommandInput::command(LibraryCommand::Song(np_song.song.uuid));
+                                lib_mail.send(command).await.unwrap();
+                                let LibraryResponse::Song(_, i) = tx.recv().await.unwrap() else {
                                     unreachable!()
                                 };
                                 if let Some(song) = songs.get(i + 49) {
-                                    queue_mail.send(
+                                    let (command, tx) = QueueCommandInput::command(
                                         QueueCommand::Append(
                                             QueueItem::from_item_type(
                                                 QueueItemType::Single(
@@ -432,30 +437,32 @@ impl Controller {
                                             ),
                                             false
                                         )
-                                    ).await
+                                    );
+                                    queue_mail.send(command).await
                                     .unwrap();
-                                    let QueueResponse::Empty(Ok(())) = queue_mail.recv().await.unwrap() else {
+                                    let QueueResponse::Empty(Ok(())) = tx.recv().await.unwrap() else {
                                         unreachable!()
                                     };
                                 } else {
                                     println!("Library Empty");
                                 }
 
-                                player_mail.send(PlayerResponse::NowPlaying(Ok(np_song.song.clone()))).await.unwrap();
+                                res_rx.send(PlayerResponse::NowPlaying(Ok(np_song.song.clone()))).await.unwrap();
 
                                 state.now_playing = np_song.song.uuid;
                                 _ = state.write_file();
                                 notify_connections_.send(ConnectionsNotification::SongChange(np_song.song)).unwrap();
                             } QueueResponse::Item(Err(e)) => {
-                                player_mail.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
+                                res_rx.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
                             }
                             _ => continue
                         }
                     }
 
                     PlayerCommand::PrevSong => {
-                        queue_mail.send(QueueCommand::Prev).await.unwrap();
-                        match queue_mail.recv().await.unwrap() {
+                        let (command, tx) = QueueCommandInput::command(QueueCommand::Prev);
+                        queue_mail.send(command).await.unwrap();
+                        match tx.recv().await.unwrap() {
                             QueueResponse::Item(Ok(item)) => {
                                 let uri = match &item.item {
                                     QueueItemType::Single(song) => song.song.primary_uri().unwrap().0,
@@ -467,25 +474,26 @@ impl Controller {
                                 player.play();
 
                                 let QueueItemType::Single(np_song) = item.item else { panic!("This is temporary, handle queueItemTypes at some point")};
-                                player_mail.send(PlayerResponse::NowPlaying(Ok(np_song.song.clone()))).await.unwrap();
+                                res_rx.send(PlayerResponse::NowPlaying(Ok(np_song.song.clone()))).await.unwrap();
 
                                 state.now_playing = np_song.song.uuid;
                                 _ = state.write_file();
                                 notify_connections_.send(ConnectionsNotification::SongChange(np_song.song)).unwrap();
                             }
                             QueueResponse::Item(Err(e)) => {
-                                player_mail.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
+                                res_rx.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
                             }
                             _ => continue
                         }
                     }
 
                     PlayerCommand::Enqueue(index) => {
+                        let (command, tx) = QueueCommandInput::command(QueueCommand::GetIndex(index));
                         queue_mail
-                            .send(QueueCommand::GetIndex(index))
+                            .send(command)
                             .await
                             .unwrap();
-                        match queue_mail.recv().await.unwrap() {
+                        match tx.recv().await.unwrap() {
                             QueueResponse::Item(Ok(item)) => {
                                 match item.item {
                                     QueueItemType::Single(np_song) => {
@@ -499,10 +507,10 @@ impl Controller {
                                     }
                                     _ => unimplemented!(),
                                 }
-                                player_mail.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
+                                res_rx.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
                             }
                             QueueResponse::Item(Err(e)) => {
-                                player_mail.send(PlayerResponse::Empty(Err(e.into()))).await.unwrap();
+                                res_rx.send(PlayerResponse::Empty(Err(e.into()))).await.unwrap();
                             }
                             _ => continue
                         }
@@ -510,24 +518,31 @@ impl Controller {
 
                     PlayerCommand::PlayNow(uuid, location) => {
                         // TODO: This assumes the uuid doesn't point to an album. we've been over this.
-                        lib_mail.send(LibraryCommand::Song(uuid)).await.unwrap();
-                        let LibraryResponse::Song(np_song, index) = lib_mail.recv().await.unwrap() else {
+                        let (command, tx) = LibraryCommandInput::command(LibraryCommand::Song(uuid));
+                        lib_mail.send(command).await.unwrap();
+                        let LibraryResponse::Song(np_song, index) = tx.recv().await.unwrap() else {
                             unreachable!()
                         };
-                        queue_mail.send(QueueCommand::Clear).await.unwrap();
-                        match queue_mail.recv().await.unwrap() {
+
+                        let (command, tx) = QueueCommandInput::command(QueueCommand::Clear);
+                        queue_mail.send(command).await.unwrap();
+                        match tx.recv().await.unwrap() {
                             QueueResponse::Empty(Ok(())) => (),
                             QueueResponse::Empty(Err(e)) => {
-                                player_mail.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
+                                res_rx.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
                                 continue;
                             }
                             _ => unreachable!()
                         }
-                        queue_mail.send(QueueCommand::Append(QueueItem::from_item_type(QueueItemType::Single(QueueSong { song: np_song.clone(), location })), true)).await.unwrap();
-                        match queue_mail.recv().await.unwrap() {
+
+                        let (command, tx) = QueueCommandInput::command(
+                            QueueCommand::Append(QueueItem::from_item_type(QueueItemType::Single(QueueSong { song: np_song.clone(), location })), true)
+                        );
+                        queue_mail.send(command).await.unwrap();
+                        match tx.recv().await.unwrap() {
                             QueueResponse::Empty(Ok(())) => (),
                             QueueResponse::Empty(Err(e)) => {
-                                player_mail.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
+                                res_rx.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
                                 continue;
                             }
                             _ => unreachable!()
@@ -544,15 +559,17 @@ impl Controller {
 
                         let (songs, index) = match location {
                             PlayerLocation::Library => {
-                                lib_mail.send(LibraryCommand::AllSongs).await.unwrap();
-                                let LibraryResponse::AllSongs(songs) = lib_mail.recv().await.unwrap() else {
+                                let (command, tx) = LibraryCommandInput::command(LibraryCommand::AllSongs);
+                                lib_mail.send(command).await.unwrap();
+                                let LibraryResponse::AllSongs(songs) = tx.recv().await.unwrap() else {
                                     unreachable!()
                                 };
                                 (songs, index)
                             }
                             PlayerLocation::Playlist(uuid) => {
-                                lib_mail.send(LibraryCommand::ExternalPlaylist(uuid)).await.unwrap();
-                                let LibraryResponse::ExternalPlaylist(list) = lib_mail.recv().await.unwrap() else {
+                                let (command, tx) = LibraryCommandInput::command(LibraryCommand::ExternalPlaylist(uuid));
+                                lib_mail.send(command).await.unwrap();
+                                let LibraryResponse::ExternalPlaylist(list) = tx.recv().await.unwrap() else {
                                     unreachable!()
                                 };
                                 let index = list.get_index(np_song.uuid).unwrap();
@@ -564,11 +581,14 @@ impl Controller {
 
                         for i in index+1..(index+50) {
                             if let Some(song) = songs.get(i) {
-                                queue_mail.send(QueueCommand::Append(QueueItem::from_item_type(QueueItemType::Single(QueueSong { song: song.clone(), location })), false)).await.unwrap();
-                                match queue_mail.recv().await.unwrap() {
+                                let (command, tx) = QueueCommandInput::command(
+                                    QueueCommand::Append(QueueItem::from_item_type(QueueItemType::Single(QueueSong { song: song.clone(), location })), false)
+                                );
+                                queue_mail.send(command).await.unwrap();
+                                match tx.recv().await.unwrap() {
                                     QueueResponse::Empty(Ok(())) => (),
                                     QueueResponse::Empty(Err(e)) => {
-                                        player_mail.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
+                                        res_rx.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
                                         continue 'outer;
                                     }
                                     _ => unreachable!()
@@ -579,7 +599,7 @@ impl Controller {
                             }
                         }
                         // ^ This be my solution for now ^
-                        player_mail.send(PlayerResponse::NowPlaying(Ok(np_song.clone()))).await.unwrap();
+                        res_rx.send(PlayerResponse::NowPlaying(Ok(np_song.clone()))).await.unwrap();
 
                         state.now_playing = np_song.uuid;
                         _ = state.write_file();
@@ -597,8 +617,8 @@ impl Controller {
         playback_state: Arc<std::sync::RwLock<PrismState>>,
         playback_time_tx: Receiver<(Option<TimeDelta>, Option<TimeDelta>)>,
         finished_recv: Receiver<()>,
-        player_mail: MailMan<PlayerCommand, PlayerResponse>,
-        queue_mail: MailMan<QueueCommand, QueueResponse>,
+        player_mail: async_channel::Sender<PlayerCommandInput>,
+        queue_mail: async_channel::Sender<QueueCommandInput>,
         notify_next_song: Sender<Song>,
         notify_connections_: Sender<ConnectionsNotification>,
         playback_info: Arc<AtomicCell<PlaybackInfo>>
@@ -625,8 +645,9 @@ impl Controller {
                     let _ = finished_recv.recv();
                     println!("End of song");
 
-                    player_mail.send(PlayerCommand::NextSong).await.unwrap();
-                    let PlayerResponse::NowPlaying(res) = player_mail.recv().await.unwrap() else {
+                    let (command, tx) = PlayerCommandInput::command(PlayerCommand::NextSong);
+                    player_mail.send(command).await.unwrap();
+                    let PlayerResponse::NowPlaying(res) = tx.recv().await.unwrap() else {
                         unreachable!()
                     };
                     if let Ok(song) = res {
@@ -660,22 +681,23 @@ impl Controller {
 
 
     async fn library_loop(
-        lib_mail: MailMan<LibraryResponse, LibraryCommand>,
+        lib_mail: async_channel::Receiver<LibraryCommandInput>,
         library: &mut MusicLibrary,
         config: Arc<RwLock<Config>>,
     ) -> Result<(), ()> {
         while true {
-            match lib_mail.recv().await.unwrap() {
+            let LibraryCommandInput { res_rx, command } = lib_mail.recv().await.unwrap();
+            match command {
                 LibraryCommand::Song(uuid) => {
                     let (song, i) = library.query_uuid(&uuid).unwrap();
-                    lib_mail.send(LibraryResponse::Song(song.clone(), i)).await.unwrap();
+                    res_rx.send(LibraryResponse::Song(song.clone(), i)).await.unwrap();
                 }
                 LibraryCommand::AllSongs => {
-                    lib_mail.send(LibraryResponse::AllSongs(library.library.clone())).await.unwrap();
+                    res_rx.send(LibraryResponse::AllSongs(library.library.clone())).await.unwrap();
                 },
                 LibraryCommand::ExternalPlaylist(uuid) => {
                     let playlist = library.query_playlist_uuid(&uuid).unwrap();
-                    lib_mail.send(LibraryResponse::ExternalPlaylist(ExternalPlaylist::from_playlist(playlist, library))).await.unwrap();
+                    res_rx.send(LibraryResponse::ExternalPlaylist(ExternalPlaylist::from_playlist(playlist, library))).await.unwrap();
                 }
                 LibraryCommand::ImportM3UPlayList(path) => {
                     let playlist = Playlist::from_m3u(path, library).unwrap();
@@ -683,17 +705,17 @@ impl Controller {
                     let name = playlist.title.clone();
                     library.playlists.items.push(PlaylistFolderItem::List(playlist));
 
-                    lib_mail.send(LibraryResponse::ImportM3UPlayList(uuid, name)).await.unwrap();
+                    res_rx.send(LibraryResponse::ImportM3UPlayList(uuid, name)).await.unwrap();
                 }
                 LibraryCommand::Save => {
                     library.save(config.read().libraries.get_library(&library.uuid).unwrap().path.clone()).unwrap();
-                    lib_mail.send(LibraryResponse::Ok).await.unwrap();
+                    res_rx.send(LibraryResponse::Ok).await.unwrap();
                 }
                 LibraryCommand::Playlists => {
                     let mut lists = vec![];
                     library.playlists.lists_recursive().into_par_iter().map(|list| (list.uuid, list.title.clone())).collect_into_vec(&mut lists);
 
-                    lib_mail.send(LibraryResponse::Playlists(lists)).await.unwrap();
+                    res_rx.send(LibraryResponse::Playlists(lists)).await.unwrap();
                 }
                 _ => { todo!() }
             }
@@ -703,54 +725,55 @@ impl Controller {
 
     async fn queue_loop(
         mut queue: Queue<QueueSong, QueueAlbum>,
-        queue_mail: MailMan<QueueResponse, QueueCommand>,
+        queue_mail: async_channel::Receiver<QueueCommandInput>,
     ) {
         while true {
-            match queue_mail.recv().await.unwrap() {
+            let QueueCommandInput { res_rx, command } = queue_mail.recv().await.unwrap();
+            match command {
                 QueueCommand::Append(item, by_human) => {
                     match item.item {
                         QueueItemType::Single(song) => queue.add_item(song, by_human),
                         _ => unimplemented!(),
                     }
-                    queue_mail
+                    res_rx
                         .send(QueueResponse::Empty(Ok(())))
                         .await
                         .unwrap();
                 },
                 QueueCommand::Next => {
                     let next = queue.next().map_or( Err(QueueError::NoNext), |s| Ok(s.clone()));
-                    queue_mail
+                    res_rx
                         .send(QueueResponse::Item(next.clone()))
                         .await
                         .unwrap();
                 }
                 QueueCommand::Prev => {
                     let prev = queue.prev().map_or( Err(QueueError::EmptyPlayed), |s| Ok(s.clone()));
-                    queue_mail
+                    res_rx
                         .send(QueueResponse::Item(prev.clone()))
                         .await
                         .unwrap();
                 }
                 QueueCommand::GetIndex(index) => {
                     let item = queue.items.get(index).map_or( Err(QueueError::OutOfBounds { index, len: queue.items.len() }), |s| Ok(s.clone()));
-                    queue_mail.send(QueueResponse::Item(item)).await.unwrap();
+                    res_rx.send(QueueResponse::Item(item)).await.unwrap();
                 }
                 QueueCommand::NowPlaying => {
                     let item = queue.current().map(|t| t.clone());
-                    queue_mail
+                    res_rx
                         .send(QueueResponse::Item(item))
                         .await
                         .unwrap();
                 }
                 QueueCommand::Get => {
-                    queue_mail.send(QueueResponse::GetAll(queue.items.clone())).await.unwrap();
+                    res_rx.send(QueueResponse::GetAll(queue.items.clone())).await.unwrap();
                 }
                 QueueCommand::Clear => {
                     queue.clear();
-                    queue_mail.send(QueueResponse::Empty(Ok(()))).await.unwrap();
+                    res_rx.send(QueueResponse::Empty(Ok(()))).await.unwrap();
                 }
                 QueueCommand::Remove(index) => {
-                    queue_mail.send(QueueResponse::Item(queue.remove_item(index))).await.unwrap();
+                    res_rx.send(QueueResponse::Item(queue.remove_item(index))).await.unwrap();
                 }
             }
         }

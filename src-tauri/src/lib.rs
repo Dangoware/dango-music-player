@@ -174,10 +174,7 @@ pub fn run() {
             Some(DEFAULT_IMAGE.to_vec())
         } else {futures::executor::block_on(async move {
             let controller = ctx.app_handle().state::<ControllerHandle>();
-            controller.lib_mail.send(dmp_core::music_controller::controller::LibraryCommand::Song(Uuid::parse_str(query.as_str()).unwrap())).await.unwrap();
-            let LibraryResponse::Song(song, _) = controller.lib_mail.recv().await.unwrap() else {
-                return None
-            };
+            let song = controller.lib_get_song(Uuid::parse_str(query.as_str()).unwrap()).await.0;
             Some(song.album_art(0).unwrap_or_else(|_| None).unwrap_or(DEFAULT_IMAGE.to_vec()))
         })};
 
