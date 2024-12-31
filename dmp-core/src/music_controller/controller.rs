@@ -3,7 +3,6 @@
 //! other functions
 #![allow(while_true)]
 
-use async_channel::{bounded, unbounded};
 use chrono::TimeDelta;
 use crossbeam::atomic::AtomicCell;
 use crossbeam_channel::{Receiver, Sender};
@@ -14,12 +13,11 @@ use prismriver::{Error as PrismError, Prismriver, State as PrismState, Volume};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
-use std::collections::HashMap;
 use std::error::Error;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use uuid::Uuid;
@@ -278,6 +276,7 @@ impl Controller {
 
             let a = scope.spawn({
                 let queue_mail = queue_mail.clone();
+                let _notifications_rx = notifications_rx.clone();
                 move || {
                     futures::executor::block_on(async {
                         moro::async_scope!(|scope| {
@@ -292,6 +291,7 @@ impl Controller {
                                         player_mail.1,
                                         _queue_mail,
                                         _lib_mail,
+                                        _notifications_rx,
                                         state,
                                     )
                                     .await
@@ -354,6 +354,7 @@ impl Controller {
         player_mail: MailMan<PlayerResponse, PlayerCommand>,
         queue_mail: MailMan<QueueCommand, QueueResponse>,
         lib_mail: MailMan<LibraryCommand, LibraryResponse>,
+        notify_connections_: Sender<ConnectionsNotification>,
         mut state: ControllerState,
     ) -> Result<(), ()> {
         player.set_volume(Volume::new(state.volume));
@@ -444,6 +445,7 @@ impl Controller {
 
                                 state.now_playing = np_song.song.uuid;
                                 _ = state.write_file();
+                                notify_connections_.send(ConnectionsNotification::SongChange(np_song.song)).unwrap();
                             } QueueResponse::Item(Err(e)) => {
                                 player_mail.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
                             }
@@ -469,6 +471,7 @@ impl Controller {
 
                                 state.now_playing = np_song.song.uuid;
                                 _ = state.write_file();
+                                notify_connections_.send(ConnectionsNotification::SongChange(np_song.song)).unwrap();
                             }
                             QueueResponse::Item(Err(e)) => {
                                 player_mail.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
@@ -485,10 +488,14 @@ impl Controller {
                         match queue_mail.recv().await.unwrap() {
                             QueueResponse::Item(Ok(item)) => {
                                 match item.item {
-                                    QueueItemType::Single(song) => {
-                                        let prism_uri = prismriver::utils::path_to_uri(&song.song.primary_uri().unwrap().0.as_path().unwrap()).unwrap();
+                                    QueueItemType::Single(np_song) => {
+                                        let prism_uri = prismriver::utils::path_to_uri(&np_song.song.primary_uri().unwrap().0.as_path().unwrap()).unwrap();
                                         player.load_new(&prism_uri).unwrap();
                                         player.play();
+
+                                        state.now_playing = np_song.song.uuid;
+                                        _ = state.write_file();
+                                        notify_connections_.send(ConnectionsNotification::SongChange(np_song.song)).unwrap();
                                     }
                                     _ => unimplemented!(),
                                 }
@@ -504,7 +511,7 @@ impl Controller {
                     PlayerCommand::PlayNow(uuid, location) => {
                         // TODO: This assumes the uuid doesn't point to an album. we've been over this.
                         lib_mail.send(LibraryCommand::Song(uuid)).await.unwrap();
-                        let LibraryResponse::Song(song, index) = lib_mail.recv().await.unwrap() else {
+                        let LibraryResponse::Song(np_song, index) = lib_mail.recv().await.unwrap() else {
                             unreachable!()
                         };
                         queue_mail.send(QueueCommand::Clear).await.unwrap();
@@ -516,7 +523,7 @@ impl Controller {
                             }
                             _ => unreachable!()
                         }
-                        queue_mail.send(QueueCommand::Append(QueueItem::from_item_type(QueueItemType::Single(QueueSong { song: song.clone(), location })), true)).await.unwrap();
+                        queue_mail.send(QueueCommand::Append(QueueItem::from_item_type(QueueItemType::Single(QueueSong { song: np_song.clone(), location })), true)).await.unwrap();
                         match queue_mail.recv().await.unwrap() {
                             QueueResponse::Empty(Ok(())) => (),
                             QueueResponse::Empty(Err(e)) => {
@@ -527,7 +534,7 @@ impl Controller {
                         }
 
                         // TODO: Handle non Local URIs here, and whenever `load_new()` or `load_gapless()` is called
-                        let prism_uri = prismriver::utils::path_to_uri(&song.primary_uri().unwrap().0.as_path().unwrap()).unwrap();
+                        let prism_uri = prismriver::utils::path_to_uri(&np_song.primary_uri().unwrap().0.as_path().unwrap()).unwrap();
                         player.load_new(&prism_uri).unwrap();
                         player.play();
 
@@ -548,7 +555,7 @@ impl Controller {
                                 let LibraryResponse::ExternalPlaylist(list) = lib_mail.recv().await.unwrap() else {
                                     unreachable!()
                                 };
-                                let index = list.get_index(song.uuid).unwrap();
+                                let index = list.get_index(np_song.uuid).unwrap();
                                 (list.tracks, index)
                             }
                             _ => todo!("Got Location other than Library or Playlist")
@@ -572,7 +579,11 @@ impl Controller {
                             }
                         }
                         // ^ This be my solution for now ^
-                        player_mail.send(PlayerResponse::NowPlaying(Ok(song.clone()))).await.unwrap();
+                        player_mail.send(PlayerResponse::NowPlaying(Ok(np_song.clone()))).await.unwrap();
+
+                        state.now_playing = np_song.uuid;
+                        _ = state.write_file();
+                        notify_connections_.send(ConnectionsNotification::SongChange(np_song)).unwrap();
                     }
                 }
             } else {

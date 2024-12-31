@@ -1,12 +1,11 @@
 #![allow(while_true)]
-use std::time::Duration;
+use std::{thread::sleep, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use chrono::TimeDelta;
-use crossbeam::scope;
+use crossbeam::{scope, select};
 use crossbeam_channel::{bounded, Receiver};
-use discord_presence::models::{Activity, ActivityTimestamps, ActivityType};
+use discord_presence::Client;
 use prismriver::State as PrismState;
-use rayon::spawn;
 
 use crate::music_storage::library::{Song, Tag};
 
@@ -68,67 +67,98 @@ impl Controller {
     }
 
     fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<PrismState>) {
-        spawn(move || {
+        // TODO: Handle seeking position change
+        std::thread::spawn(move || {
             let mut client = discord_presence::Client::new(client_id);
             client.start();
-            client.block_until_event(discord_presence::Event::Connected).unwrap();
-            client.set_activity(|_|
-                Activity::new()
-            ).unwrap();
+            while !Client::is_ready() { sleep(Duration::from_millis(100)); }
             println!("discord connected");
 
             let mut state = "Started".to_string();
             let mut song: Option<Song> = None;
+            let mut now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards?").as_secs();
 
             while true {
-                let state_res = state_tx.recv_timeout(Duration::from_secs(5));
-                let song_res = song_tx.recv_timeout(Duration::from_millis(100));
-
                 let state = &mut state;
                 let song = &mut song;
-
-                if let Ok(state_) = state_res {
-                    *state = match state_ {
-                        PrismState::Playing => "Playing",
-                        PrismState::Paused => "Paused",
-                        PrismState::Stopped => "Stopped",
-                        _ => "I'm Scared, Boss"
-                    }.to_string()
-                }
-                if let Ok(song_) = song_res {
-                    *song = Some(song_);
+                select! {
+                    recv(state_tx) -> res => {
+                        if let Ok(state_) = res {
+                            *state = match state_ {
+                                PrismState::Playing => "Playing",
+                                PrismState::Paused => "Paused",
+                                PrismState::Stopped => "Stopped",
+                                _ => "I'm Scared, Boss"
+                            }.to_string();
+                        }
+                    },
+                    recv(song_tx) -> res => {
+                        if let Ok(song_) = res {
+                            *song = Some(song_);
+                            now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards?").as_secs();
+                        }
+                    }
+                    default(Duration::from_millis(4500)) => ()
                 }
 
                 client.set_activity(|activity| {
-                    activity.state(
-                        state.clone()
+                    let a = activity.state(
+                        song.as_ref().map_or(String::new(), |s| format!(
+                            "{}{}{}",
+                            s.get_tag(&Tag::Artist).map_or(String::new(), |album| album.clone()),
+                            if s.get_tag(&Tag::Album).is_some() && s.get_tag(&Tag::Artist).is_some() { " - " } else { "" },
+                            s.get_tag(&Tag::Album).map_or(String::new(), |album| album.clone())
+                        )
+                    )
                     )._type(discord_presence::models::ActivityType::Listening)
                     .details(
                         if let Some(song) = song {
-                            format!(
-                                "{} - {}\n{}",
-                                song.get_tag(&Tag::Title).map_or(String::from("No Title"), |title| title.clone()),
-                                song.get_tag(&Tag::Artist).map_or(String::from("No Artist"), |artist| artist.clone()),
-                                song.get_tag(&Tag::Album).map_or(String::from("No Album"), |album| album.clone())
-                            )
+                            song.get_tag(&Tag::Title).map_or(String::from("Unknown Title"), |title| title.clone())
                         } else {
                             String::new()
                         }
-                    )
-                    // if let Some(song) = song {
-                    //     a.timestamps(|timestamp| {
-                    //         ActivityTimestamps::new()
-                    //         .start(timestamp.start.unwrap_or_default())
-                    //         .end(
-                    //             song.duration.as_millis().clamp(u64::MIN as u128, u64::MAX as u128) as u64
-                    //         )
-                    //     })
-                    // } else {
-                    //     a
-                    // }
+                    );
+                    if let Some(s) = song {
+                        if state.as_str() == "Playing" {
+                            a.timestamps(|timestamps| {
+                                timestamps.start(now)
+                                .end(now + s.duration.as_secs())
+                            })
+                        } else {
+                            a
+                        }
+                    } else {
+                        a
+                    }.assets(|a| {
+                        a.large_text(state.clone())
+                    })
                 }).unwrap();
-                println!("Changed Status");
+                println!("Updated Discord Status");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod test_super {
+    use std::thread::sleep;
+
+    use crossbeam_channel::unbounded;
+
+    use crate::config::tests::read_config_lib;
+
+    use super::*;
+
+    #[test]
+    fn discord_test() {
+        let client_id = std::env!("DISCORD_CLIENT_ID").parse::<u64>().unwrap();
+        let (song_rx, song_tx) = unbounded();
+        let (_, state_tx) = unbounded();
+
+        let (_, lib ) = read_config_lib();
+        song_rx.send(lib.library[0].clone()).unwrap();
+
+        Controller::discord_rpc(client_id, song_tx, state_tx);
+        sleep(Duration::from_secs(150));
     }
 }

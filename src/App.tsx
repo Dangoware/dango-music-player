@@ -340,9 +340,9 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
             invoke('set_volume', { volume: volume.target.value }).then(() => {})
           }} />
           <p id="timeDisplay">
-            { Math.round(+duration / 60).toString().padStart(2, "0") }:
+            { Math.floor(+position / 60).toString().padStart(2, "0") }:
             { (+position % 60).toString().padStart(2, "0") }/
-            { Math.round(+position / 60).toString().padStart(2, "0") }:
+            { Math.floor(+duration / 60).toString().padStart(2, "0") }:
             { (+duration % 60).toString().padStart(2, "0") }
           </p>
         </div>
