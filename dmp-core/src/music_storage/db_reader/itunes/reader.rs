@@ -70,9 +70,7 @@ impl ExternalLibrary for ITunesLibrary {
                 if song_tags.contains_key("Location") {
                     count3 += 1;
                     //check for skipped IDs
-                    if &count3.to_string()
-                        != song_tags.get_key_value("Track ID").unwrap().1
-                    {
+                    if &count3.to_string() != song_tags.get_key_value("Track ID").unwrap().1 {
                         count3 += 1;
                         count4 += 1;
                     }
@@ -232,7 +230,8 @@ fn get_art(file: &Path) -> Result<Vec<AlbumArt>, lofty::error::LoftyError> {
     let mut album_art: Vec<AlbumArt> = Vec::new();
 
     let blank_tag = &lofty::tag::Tag::new(TagType::Id3v2);
-    let normal_options = lofty::config::ParseOptions::new().parsing_mode(lofty::config::ParsingMode::Relaxed);
+    let normal_options =
+        lofty::config::ParseOptions::new().parsing_mode(lofty::config::ParsingMode::Relaxed);
     let tagged_file: lofty::file::TaggedFile;
 
     let tag = match Probe::open(file)?.options(normal_options).read() {
@@ -284,7 +283,9 @@ impl ITunesSong {
         Default::default()
     }
 
-    fn from_hashmap(map: &mut HashMap<String, String>) -> Result<ITunesSong, lofty::error::LoftyError> {
+    fn from_hashmap(
+        map: &mut HashMap<String, String>,
+    ) -> Result<ITunesSong, lofty::error::LoftyError> {
         let mut song = ITunesSong::new();
         //get the path with the first bit chopped off
         let path_: String = map.get_key_value("Location").unwrap().1.clone();
@@ -351,7 +352,7 @@ mod tests {
             PathBuf::from("test-config/library2"),
             String::from("library2"),
             None,
-            None
+            None,
         );
         config.libraries.libraries.push(config_lib.clone());
 

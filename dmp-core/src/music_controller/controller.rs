@@ -92,7 +92,7 @@ pub enum PlayerCommand {
 #[derive(Debug, PartialEq, Clone)]
 pub enum PlayerResponse {
     Empty(Result<(), PlayerError>),
-    NowPlaying(Result<Song, QueueError>)
+    NowPlaying(Result<Song, QueueError>),
 }
 
 #[derive(Error, Debug, PartialEq, Clone)]
@@ -146,45 +146,53 @@ pub enum QueueResponse {
     GetAll(Vec<QueueItem_>),
 }
 
-
 pub struct ControllerInput {
     player_mail: (
         async_channel::Sender<PlayerCommandInput>,
-        async_channel::Receiver<PlayerCommandInput>
+        async_channel::Receiver<PlayerCommandInput>,
     ),
     lib_mail: (
         async_channel::Sender<LibraryCommandInput>,
-        async_channel::Receiver<LibraryCommandInput>
+        async_channel::Receiver<LibraryCommandInput>,
     ),
     queue_mail: (
         async_channel::Sender<QueueCommandInput>,
-        async_channel::Receiver<QueueCommandInput>
+        async_channel::Receiver<QueueCommandInput>,
     ),
     library: MusicLibrary,
     config: Arc<RwLock<Config>>,
     playback_info: Arc<AtomicCell<PlaybackInfo>>,
     notify_next_song: Sender<Song>,
-    connections: Option<ConnectionsInput>
+    connections: Option<ConnectionsInput>,
 }
 
 pub struct ControllerHandle {
     pub(super) lib_mail_rx: async_channel::Sender<LibraryCommandInput>,
     pub(super) player_mail_rx: async_channel::Sender<PlayerCommandInput>,
-    pub(super)  queue_mail_rx: async_channel::Sender<QueueCommandInput>,
+    pub(super) queue_mail_rx: async_channel::Sender<QueueCommandInput>,
 }
 
 impl ControllerHandle {
-    pub fn new(library: MusicLibrary, config: Arc<RwLock<Config>>, connections: Option<ConnectionsInput>) -> (Self, ControllerInput, Arc<AtomicCell<PlaybackInfo>>, Receiver<Song>) {
+    pub fn new(
+        library: MusicLibrary,
+        config: Arc<RwLock<Config>>,
+        connections: Option<ConnectionsInput>,
+    ) -> (
+        Self,
+        ControllerInput,
+        Arc<AtomicCell<PlaybackInfo>>,
+        Receiver<Song>,
+    ) {
         let (lib_mail_rx, lib_mail_tx) = async_channel::unbounded();
         let (player_mail_rx, player_mail_tx) = async_channel::unbounded();
-        let (queue_mail_rx, queue_mail_tx)= async_channel::unbounded();
+        let (queue_mail_rx, queue_mail_tx) = async_channel::unbounded();
         let playback_info = Arc::new(AtomicCell::new(PlaybackInfo::default()));
         let notify_next_song = crossbeam::channel::unbounded::<Song>();
         (
             ControllerHandle {
                 lib_mail_rx: lib_mail_rx.clone(),
                 player_mail_rx: player_mail_rx.clone(),
-                queue_mail_rx: queue_mail_rx.clone()
+                queue_mail_rx: queue_mail_rx.clone(),
             },
             ControllerInput {
                 player_mail: (player_mail_rx, player_mail_tx),
@@ -197,7 +205,7 @@ impl ControllerHandle {
                 connections,
             },
             playback_info,
-            notify_next_song.1
+            notify_next_song.1,
         )
     }
 }
@@ -220,12 +228,12 @@ impl ControllerState {
 
     pub(super) fn write_file(&self) -> Result<(), std::io::Error> {
         OpenOptions::new()
-        .truncate(true)
-        .create(true)
-        .write(true)
-        .open(&self.path)
-        .unwrap()
-        .write_all(&to_string_pretty(self)?.into_bytes())?;
+            .truncate(true)
+            .create(true)
+            .write(true)
+            .open(&self.path)
+            .unwrap()
+            .write_all(&to_string_pretty(self)?.into_bytes())?;
         Ok(())
     }
 
@@ -247,7 +255,7 @@ impl Controller {
             playback_info,
             notify_next_song,
             connections,
-        }: ControllerInput
+        }: ControllerInput,
     ) -> Result<(), Box<dyn Error>> {
         let queue: Queue<QueueSong, QueueAlbum> = Queue {
             items: Vec::new(),
@@ -270,7 +278,8 @@ impl Controller {
             let player_state = player.state.clone();
             let player_timing = player.get_timing_recv();
             let finished_tx = player.get_finished_recv();
-            let (notifications_rx, notifications_tx) = crossbeam_channel::unbounded::<ConnectionsNotification>();
+            let (notifications_rx, notifications_tx) =
+                crossbeam_channel::unbounded::<ConnectionsNotification>();
 
             let a = scope.spawn({
                 let queue_mail = queue_mail.clone();
@@ -283,29 +292,23 @@ impl Controller {
 
                             let _lib_mail = lib_mail.0.clone();
                             let _queue_mail = queue_mail.0.clone();
-                            scope
-                                .spawn(async move {
-                                    Controller::player_command_loop(
-                                        player,
-                                        player_mail.1,
-                                        _queue_mail,
-                                        _lib_mail,
-                                        _notifications_rx,
-                                        state,
-                                    )
+                            scope.spawn(async move {
+                                Controller::player_command_loop(
+                                    player,
+                                    player_mail.1,
+                                    _queue_mail,
+                                    _lib_mail,
+                                    _notifications_rx,
+                                    state,
+                                )
+                                .await
+                                .unwrap();
+                            });
+                            scope.spawn(async {
+                                Controller::library_loop(lib_mail.1, &mut library, _config)
                                     .await
                                     .unwrap();
-                                });
-                            scope
-                                .spawn(async {
-                                    Controller::library_loop(
-                                        lib_mail.1,
-                                        &mut library,
-                                        _config,
-                                    )
-                                        .await
-                                        .unwrap();
-                                });
+                            });
                         })
                         .await;
                     })
@@ -327,7 +330,8 @@ impl Controller {
                     notify_next_song,
                     notifications_rx,
                     playback_info,
-                ).unwrap();
+                )
+                .unwrap();
             });
 
             if let Some(inner) = connections {
@@ -338,7 +342,8 @@ impl Controller {
                         ControllerConnections {
                             notifications_tx,
                             inner,
-                    });
+                        },
+                    );
                 });
             }
             a.join().unwrap();

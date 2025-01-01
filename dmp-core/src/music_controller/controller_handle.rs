@@ -6,7 +6,13 @@ use uuid::Uuid;
 
 use crate::music_storage::{library::Song, playlist::ExternalPlaylist};
 
-use super::{controller::{ControllerHandle, LibraryCommand, LibraryResponse, PlayerCommand, PlayerError, PlayerLocation, PlayerResponse, QueueCommand, QueueResponse}, queue::{QueueAlbum, QueueSong}};
+use super::{
+    controller::{
+        ControllerHandle, LibraryCommand, LibraryResponse, PlayerCommand, PlayerError,
+        PlayerLocation, PlayerResponse, QueueCommand, QueueResponse,
+    },
+    queue::{QueueAlbum, QueueSong},
+};
 
 impl ControllerHandle {
     // The Library Section
@@ -59,12 +65,17 @@ impl ControllerHandle {
     pub async fn playlist_import_m3u(&self, path: PathBuf) -> Result<(Uuid, String), ()> {
         let (command, tx) = LibraryCommandInput::command(LibraryCommand::ImportM3UPlayList(path));
         self.lib_mail_rx.send(command).await.unwrap();
-        let LibraryResponse::ImportM3UPlayList(uuid, name) = tx.recv().await.unwrap() else { unreachable!("It has been reached") };
+        let LibraryResponse::ImportM3UPlayList(uuid, name) = tx.recv().await.unwrap() else {
+            unreachable!("It has been reached")
+        };
         Ok((uuid, name))
     }
 
     // The Queue Section
-    pub async fn queue_append(&self, item: QueueItem<QueueSong, QueueAlbum>) -> Result<(), QueueError> {
+    pub async fn queue_append(
+        &self,
+        item: QueueItem<QueueSong, QueueAlbum>,
+    ) -> Result<(), QueueError> {
         let (command, tx) = QueueCommandInput::command(QueueCommand::Append(item, true));
         self.queue_mail_rx.send(command).await.unwrap();
         let QueueResponse::Empty(res) = tx.recv().await.unwrap() else {
@@ -73,7 +84,10 @@ impl ControllerHandle {
         res
     }
 
-    pub async fn queue_remove(&self, index: usize) -> Result<QueueItem<QueueSong, QueueAlbum>, QueueError> {
+    pub async fn queue_remove(
+        &self,
+        index: usize,
+    ) -> Result<QueueItem<QueueSong, QueueAlbum>, QueueError> {
         let (command, tx) = QueueCommandInput::command(QueueCommand::Remove(index));
         self.queue_mail_rx.send(command).await.unwrap();
         let QueueResponse::Item(res) = tx.recv().await.unwrap() else {
@@ -166,7 +180,7 @@ impl ControllerHandle {
 
 pub(super) struct LibraryCommandInput {
     pub res_rx: Sender<LibraryResponse>,
-    pub command: LibraryCommand
+    pub command: LibraryCommand,
 }
 
 impl LibraryCommandInput {
@@ -175,16 +189,16 @@ impl LibraryCommandInput {
         (
             Self {
                 res_rx: rx,
-                command
+                command,
             },
-            tx
+            tx,
         )
     }
 }
 
 pub(super) struct QueueCommandInput {
     pub res_rx: Sender<QueueResponse>,
-    pub command: QueueCommand
+    pub command: QueueCommand,
 }
 
 impl QueueCommandInput {
@@ -193,16 +207,16 @@ impl QueueCommandInput {
         (
             Self {
                 res_rx: rx,
-                command
+                command,
             },
-            tx
+            tx,
         )
     }
 }
 
 pub(super) struct PlayerCommandInput {
     pub res_rx: Sender<PlayerResponse>,
-    pub command: PlayerCommand
+    pub command: PlayerCommand,
 }
 
 impl PlayerCommandInput {
@@ -211,9 +225,9 @@ impl PlayerCommandInput {
         (
             Self {
                 res_rx: rx,
-                command
+                command,
             },
-            tx
+            tx,
         )
     }
 }

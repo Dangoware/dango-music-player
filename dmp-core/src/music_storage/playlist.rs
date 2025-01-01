@@ -45,8 +45,10 @@ impl PlaylistFolder {
         for item in &self.items {
             match item {
                 PlaylistFolderItem::Folder(folder) => return folder.query_uuid(uuid),
-                PlaylistFolderItem::List(ref playlist) => if &playlist.uuid == uuid {
-                    return Some(playlist);
+                PlaylistFolderItem::List(ref playlist) => {
+                    if &playlist.uuid == uuid {
+                        return Some(playlist);
+                    }
                 }
             }
         }
@@ -225,17 +227,18 @@ impl Playlist {
                         continue;
                     };
 
-                    let uuid = if let Some((song, _)) = lib.query_uri(&URI::Local(song_path.clone())) {
-                        song.uuid
-                    } else {
-                        let song_: Song = match Song::from_file(&song_path) {
-                            Ok(s) => s,
-                            Err(e) => panic!("{e}\npath: {}", song_path.display())
+                    let uuid =
+                        if let Some((song, _)) = lib.query_uri(&URI::Local(song_path.clone())) {
+                            song.uuid
+                        } else {
+                            let song_: Song = match Song::from_file(&song_path) {
+                                Ok(s) => s,
+                                Err(e) => panic!("{e}\npath: {}", song_path.display()),
+                            };
+                            let uuid = song_.uuid.to_owned();
+                            _ = lib.add_song(song_); // TODO: Add proper error handling with Library
+                            uuid
                         };
-                        let uuid = song_.uuid.to_owned();
-                        _ = lib.add_song(song_);  // TODO: Add proper error handling with Library
-                        uuid
-                    };
                     uuids.push(uuid);
                 }
                 let mut playlist = Playlist::new();
@@ -348,7 +351,6 @@ impl Default for Playlist {
     }
 }
 
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ExternalPlaylist {
     pub uuid: Uuid,
@@ -361,11 +363,11 @@ pub struct ExternalPlaylist {
 
 impl ExternalPlaylist {
     pub(crate) fn from_playlist(playlist: &Playlist, library: &MusicLibrary) -> Self {
-        let tracks: Vec<Song> = playlist.tracks.iter().filter_map(|uuid| {
-            library.query_uuid(uuid).map(|res| {
-                res.0.clone()
-            })
-        }).collect_vec();
+        let tracks: Vec<Song> = playlist
+            .tracks
+            .iter()
+            .filter_map(|uuid| library.query_uuid(uuid).map(|res| res.0.clone()))
+            .collect_vec();
 
         Self {
             uuid: playlist.uuid,
@@ -373,7 +375,7 @@ impl ExternalPlaylist {
             tracks,
             sort_order: playlist.sort_order.clone(),
             play_count: playlist.play_count,
-            play_time: playlist.play_time
+            play_time: playlist.play_time,
         }
     }
 
@@ -399,7 +401,6 @@ impl ExternalPlaylist {
     }
 }
 
-
 #[cfg(test)]
 mod test_super {
     use super::*;
@@ -412,18 +413,19 @@ mod test_super {
         let tracks = lib.library.iter().map(|track| track.uuid).collect();
         playlist.set_tracks(tracks);
 
-        playlist.to_m3u(
-            Arc::new(RwLock::from(lib)),
-            ".\\test-config\\playlists\\playlist.m3u",
-        ).unwrap();
+        playlist
+            .to_m3u(
+                Arc::new(RwLock::from(lib)),
+                ".\\test-config\\playlists\\playlist.m3u",
+            )
+            .unwrap();
     }
 
     #[test]
     fn m3u_to_list() {
         let (_, mut lib) = read_config_lib();
 
-        let playlist =
-            Playlist::from_m3u(".\\test-config\\playlists\\playlist", &mut lib).unwrap();
+        let playlist = Playlist::from_m3u(".\\test-config\\playlists\\playlist", &mut lib).unwrap();
 
         _ = playlist.to_file(".\\test-config\\playlists\\playlist");
         dbg!(&playlist, playlist.tracks.len());

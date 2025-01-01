@@ -3,9 +3,19 @@ use crossbeam_channel::Sender;
 use kushi::{QueueItem, QueueItemType};
 use prismriver::{Prismriver, Volume};
 
-use crate::music_controller::{controller::{LibraryCommand, LibraryResponse}, queue::QueueSong};
+use crate::music_controller::{
+    controller::{LibraryCommand, LibraryResponse},
+    queue::QueueSong,
+};
 
-use super::{connections::ConnectionsNotification, controller::{Controller, ControllerState, PlayerCommand, PlayerLocation, PlayerResponse, QueueCommand, QueueResponse}, controller_handle::{LibraryCommandInput, PlayerCommandInput, QueueCommandInput}};
+use super::{
+    connections::ConnectionsNotification,
+    controller::{
+        Controller, ControllerState, PlayerCommand, PlayerLocation, PlayerResponse, QueueCommand,
+        QueueResponse,
+    },
+    controller_handle::{LibraryCommandInput, PlayerCommandInput, QueueCommandInput},
+};
 
 impl Controller {
     pub(super) async fn player_command_loop(
@@ -19,7 +29,7 @@ impl Controller {
         player.set_volume(Volume::new(state.volume));
         'outer: while true {
             let _mail = player_mail.recv().await;
-            if let Ok(PlayerCommandInput {res_rx, command}) = _mail {
+            if let Ok(PlayerCommandInput { res_rx, command }) = _mail {
                 match command {
                     PlayerCommand::Play => {
                         player.play();
@@ -38,7 +48,10 @@ impl Controller {
 
                     PlayerCommand::Seek(time) => {
                         let res = player.seek_to(TimeDelta::milliseconds(time));
-                        res_rx.send(PlayerResponse::Empty(res.map_err(|e| e.into()))).await.unwrap();
+                        res_rx
+                            .send(PlayerResponse::Empty(res.map_err(|e| e.into())))
+                            .await
+                            .unwrap();
                     }
 
                     PlayerCommand::SetVolume(volume) => {
@@ -57,63 +70,79 @@ impl Controller {
                         match tx.recv().await.unwrap() {
                             QueueResponse::Item(Ok(item)) => {
                                 let uri = match &item.item {
-                                    QueueItemType::Single(song) => song.song.primary_uri().unwrap().0,
+                                    QueueItemType::Single(song) => {
+                                        song.song.primary_uri().unwrap().0
+                                    }
                                     _ => unimplemented!(),
                                 };
 
-                                let prism_uri = prismriver::utils::path_to_uri(&uri.as_path().unwrap()).unwrap();
+                                let prism_uri =
+                                    prismriver::utils::path_to_uri(&uri.as_path().unwrap())
+                                        .unwrap();
                                 println!("Playing song at path: {:?}", prism_uri);
 
                                 // handle error here for unknown formats
                                 player.load_new(&prism_uri).unwrap();
                                 player.play();
 
-                                let QueueItemType::Single(np_song) = item.item else { panic!("This is temporary, handle queueItemTypes at some point")};
+                                let QueueItemType::Single(np_song) = item.item else {
+                                    panic!("This is temporary, handle queueItemTypes at some point")
+                                };
 
-                                let (command, tx) = LibraryCommandInput::command(LibraryCommand::AllSongs);
+                                let (command, tx) =
+                                    LibraryCommandInput::command(LibraryCommand::AllSongs);
                                 // Append next song in library
                                 lib_mail.send(command).await.unwrap();
-                                let LibraryResponse::AllSongs(songs) = tx.recv().await.unwrap() else {
+                                let LibraryResponse::AllSongs(songs) = tx.recv().await.unwrap()
+                                else {
                                     continue;
                                 };
 
-                                let (command, tx) = LibraryCommandInput::command(LibraryCommand::Song(np_song.song.uuid));
+                                let (command, tx) = LibraryCommandInput::command(
+                                    LibraryCommand::Song(np_song.song.uuid),
+                                );
                                 lib_mail.send(command).await.unwrap();
                                 let LibraryResponse::Song(_, i) = tx.recv().await.unwrap() else {
                                     unreachable!()
                                 };
                                 if let Some(song) = songs.get(i + 49) {
-                                    let (command, tx) = QueueCommandInput::command(
-                                        QueueCommand::Append(
-                                            QueueItem::from_item_type(
-                                                QueueItemType::Single(
-                                                    QueueSong {
-                                                        song: song.clone(),
-                                                        location: np_song.location
-                                                    }
-                                                )
-                                            ),
-                                            false
-                                        )
-                                    );
-                                    queue_mail.send(command).await
-                                    .unwrap();
-                                    let QueueResponse::Empty(Ok(())) = tx.recv().await.unwrap() else {
+                                    let (command, tx) =
+                                        QueueCommandInput::command(QueueCommand::Append(
+                                            QueueItem::from_item_type(QueueItemType::Single(
+                                                QueueSong {
+                                                    song: song.clone(),
+                                                    location: np_song.location,
+                                                },
+                                            )),
+                                            false,
+                                        ));
+                                    queue_mail.send(command).await.unwrap();
+                                    let QueueResponse::Empty(Ok(())) = tx.recv().await.unwrap()
+                                    else {
                                         unreachable!()
                                     };
                                 } else {
                                     println!("Library Empty");
                                 }
 
-                                res_rx.send(PlayerResponse::NowPlaying(Ok(np_song.song.clone()))).await.unwrap();
+                                res_rx
+                                    .send(PlayerResponse::NowPlaying(Ok(np_song.song.clone())))
+                                    .await
+                                    .unwrap();
 
                                 state.now_playing = np_song.song.uuid;
                                 _ = state.write_file();
-                                notify_connections_.send(ConnectionsNotification::SongChange(np_song.song)).unwrap();
-                            } QueueResponse::Item(Err(e)) => {
-                                res_rx.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
+                                notify_connections_
+                                    .send(ConnectionsNotification::SongChange(np_song.song))
+                                    .unwrap();
                             }
-                            _ => continue
+                            QueueResponse::Item(Err(e)) => {
+                                res_rx
+                                    .send(PlayerResponse::NowPlaying(Err(e.into())))
+                                    .await
+                                    .unwrap();
+                            }
+                            _ => continue,
                         }
                     }
 
@@ -123,60 +152,87 @@ impl Controller {
                         match tx.recv().await.unwrap() {
                             QueueResponse::Item(Ok(item)) => {
                                 let uri = match &item.item {
-                                    QueueItemType::Single(song) => song.song.primary_uri().unwrap().0,
+                                    QueueItemType::Single(song) => {
+                                        song.song.primary_uri().unwrap().0
+                                    }
                                     _ => unimplemented!(),
                                 };
 
-                                let prism_uri = prismriver::utils::path_to_uri(&uri.as_path().unwrap()).unwrap();
+                                let prism_uri =
+                                    prismriver::utils::path_to_uri(&uri.as_path().unwrap())
+                                        .unwrap();
                                 player.load_new(&prism_uri).unwrap();
                                 player.play();
 
-                                let QueueItemType::Single(np_song) = item.item else { panic!("This is temporary, handle queueItemTypes at some point")};
-                                res_rx.send(PlayerResponse::NowPlaying(Ok(np_song.song.clone()))).await.unwrap();
+                                let QueueItemType::Single(np_song) = item.item else {
+                                    panic!("This is temporary, handle queueItemTypes at some point")
+                                };
+                                res_rx
+                                    .send(PlayerResponse::NowPlaying(Ok(np_song.song.clone())))
+                                    .await
+                                    .unwrap();
 
                                 state.now_playing = np_song.song.uuid;
                                 _ = state.write_file();
-                                notify_connections_.send(ConnectionsNotification::SongChange(np_song.song)).unwrap();
+                                notify_connections_
+                                    .send(ConnectionsNotification::SongChange(np_song.song))
+                                    .unwrap();
                             }
                             QueueResponse::Item(Err(e)) => {
-                                res_rx.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
+                                res_rx
+                                    .send(PlayerResponse::NowPlaying(Err(e.into())))
+                                    .await
+                                    .unwrap();
                             }
-                            _ => continue
+                            _ => continue,
                         }
                     }
 
                     PlayerCommand::Enqueue(index) => {
-                        let (command, tx) = QueueCommandInput::command(QueueCommand::GetIndex(index));
-                        queue_mail
-                            .send(command)
-                            .await
-                            .unwrap();
+                        let (command, tx) =
+                            QueueCommandInput::command(QueueCommand::GetIndex(index));
+                        queue_mail.send(command).await.unwrap();
                         match tx.recv().await.unwrap() {
                             QueueResponse::Item(Ok(item)) => {
                                 match item.item {
                                     QueueItemType::Single(np_song) => {
-                                        let prism_uri = prismriver::utils::path_to_uri(&np_song.song.primary_uri().unwrap().0.as_path().unwrap()).unwrap();
+                                        let prism_uri = prismriver::utils::path_to_uri(
+                                            &np_song
+                                                .song
+                                                .primary_uri()
+                                                .unwrap()
+                                                .0
+                                                .as_path()
+                                                .unwrap(),
+                                        )
+                                        .unwrap();
                                         player.load_new(&prism_uri).unwrap();
                                         player.play();
 
                                         state.now_playing = np_song.song.uuid;
                                         _ = state.write_file();
-                                        notify_connections_.send(ConnectionsNotification::SongChange(np_song.song)).unwrap();
+                                        notify_connections_
+                                            .send(ConnectionsNotification::SongChange(np_song.song))
+                                            .unwrap();
                                     }
                                     _ => unimplemented!(),
                                 }
                                 res_rx.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
                             }
                             QueueResponse::Item(Err(e)) => {
-                                res_rx.send(PlayerResponse::Empty(Err(e.into()))).await.unwrap();
+                                res_rx
+                                    .send(PlayerResponse::Empty(Err(e.into())))
+                                    .await
+                                    .unwrap();
                             }
-                            _ => continue
+                            _ => continue,
                         }
                     }
 
                     PlayerCommand::PlayNow(uuid, location) => {
                         // TODO: This assumes the uuid doesn't point to an album. we've been over this.
-                        let (command, tx) = LibraryCommandInput::command(LibraryCommand::Song(uuid));
+                        let (command, tx) =
+                            LibraryCommandInput::command(LibraryCommand::Song(uuid));
                         lib_mail.send(command).await.unwrap();
                         let LibraryResponse::Song(np_song, index) = tx.recv().await.unwrap() else {
                             unreachable!()
@@ -187,27 +243,40 @@ impl Controller {
                         match tx.recv().await.unwrap() {
                             QueueResponse::Empty(Ok(())) => (),
                             QueueResponse::Empty(Err(e)) => {
-                                res_rx.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
+                                res_rx
+                                    .send(PlayerResponse::NowPlaying(Err(e.into())))
+                                    .await
+                                    .unwrap();
                                 continue;
                             }
-                            _ => unreachable!()
+                            _ => unreachable!(),
                         }
 
-                        let (command, tx) = QueueCommandInput::command(
-                            QueueCommand::Append(QueueItem::from_item_type(QueueItemType::Single(QueueSong { song: np_song.clone(), location })), true)
-                        );
+                        let (command, tx) = QueueCommandInput::command(QueueCommand::Append(
+                            QueueItem::from_item_type(QueueItemType::Single(QueueSong {
+                                song: np_song.clone(),
+                                location,
+                            })),
+                            true,
+                        ));
                         queue_mail.send(command).await.unwrap();
                         match tx.recv().await.unwrap() {
                             QueueResponse::Empty(Ok(())) => (),
                             QueueResponse::Empty(Err(e)) => {
-                                res_rx.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
+                                res_rx
+                                    .send(PlayerResponse::NowPlaying(Err(e.into())))
+                                    .await
+                                    .unwrap();
                                 continue;
                             }
-                            _ => unreachable!()
+                            _ => unreachable!(),
                         }
 
                         // TODO: Handle non Local URIs here, and whenever `load_new()` or `load_gapless()` is called
-                        let prism_uri = prismriver::utils::path_to_uri(&np_song.primary_uri().unwrap().0.as_path().unwrap()).unwrap();
+                        let prism_uri = prismriver::utils::path_to_uri(
+                            &np_song.primary_uri().unwrap().0.as_path().unwrap(),
+                        )
+                        .unwrap();
                         player.load_new(&prism_uri).unwrap();
                         player.play();
 
@@ -217,39 +286,54 @@ impl Controller {
 
                         let (songs, index) = match location {
                             PlayerLocation::Library => {
-                                let (command, tx) = LibraryCommandInput::command(LibraryCommand::AllSongs);
+                                let (command, tx) =
+                                    LibraryCommandInput::command(LibraryCommand::AllSongs);
                                 lib_mail.send(command).await.unwrap();
-                                let LibraryResponse::AllSongs(songs) = tx.recv().await.unwrap() else {
+                                let LibraryResponse::AllSongs(songs) = tx.recv().await.unwrap()
+                                else {
                                     unreachable!()
                                 };
                                 (songs, index)
                             }
                             PlayerLocation::Playlist(uuid) => {
-                                let (command, tx) = LibraryCommandInput::command(LibraryCommand::ExternalPlaylist(uuid));
+                                let (command, tx) = LibraryCommandInput::command(
+                                    LibraryCommand::ExternalPlaylist(uuid),
+                                );
                                 lib_mail.send(command).await.unwrap();
-                                let LibraryResponse::ExternalPlaylist(list) = tx.recv().await.unwrap() else {
+                                let LibraryResponse::ExternalPlaylist(list) =
+                                    tx.recv().await.unwrap()
+                                else {
                                     unreachable!()
                                 };
                                 let index = list.get_index(np_song.uuid).unwrap();
                                 (list.tracks, index)
                             }
-                            _ => todo!("Got Location other than Library or Playlist")
+                            _ => todo!("Got Location other than Library or Playlist"),
                         };
 
-
-                        for i in index+1..(index+50) {
+                        for i in index + 1..(index + 50) {
                             if let Some(song) = songs.get(i) {
-                                let (command, tx) = QueueCommandInput::command(
-                                    QueueCommand::Append(QueueItem::from_item_type(QueueItemType::Single(QueueSong { song: song.clone(), location })), false)
-                                );
+                                let (command, tx) =
+                                    QueueCommandInput::command(QueueCommand::Append(
+                                        QueueItem::from_item_type(QueueItemType::Single(
+                                            QueueSong {
+                                                song: song.clone(),
+                                                location,
+                                            },
+                                        )),
+                                        false,
+                                    ));
                                 queue_mail.send(command).await.unwrap();
                                 match tx.recv().await.unwrap() {
                                     QueueResponse::Empty(Ok(())) => (),
                                     QueueResponse::Empty(Err(e)) => {
-                                        res_rx.send(PlayerResponse::NowPlaying(Err(e.into()))).await.unwrap();
+                                        res_rx
+                                            .send(PlayerResponse::NowPlaying(Err(e.into())))
+                                            .await
+                                            .unwrap();
                                         continue 'outer;
                                     }
-                                    _ => unreachable!()
+                                    _ => unreachable!(),
                                 }
                             } else {
                                 println!("End of Library / Playlist");
@@ -257,11 +341,16 @@ impl Controller {
                             }
                         }
                         // ^ This be my solution for now ^
-                        res_rx.send(PlayerResponse::NowPlaying(Ok(np_song.clone()))).await.unwrap();
+                        res_rx
+                            .send(PlayerResponse::NowPlaying(Ok(np_song.clone())))
+                            .await
+                            .unwrap();
 
                         state.now_playing = np_song.uuid;
                         _ = state.write_file();
-                        notify_connections_.send(ConnectionsNotification::SongChange(np_song)).unwrap();
+                        notify_connections_
+                            .send(ConnectionsNotification::SongChange(np_song))
+                            .unwrap();
                     }
                 }
             } else {

@@ -13,11 +13,11 @@ pub mod music_controller {
     pub mod connections;
     pub mod controller;
     pub mod controller_handle;
-    pub mod queue;
+    pub mod library_command;
     pub mod player_command;
     pub mod player_monitor;
-    pub mod  queue_command;
-    pub mod library_command;
+    pub mod queue;
+    pub mod queue_command;
 }
 
 pub mod config;

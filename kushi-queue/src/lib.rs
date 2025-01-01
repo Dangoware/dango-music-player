@@ -11,7 +11,7 @@ pub enum QueueState {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct QueueItem<
-    T: Debug + Clone + PartialEq, // T: The Singular Item Type
+    T: Debug + Clone + PartialEq,                // T: The Singular Item Type
     U: Debug + PartialEq + Clone + IntoIterator, // U: an Iterator
 > {
     pub item: QueueItemType<T, U>,
@@ -22,17 +22,18 @@ pub struct QueueItem<
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum QueueItemType<
-    T: Debug + Clone + PartialEq, // T: The Singular Item Type
+    T: Debug + Clone + PartialEq,                // T: The Singular Item Type
     U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
 > {
     Single(T),
-    Multi(U)
+    Multi(U),
 }
 
 impl<
-    T: Debug + Clone + PartialEq, // T: The Singular Item Type
-    U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
-> QueueItemType<T, U>  {
+        T: Debug + Clone + PartialEq,                // T: The Singular Item Type
+        U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
+    > QueueItemType<T, U>
+{
     pub fn from_single(item: T) -> Self {
         QueueItemType::Single(item)
     }
@@ -42,12 +43,7 @@ impl<
     }
 }
 
-
-impl<
-    T: Debug + Clone + PartialEq,
-    U: Debug + PartialEq + Clone + IntoIterator,
->
-QueueItem<T, U> {
+impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> QueueItem<T, U> {
     pub fn from_item_type(item: QueueItemType<T, U>) -> Self {
         QueueItem {
             item,
@@ -59,7 +55,7 @@ QueueItem<T, U> {
 
 #[derive(Debug, Clone, Default)]
 pub struct Queue<
-    T: Debug + Clone + PartialEq, // T: The Singular Item Type
+    T: Debug + Clone + PartialEq,                // T: The Singular Item Type
     U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
 > {
     pub items: Vec<QueueItem<T, U>>,
@@ -69,10 +65,7 @@ pub struct Queue<
 }
 
 // TODO: HAndle the First QueueState[looping] and shuffle
-impl<
-    T: Debug + Clone + PartialEq,
-    U: Debug + PartialEq + Clone + IntoIterator,
-> Queue<T, U> {
+impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> Queue<T, U> {
     fn has_addhere(&self) -> bool {
         for item in &self.items {
             if item.state == QueueState::AddHere {
@@ -98,7 +91,7 @@ impl<
             items: Vec::new(),
             played: Vec::new(),
             loop_,
-            shuffle
+            shuffle,
         }
     }
 
@@ -130,7 +123,10 @@ impl<
         let empty = self.items.is_empty();
 
         if !empty {
-            self.items.get_mut(i).expect("There should be an item at index {i}").state = QueueState::NoState;
+            self.items
+                .get_mut(i)
+                .expect("There should be an item at index {i}")
+                .state = QueueState::NoState;
         }
 
         if by_human {
@@ -143,13 +139,11 @@ impl<
                 },
             );
         } else {
-            self.items.push(
-                QueueItem {
-                    item,
-                    state: QueueState::NoState,
-                    by_human,
-                }
-            );
+            self.items.push(QueueItem {
+                item,
+                state: QueueState::NoState,
+                by_human,
+            });
         }
     }
 
@@ -196,7 +190,10 @@ impl<
 
         let empty = self.items.is_empty();
         if !empty {
-            self.items.get_mut(i).expect("There should be an item at index {i}").state = QueueState::NoState;
+            self.items
+                .get_mut(i)
+                .expect("There should be an item at index {i}")
+                .state = QueueState::NoState;
         }
 
         let len = items.len();
@@ -211,13 +208,11 @@ impl<
                     },
                 );
             } else {
-                self.items.push(
-                    QueueItem {
-                        item,
-                        state: QueueState::NoState,
-                        by_human, // false
-                    },
-                );
+                self.items.push(QueueItem {
+                    item,
+                    state: QueueState::NoState,
+                    by_human, // false
+                });
             }
         }
         self.items[i + len - if empty { 1 } else { 0 }].state = QueueState::AddHere;
@@ -418,7 +413,8 @@ impl<
 
             if let QueueItemType::Multi(_) = self.items[0].item {
                 unimplemented!(); // TODO: Handle Multi items here?
-            } if let QueueItemType::Multi(_) = item.item {
+            }
+            if let QueueItemType::Multi(_) = item.item {
                 unimplemented!(); // TODO: Handle Multi items here?
             }
 
@@ -446,7 +442,6 @@ impl<
         }
     }
 }
-
 
 use thiserror::Error;
 

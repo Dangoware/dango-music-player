@@ -29,7 +29,12 @@ impl Default for ConfigLibrary {
 }
 
 impl ConfigLibrary {
-    pub fn new(path: PathBuf, name: String, scan_folders: Option<Vec<PathBuf>>, uuid: Option<Uuid>) -> Self {
+    pub fn new(
+        path: PathBuf,
+        name: String,
+        scan_folders: Option<Vec<PathBuf>>,
+        uuid: Option<Uuid>,
+    ) -> Self {
         ConfigLibrary {
             name,
             path,
@@ -197,7 +202,7 @@ pub mod tests {
             PathBuf::from("test-config/library"),
             String::from("library"),
             None,
-            None
+            None,
         );
         let mut config = Config {
             path: PathBuf::from("test-config/config_test.json"),

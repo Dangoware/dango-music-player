@@ -5,9 +5,16 @@ use crossbeam::atomic::AtomicCell;
 use crossbeam_channel::{Receiver, Sender};
 use prismriver::State as PrismState;
 
-use crate::{music_controller::controller::{PlayerCommand, PlayerResponse}, music_storage::library::Song};
+use crate::{
+    music_controller::controller::{PlayerCommand, PlayerResponse},
+    music_storage::library::Song,
+};
 
-use super::{connections::ConnectionsNotification, controller::{Controller, PlaybackInfo}, controller_handle::PlayerCommandInput};
+use super::{
+    connections::ConnectionsNotification,
+    controller::{Controller, PlaybackInfo},
+    controller_handle::PlayerCommandInput,
+};
 
 impl Controller {
     pub(super) fn player_monitor_loop(
@@ -17,7 +24,7 @@ impl Controller {
         player_mail: async_channel::Sender<PlayerCommandInput>,
         notify_next_song: Sender<Song>,
         notify_connections_: Sender<ConnectionsNotification>,
-        playback_info: Arc<AtomicCell<PlaybackInfo>>
+        playback_info: Arc<AtomicCell<PlaybackInfo>>,
     ) -> Result<(), ()> {
         std::thread::scope(|s| {
             // Thread for timing and metadata
@@ -27,7 +34,12 @@ impl Controller {
                     println!("playback monitor started");
                     while true {
                         let (position, duration) = playback_time_tx.recv().unwrap();
-                        notify_connections.send(ConnectionsNotification::Playback { position: position.clone(), duration: duration.clone() }).unwrap();
+                        notify_connections
+                            .send(ConnectionsNotification::Playback {
+                                position: position.clone(),
+                                duration: duration.clone(),
+                            })
+                            .unwrap();
                         playback_info.store(PlaybackInfo { position, duration });
                     }
                 }
@@ -35,35 +47,43 @@ impl Controller {
 
             // Thread for End of Track
             let notify_connections = notify_connections_.clone();
-            s.spawn(move || { futures::executor::block_on(async {
-                println!("EOS monitor started");
-                while true {
-                    let _ = finished_recv.recv();
-                    println!("End of song");
+            s.spawn(move || {
+                futures::executor::block_on(async {
+                    println!("EOS monitor started");
+                    while true {
+                        let _ = finished_recv.recv();
+                        println!("End of song");
 
-                    let (command, tx) = PlayerCommandInput::command(PlayerCommand::NextSong);
-                    player_mail.send(command).await.unwrap();
-                    let PlayerResponse::NowPlaying(res) = tx.recv().await.unwrap() else {
-                        unreachable!()
-                    };
-                    if let Ok(song) = res {
-                        notify_next_song.send(song.clone()).unwrap();
-                        notify_connections.send(ConnectionsNotification::SongChange(song)).unwrap();
-                        notify_connections.send(ConnectionsNotification::EOS).unwrap();
+                        let (command, tx) = PlayerCommandInput::command(PlayerCommand::NextSong);
+                        player_mail.send(command).await.unwrap();
+                        let PlayerResponse::NowPlaying(res) = tx.recv().await.unwrap() else {
+                            unreachable!()
+                        };
+                        if let Ok(song) = res {
+                            notify_next_song.send(song.clone()).unwrap();
+                            notify_connections
+                                .send(ConnectionsNotification::SongChange(song))
+                                .unwrap();
+                            notify_connections
+                                .send(ConnectionsNotification::EOS)
+                                .unwrap();
+                        }
                     }
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            });});
+                    std::thread::sleep(Duration::from_millis(100));
+                });
+            });
 
             let notify_connections = notify_connections_.clone();
             s.spawn(move || {
                 let mut state = PrismState::Stopped;
                 while true {
                     let _state = playback_state.read().unwrap().to_owned();
-                    if  _state != state {
+                    if _state != state {
                         state = _state;
                         println!("State Changed to {state:?}");
-                        notify_connections.send(ConnectionsNotification::StateChange(state.clone())).unwrap();
+                        notify_connections
+                            .send(ConnectionsNotification::StateChange(state.clone()))
+                            .unwrap();
                     }
                     std::thread::sleep(Duration::from_millis(100));
                 }

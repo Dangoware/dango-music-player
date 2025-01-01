@@ -66,7 +66,6 @@ pub enum Tag {
     Field(String),
 }
 
-
 impl Display for Tag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let path_str: String = match self {
@@ -228,7 +227,8 @@ impl Song {
 
     /// Creates a [`Song`] from a music file
     pub fn from_file<P: ?Sized + AsRef<Path>>(target_file: &P) -> Result<Self, Box<dyn Error>> {
-        let normal_options = lofty::config::ParseOptions::new().parsing_mode(lofty::config::ParsingMode::Relaxed);
+        let normal_options =
+            lofty::config::ParseOptions::new().parsing_mode(lofty::config::ParsingMode::Relaxed);
 
         let blank_tag = &lofty::tag::Tag::new(TagType::Id3v2);
         let tagged_file: lofty::file::TaggedFile;
@@ -480,8 +480,12 @@ impl Song {
             match art {
                 AlbumArt::Embedded(j) => {
                     let file = lofty::read_from_path(self.primary_uri()?.0.path())?;
-                    Ok(Some(file.tag(file.primary_tag_type()).unwrap().pictures()[*j].data().to_vec()))
-                },
+                    Ok(Some(
+                        file.tag(file.primary_tag_type()).unwrap().pictures()[*j]
+                            .data()
+                            .to_vec(),
+                    ))
+                }
                 AlbumArt::External(ref path) => {
                     let mut buf = vec![];
                     std::fs::File::open(path.path())?.read_to_end(&mut buf)?;
@@ -491,7 +495,6 @@ impl Song {
         } else {
             Ok(None)
         }
-
     }
 }
 
@@ -1236,15 +1239,12 @@ impl MusicLibrary {
 
 #[cfg(test)]
 mod test {
-    use std::{path::PathBuf, time::Instant};
     use crate::music_storage::library::Tag;
+    use std::{path::PathBuf, time::Instant};
 
     use uuid::Uuid;
 
-    use crate::{
-        config::Config,
-        music_storage::library::MusicLibrary,
-    };
+    use crate::{config::Config, music_storage::library::MusicLibrary};
 
     #[test]
     fn library_init() {
@@ -1263,20 +1263,27 @@ mod test {
         let lib = MusicLibrary::init(
             PathBuf::from("/media/g2/Storage4/Media-Files/Music/Albums/library.dlib"),
             Uuid::new_v4(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let timer = Instant::now();
-        let result = lib.query_tracks(
-            &String::from(""),
-            &vec![],
-            &vec![
-                Tag::Field("location".to_string()),
-                Tag::Album,
-                Tag::Disk,
-                Tag::Track,
-            ],
-        ).unwrap();
-        println!("{} songs in {}ms", result.len(), timer.elapsed().as_millis());
+        let result = lib
+            .query_tracks(
+                &String::from(""),
+                &vec![],
+                &vec![
+                    Tag::Field("location".to_string()),
+                    Tag::Album,
+                    Tag::Disk,
+                    Tag::Track,
+                ],
+            )
+            .unwrap();
+        println!(
+            "{} songs in {}ms",
+            result.len(),
+            timer.elapsed().as_millis()
+        );
 
         /*
         for song in result {
