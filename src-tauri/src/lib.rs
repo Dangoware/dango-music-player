@@ -1,13 +1,12 @@
 #![allow(while_true)]
 
-use std::{borrow::BorrowMut, fs, ops::Deref, path::PathBuf, sync::{atomic::Ordering, Arc}, thread::{scope, spawn}, time::Duration};
+use std::{fs, path::PathBuf, sync::Arc, thread::{scope, spawn}, time::Duration};
 
 use crossbeam::channel::{bounded, unbounded, Receiver, Sender};
-use dmp_core::{config::{Config, ConfigLibrary}, music_controller::{connections::ConnectionsInput, controller::{Controller, ControllerHandle, LibraryResponse, PlaybackInfo}}, music_storage::library::{MusicLibrary, Song, Tag}};
+use dmp_core::{config::{Config, ConfigLibrary}, music_controller::{connections::ConnectionsInput, controller::{Controller, ControllerHandle, PlaybackInfo}}, music_storage::library::{MusicLibrary, Song}};
 use futures::channel::oneshot;
 use parking_lot::RwLock;
-use rfd::FileHandle;
-use tauri::{http::Response, Emitter, Manager, State, WebviewWindowBuilder, Wry};
+use tauri::{http::Response, Emitter, Manager, State, Wry};
 use uuid::Uuid;
 use wrappers::{_Song, stop};
 
@@ -192,7 +191,7 @@ pub fn run() {
 
     app
     .run(|_app_handle, event| match event {
-        tauri::RunEvent::ExitRequested { api, .. } => {
+        tauri::RunEvent::ExitRequested { .. } => {
             // api.prevent_exit();
             //panic!("does this kill the player?")
         }

@@ -1,3 +1,4 @@
+#![allow(while_true)]
 pub mod music_storage {
     pub mod library;
     pub mod music_collection;
@@ -13,6 +14,10 @@ pub mod music_controller {
     pub mod controller;
     pub mod controller_handle;
     pub mod queue;
+    pub mod player_command;
+    pub mod player_monitor;
+    pub mod  queue_command;
+    pub mod library_command;
 }
 
 pub mod config;

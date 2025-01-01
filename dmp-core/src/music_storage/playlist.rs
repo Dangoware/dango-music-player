@@ -403,7 +403,7 @@ impl ExternalPlaylist {
 #[cfg(test)]
 mod test_super {
     use super::*;
-    use crate::config::tests::{new_config_lib, read_config_lib};
+    use crate::config::tests::read_config_lib;
 
     #[test]
     fn list_to_m3u() {

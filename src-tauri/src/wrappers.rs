@@ -52,7 +52,7 @@ pub async fn set_volume(ctrl_handle: State<'_, ControllerHandle>, volume: String
 }
 
 #[tauri::command]
-pub async fn get_volume(ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
+pub async fn get_volume(_ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
     Ok(())
 }
 
@@ -81,7 +81,7 @@ pub async fn prev(app: AppHandle<Wry>, ctrl_handle: State<'_, ControllerHandle>)
 }
 
 #[tauri::command]
-pub async fn now_playing(ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
+pub async fn now_playing(_ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
 
     Ok(())
 }

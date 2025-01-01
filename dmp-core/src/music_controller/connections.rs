@@ -1,4 +1,3 @@
-#![allow(while_true)]
 use std::{sync::{atomic::{AtomicBool, Ordering}, Arc}, thread::sleep, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use chrono::TimeDelta;
@@ -11,7 +10,7 @@ use prismriver::State as PrismState;
 
 use crate::{config::Config, music_storage::library::{Song, Tag}};
 
-use super::controller::{Controller, PlaybackInfo};
+use super::controller::Controller;
 
 #[derive(Debug, Clone)]
 pub(super) enum ConnectionsNotification {
@@ -58,7 +57,7 @@ impl Controller {
                 use ConnectionsNotification::*;
                 while true {
                     match notifications_tx.recv().unwrap() {
-                        Playback { position, duration } => {}
+                        Playback { .. } => {}
                         StateChange(state) => {
                             if DC_ACTIVE.load(Ordering::Relaxed) { dc_state_rx.send(state.clone()).unwrap(); }
                         }
