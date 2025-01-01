@@ -9,7 +9,7 @@ use std::{
 
 use chrono::TimeDelta;
 use crossbeam::{scope, select};
-use crossbeam_channel::{bounded, Receiver};
+use crossbeam_channel::{unbounded, Receiver};
 use discord_presence::Client;
 use listenbrainz::ListenBrainz;
 use parking_lot::RwLock;
@@ -30,6 +30,7 @@ pub(super) enum ConnectionsNotification {
     },
     StateChange(PrismState),
     SongChange(Song),
+    AboutToFinish,
     EOS,
 }
 
@@ -56,10 +57,11 @@ impl Controller {
             },
         }: ControllerConnections,
     ) {
-        let (dc_state_rx, dc_state_tx) = bounded::<PrismState>(1);
-        let (dc_song_rx, dc_song_tx) = bounded::<Song>(1);
-        let (lb_song_rx, lb_song_tx) = bounded::<Song>(1);
-        let (lb_eos_rx, lb_eos_tx) = bounded::<()>(1);
+        let (dc_state_rx, dc_state_tx) = unbounded::<PrismState>();
+        let (dc_song_rx, dc_song_tx) = unbounded::<Song>();
+        let (lb_song_rx, lb_song_tx) = unbounded::<Song>();
+        let (lb_abt_fin_rx, lb_abt_fn_tx) = unbounded::<()>();
+        let (lb_eos_rx, lb_eos_tx) = unbounded::<()>();
 
         scope(|s| {
             s.builder()
@@ -87,6 +89,11 @@ impl Controller {
                                     lb_eos_rx.send(()).unwrap();
                                 }
                             }
+                            AboutToFinish => {
+                                if LB_ACTIVE.load(Ordering::Relaxed) {
+                                    lb_abt_fin_rx.send(()).unwrap();
+                                }
+                            }
                         }
                     }
                 })
@@ -105,7 +112,7 @@ impl Controller {
                 s.builder()
                     .name("ListenBrainz Handler".to_string())
                     .spawn(move |_| {
-                        Controller::listenbrainz_scrobble(&token, lb_song_tx, lb_eos_tx);
+                        Controller::listenbrainz_scrobble(&token, lb_song_tx, lb_abt_fn_tx, lb_eos_tx);
                     })
                     .unwrap();
             }
@@ -199,7 +206,7 @@ impl Controller {
         DC_ACTIVE.store(false, Ordering::Relaxed);
     }
 
-    fn listenbrainz_scrobble(token: &str, song_tx: Receiver<Song>, eos_tx: Receiver<()>) {
+    fn listenbrainz_scrobble(token: &str, song_tx: Receiver<Song>, abt_fn_tx: Receiver<()>, eos_tx: Receiver<()>) {
         let mut client = ListenBrainz::new();
         client.authenticate(token).unwrap();
         if !client.is_authenticated() {
@@ -207,10 +214,14 @@ impl Controller {
         }
 
         let mut song: Option<Song> = None;
+        let mut last_song: Option<Song> = None;
         LB_ACTIVE.store(true, Ordering::Relaxed);
+        println!("ListenBrainz connected");
 
         while true {
             let song = &mut song;
+            let last_song = &mut last_song;
+
             let client = &client;
             select! {
                 recv(song_tx) -> res => {
@@ -225,13 +236,19 @@ impl Controller {
                         } else {
                             continue
                         };
-                        client.playing_now(artist, title, None).unwrap();
+                        let release = _song.get_tag(&Tag::Key(String::from("MusicBrainzReleaseId"))).map(|id| id.as_str());
+
+                        client.playing_now(artist, title, release).unwrap();
+                        println!("Song Listening = {artist} - {title}");
                         *song = Some(_song);
-                        println!("Song Listening")
                     }
                 },
+                recv(abt_fn_tx) -> _ => {
+                    *last_song = song.take();
+                    println!("song = {:?}", last_song.as_ref().map(|s| s.get_tag(&Tag::Title).map_or("No Title", |t| t.as_str())));
+                },
                 recv(eos_tx) -> _ => {
-                    if let Some(song) = song {
+                    if let Some(song) = last_song {
                         let artist = if let Some(tag) = song.get_tag(&Tag::Artist) {
                             tag.as_str()
                         } else {
@@ -242,42 +259,14 @@ impl Controller {
                         } else {
                             continue
                         };
-                        client.listen(artist, title, None).unwrap();
+                        let release = song.get_tag(&Tag::Key(String::from("MusicBrainzReleaseId"))).map(|id| id.as_str());
+
+                        client.listen(artist, title, release).unwrap();
                         println!("Song Scrobbled");
                     }
                 }
             }
         }
         LB_ACTIVE.store(false, Ordering::Relaxed);
-    }
-}
-
-#[cfg(test)]
-mod test_super {
-    use std::thread::{sleep, spawn};
-
-    use crossbeam_channel::unbounded;
-
-    use crate::config::tests::read_config_lib;
-
-    use super::*;
-
-    #[test]
-    fn lb_test() {
-        let (song_rx, song_tx) = unbounded();
-        let (eos_rx, eos_tx) = unbounded();
-
-        let (config, lib) = read_config_lib();
-        song_rx.send(lib.library[0].clone()).unwrap();
-        spawn(|| {
-            Controller::listenbrainz_scrobble(
-                config.connections.listenbrainz_token.unwrap().as_str(),
-                song_tx,
-                eos_tx,
-            );
-        });
-        sleep(Duration::from_secs(10));
-        eos_rx.send(()).unwrap();
-        sleep(Duration::from_secs(10));
     }
 }

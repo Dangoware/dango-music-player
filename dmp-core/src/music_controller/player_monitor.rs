@@ -20,7 +20,8 @@ impl Controller {
     pub(super) fn player_monitor_loop(
         playback_state: Arc<std::sync::RwLock<PrismState>>,
         playback_time_tx: Receiver<(Option<TimeDelta>, Option<TimeDelta>)>,
-        finished_recv: Receiver<()>,
+        about_to_finish_tx: Receiver<()>,
+        finished_tx: Receiver<()>,
         player_mail: async_channel::Sender<PlayerCommandInput>,
         notify_next_song: Sender<Song>,
         notify_connections_: Sender<ConnectionsNotification>,
@@ -45,14 +46,25 @@ impl Controller {
                 }
             });
 
+            let notify_connections = notify_connections_.clone();
+            s.spawn(move || {
+                println!("AboutToFinish monitor started");
+                futures::executor::block_on(async {
+                    while true {
+                        _ = about_to_finish_tx.recv();
+                        notify_connections.send(ConnectionsNotification::AboutToFinish).unwrap();
+                        println!("About to Finish");
+                    }
+                })
+            });
+
             // Thread for End of Track
             let notify_connections = notify_connections_.clone();
             s.spawn(move || {
+                println!("EOS monitor started");
                 futures::executor::block_on(async {
-                    println!("EOS monitor started");
                     while true {
-                        let _ = finished_recv.recv();
-                        println!("End of song");
+                        _ = finished_tx.recv();
 
                         let (command, tx) = PlayerCommandInput::command(PlayerCommand::NextSong);
                         player_mail.send(command).await.unwrap();
@@ -64,12 +76,13 @@ impl Controller {
                             notify_connections
                                 .send(ConnectionsNotification::SongChange(song))
                                 .unwrap();
-                            notify_connections
+                        }
+
+                        notify_connections
                                 .send(ConnectionsNotification::EOS)
                                 .unwrap();
-                        }
+                        println!("End of song");
                     }
-                    std::thread::sleep(Duration::from_millis(100));
                 });
             });
 

@@ -277,6 +277,7 @@ impl Controller {
             let player = Prismriver::new();
             let player_state = player.state.clone();
             let player_timing = player.get_timing_recv();
+            let about_to_finish_tx = player.get_about_to_finish_recv();
             let finished_tx = player.get_finished_recv();
             let (notifications_rx, notifications_tx) =
                 crossbeam_channel::unbounded::<ConnectionsNotification>();
@@ -325,6 +326,7 @@ impl Controller {
                 Controller::player_monitor_loop(
                     player_state,
                     player_timing,
+                    about_to_finish_tx,
                     finished_tx,
                     player_mail.0,
                     notify_next_song,
