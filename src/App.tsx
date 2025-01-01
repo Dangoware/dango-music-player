@@ -273,14 +273,6 @@ function Song(props: SongProps) {
         { Math.round(+props.duration / 60) }:
         { (+props.duration % 60).toString().padStart(2, "0") }
       </p>
-
-      {/*<button onClick={(_) => {
-        invoke('add_song_to_queue', { uuid: props.uuid, location: props.playerLocation }).then(() => {} )
-      }}
-      >Add to Queue</button>
-      <button onClick={() => {
-        invoke("play_now", { uuid: props.uuid, location: props.playerLocation }).then(() => {})
-      }}>Play Now</button>*/}
     </div>
   )
 }
@@ -302,8 +294,8 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
       const pos_ = Array.isArray(info.position) ? info.position![0] : 0;
       const dur_ = Array.isArray(info.duration) ? info.duration![0] : 0;
 
-      setPosition(pos_);
-      setDuration(dur_);
+      setPosition(dur_);
+      setDuration(pos_);
       let progress = ((dur_/pos_) * 100);
       setSeekBarSize(progress)
     })
@@ -401,7 +393,7 @@ function QueueSong({ song, location, index }: QueueSongProps) {
   }
 
   return (
-    <div className="queueSong"  onAuxClick={ removeFromQueue } onClickCapture={ playNow }>
+    <div className="queueSong unselectable"  onAuxClickCapture={ removeFromQueue } onDoubleClickCapture={ playNow }>
       <img className="queueSongCoverArt" src={ convertFileSrc('abc') + '?' + song.uuid } key={ 'coverArt_' + song.uuid }/>
       <div className="queueSongTags">
         <p className="queueSongTitle">{ song.tags.TrackTitle }</p>

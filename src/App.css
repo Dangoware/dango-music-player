@@ -9,6 +9,7 @@
   --baseColor: #101010;
   --overlayColor: #1e1e1e;
   --highlightColor: #1f1f1f;
+  --highlightColor2: #2b2a2c;
   --playBarColor: #5c4bb9;
   --lightTextColor: #7a7a6f;
   --mediumTextColor: #cacab8;
@@ -22,6 +23,8 @@ main {
   width: 100vw;
   display: flex;
   flex-direction: column;
+  overflow-y: hidden;
+  overflow-x: hidden;
 }
 
 .container {
@@ -219,6 +222,10 @@ main {
   height: 100px;
   width: 100%;
   display: flex;
+}
+
+.queueSong:hover {
+  background-color: var(--highlightColor2);
 }
 
 .queueSongCoverArt {

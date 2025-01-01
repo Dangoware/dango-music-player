@@ -278,6 +278,7 @@ impl Controller {
             let a = scope.spawn({
                 let queue_mail = queue_mail.clone();
                 let _notifications_rx = notifications_rx.clone();
+                let _config = config.clone();
                 move || {
                     futures::executor::block_on(async {
                         moro::async_scope!(|scope| {
@@ -303,7 +304,7 @@ impl Controller {
                                     Controller::library_loop(
                                         lib_mail.1,
                                         &mut library,
-                                        config,
+                                        _config,
                                     )
                                         .await
                                         .unwrap();
@@ -336,9 +337,11 @@ impl Controller {
             if let Some(inner) = connections {
                 dbg!(&inner);
                 let d = scope.spawn(|| {
-                    Controller::handle_connections( ControllerConnections {
-                        notifications_tx,
-                        inner,
+                    Controller::handle_connections(
+                        config,
+                        ControllerConnections {
+                            notifications_tx,
+                            inner,
                     });
                 });
             }

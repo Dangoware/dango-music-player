@@ -1,15 +1,17 @@
 #![allow(while_true)]
-use std::{thread::sleep, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{sync::Arc, thread::sleep, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use chrono::TimeDelta;
 use crossbeam::{scope, select};
 use crossbeam_channel::{bounded, Receiver};
 use discord_presence::Client;
+use listenbrainz::ListenBrainz;
+use parking_lot::RwLock;
 use prismriver::State as PrismState;
 
-use crate::music_storage::library::{Song, Tag};
+use crate::{config::Config, music_storage::library::{Song, Tag}};
 
-use super::controller::Controller;
+use super::controller::{Controller, PlaybackInfo};
 
 #[derive(Debug, Clone)]
 pub(super) enum ConnectionsNotification {
@@ -19,6 +21,7 @@ pub(super) enum ConnectionsNotification {
     },
     StateChange(PrismState),
     SongChange(Song),
+    EOS,
 }
 
 #[derive(Debug)]
@@ -32,7 +35,9 @@ pub(super) struct ControllerConnections {
 }
 
 impl Controller {
-    pub(super) fn handle_connections(ControllerConnections {
+    pub(super) fn handle_connections(
+        config: Arc<RwLock<Config>>,
+        ControllerConnections {
         notifications_tx,
         inner: ConnectionsInput {
                discord_rpc_client_id
@@ -41,35 +46,46 @@ impl Controller {
     ) {
         let (dc_state_rx, dc_state_tx) = bounded::<PrismState>(1);
         let (dc_song_rx, dc_song_tx) = bounded::<Song>(1);
+        let (lb_song_rx, lb_song_tx) = bounded::<Song>(1);
+        let (lb_eos_rx, lb_eos_tx) = bounded::<()>(1);
         scope(|s| {
             s.builder().name("Notifications Sorter".to_string()).spawn(|_| {
                 use ConnectionsNotification::*;
                 while true {
                     match notifications_tx.recv().unwrap() {
-                        Playback { position, duration } => { continue; }
+                        Playback { position, duration } => {}
                         StateChange(state) => {
                             dc_state_rx.send(state.clone()).unwrap();
                         }
                         SongChange(song) => {
-                            dc_song_rx.send(song).unwrap();
+                            dc_song_rx.send(song.clone()).unwrap();
+                            lb_song_rx.send(song).unwrap();
+                        }
+                        EOS => {
+                            lb_eos_rx.send(()).unwrap();
                         }
                     }
                 }
             }).unwrap();
 
             if let Some(client_id) = discord_rpc_client_id {
-                println!("Discord thingy detected");
                 s.builder().name("Discord RPC Handler".to_string()).spawn(move |_| {
                     Controller::discord_rpc(client_id, dc_song_tx, dc_state_tx);
                 }).unwrap();
             };
+
+            if let Some(token) = config.read().connections.listenbrainz_token.clone() {
+                s.builder().name("ListenBrainz Handler".to_string()).spawn(move |_| {
+                    Controller::listenbrainz_scrobble(&token, lb_song_tx, lb_eos_tx);
+                }).unwrap();
+            }
         }).unwrap();
     }
 
     fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<PrismState>) {
-        // TODO: Handle seeking position change
+        // TODO: Handle seeking position change and pause
         std::thread::spawn(move || {
-            let mut client = discord_presence::Client::new(client_id);
+            let mut client = discord_presence::Client::with_error_config(client_id, Duration::from_secs(5), None);
             client.start();
             while !Client::is_ready() { sleep(Duration::from_millis(100)); }
             println!("discord connected");
@@ -97,8 +113,8 @@ impl Controller {
                             *song = Some(song_);
                             now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards?").as_secs();
                         }
-                    }
-                    default(Duration::from_millis(4500)) => ()
+                    },
+                    default(Duration::from_millis(99)) => ()
                 }
 
                 client.set_activity(|activity| {
@@ -131,17 +147,45 @@ impl Controller {
                         a
                     }.assets(|a| {
                         a.large_text(state.clone())
-                    })
+                    }).instance(true)
                 }).unwrap();
-                println!("Updated Discord Status");
             }
         });
+    }
+
+    fn listenbrainz_scrobble(token: &str, song_tx: Receiver<Song>, eos_tx: Receiver<()>) {
+        let mut client = ListenBrainz::new();
+        client.authenticate(token).unwrap();
+        if !client.is_authenticated() {
+            return;
+        }
+
+        let mut song: Option<Song> = None;
+        while true {
+            let song = &mut song;
+            let client = &client;
+            select! {
+                recv(song_tx) -> res => {
+                    if let Ok(_song) = res {
+                        client.playing_now(_song.get_tag(&Tag::Artist).map_or("", |tag| tag.as_str()), _song.get_tag(&Tag::Title).map_or("", |tag| tag.as_str()), None).unwrap();
+                        *song = Some(_song);
+                        println!("Song Listening")
+                    }
+                },
+                recv(eos_tx) -> _ => {
+                    if let Some(song) = song {
+                        client.listen(song.get_tag(&Tag::Artist).map_or("", |tag| tag.as_str()), song.get_tag(&Tag::Title).map_or("", |tag| tag.as_str()), None).unwrap();
+                        println!("Song Scrobbled");
+                    }
+                }
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod test_super {
-    use std::thread::sleep;
+    use std::thread::{sleep, spawn};
 
     use crossbeam_channel::unbounded;
 
@@ -150,15 +194,17 @@ mod test_super {
     use super::*;
 
     #[test]
-    fn discord_test() {
-        let client_id = std::env!("DISCORD_CLIENT_ID").parse::<u64>().unwrap();
+    fn lb_test() {
         let (song_rx, song_tx) = unbounded();
-        let (_, state_tx) = unbounded();
+        let (eos_rx, eos_tx) = unbounded();
 
-        let (_, lib ) = read_config_lib();
+        let (config, lib ) = read_config_lib();
         song_rx.send(lib.library[0].clone()).unwrap();
-
-        Controller::discord_rpc(client_id, song_tx, state_tx);
-        sleep(Duration::from_secs(150));
+        spawn(|| {
+            Controller::listenbrainz_scrobble(config.connections.listenbrainz_token.unwrap().as_str(), song_tx, eos_tx);
+        });
+        sleep(Duration::from_secs(10));
+        eos_rx.send(()).unwrap();
+        sleep(Duration::from_secs(10));
     }
 }
