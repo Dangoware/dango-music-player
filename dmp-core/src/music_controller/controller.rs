@@ -656,6 +656,7 @@ impl Controller {
                     if let Ok(song) = res {
                         notify_next_song.send(song.clone()).unwrap();
                         notify_connections.send(ConnectionsNotification::SongChange(song)).unwrap();
+                        notify_connections.send(ConnectionsNotification::EOS).unwrap();
                     }
                 }
                 std::thread::sleep(Duration::from_millis(100));
