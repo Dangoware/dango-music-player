@@ -1,6 +1,6 @@
 [package]
 name = "dango-music-player"
-version = "0.0.0"
+version = "0.1.0"
 description = "A music player."
 authors = ["G2", "MrDulfin"]
 edition = "2021"

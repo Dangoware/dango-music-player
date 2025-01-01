@@ -37,7 +37,7 @@ futures = "0.3.30"
 async-channel = "2.3.1"
 ciborium = "0.2.2"
 itertools = "0.13.0"
-prismriver = { git = "https://github.com/Dangoware/prismriver.git"}
+prismriver = { git = "https://github.com/Dangoware/prismriver.git" }
 parking_lot = "0.12.3"
 discord-presence = { version = "1.4.1", features = ["activity_type"] }
 listenbrainz = "0.8.1"
