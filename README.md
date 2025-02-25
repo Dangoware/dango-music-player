@@ -1,6 +1,6 @@
-# Dango Music Player
+# Dango Music Player                                                                     
+![Dango Music Player logo](https://github.com/Dangoware/dango-music-player/blob/main/src-tauri/icons/128x128.png?raw=true) 
 
-![Dango Music Player logo](https://github.com/Dangoware/dango-music-player/blob/main/src-tauri/icons/icon.png)
 ### Dango Music Player is an easy to use Music Player for all users to enjoy their music!
 
 ## Features
