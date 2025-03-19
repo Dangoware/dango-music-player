@@ -14,7 +14,7 @@ use discord_presence::Client;
 use listenbrainz::ListenBrainz;
 use parking_lot::RwLock;
 use prismriver::State as PrismState;
-use rustfm_scrobble::Scrobbler;
+use rustfm_scrobble::{Scrobble, Scrobbler};
 use serde::Deserialize;
 
 use crate::{
@@ -42,10 +42,19 @@ pub(super) enum TryConnectionType {
     LastFM {
         api_key: String,
         api_secret: String,
-        session: Option<String>
+        auth: LastFMAuth
     },
     ListenBrainz(String),
     Custom(String)
+}
+
+#[derive(Debug, Clone)]
+pub(super) enum LastFMAuth {
+    Session(Option<String>),
+    UserPass {
+        username: String,
+        password: String
+    }
 }
 
 pub(super) struct ControllerConnections {
@@ -121,19 +130,29 @@ pub(super) fn handle_connections(
                         })
                         .unwrap();
                 }
-                TryConnectionType::LastFM { api_key, api_secret, session } => {
+                TryConnectionType::LastFM { api_key, api_secret, auth } => {
                     let (config, notifications_rx) = (config.clone(), notifications_rx.clone());
+                    let (last_song_tx, last_abt_fin_tx, last_eos_tx) = (last_song_tx.clone(), last_abt_fin_tx.clone(), last_eos_tx.clone());
                     std::thread::Builder::new()
                         .name("last.fm Handler".to_string())
                         .spawn(move || {
-                            let scrobbler = if let Some(session) = session {
-                                let mut scrobbler = Scrobbler::new(&api_key, &api_secret);
-                                    scrobbler.authenticate_with_session_key(&session);
-                                    Ok(scrobbler)
-                                } else {
-                                    last_fm_auth(config, notifications_rx, &api_key, &api_secret)
-                                };
-                                // TODO: Add scrobbling support
+                            let scrobbler = match auth {
+                                LastFMAuth::Session(key) => {
+                                    if let Some(session) = key {
+                                        let mut scrobbler = Scrobbler::new(&api_key, &api_secret);
+                                        scrobbler.authenticate_with_session_key(&session);
+                                        Ok(scrobbler)
+                                    } else {
+                                        last_fm_auth(config, notifications_rx, &api_key, &api_secret)
+                                    }.unwrap()
+                                },
+                                LastFMAuth::UserPass { username, password } => {
+                                    let mut scrobbler = Scrobbler::new(&api_key, &api_secret);
+                                    scrobbler.authenticate_with_password(&username, &password).unwrap();
+                                    scrobbler
+                                }
+                            };
+                            last_fm_scrobble(scrobbler, last_song_tx, last_abt_fin_tx, last_eos_tx);
                         })
                         .unwrap();
                 }
@@ -293,7 +312,7 @@ fn listenbrainz_scrobble(token: &str, song_tx: Receiver<Song>, abt_fn_tx: Receiv
     }
     LB_ACTIVE.store(false, Ordering::Relaxed);
 }
-pub(super) fn last_fm_auth(
+fn last_fm_auth(
     config: Arc<RwLock<Config>>,
     notifications_rx: Sender<ConnectionsNotification>,
     api_key: &str,
@@ -330,6 +349,81 @@ pub(super) fn last_fm_auth(
     config.write().connections.last_fm_session = Some(session.key);
     Ok(scrobbler)
 }
+
+fn last_fm_scrobble(scrobbler: Scrobbler, song_tx: Receiver<Song>, abt_fn_tx: Receiver<()>, eos_tx: Receiver<()>) {
+    // TODO: Add support for scrobble storage for later
+
+    let mut song: Option<Song> = None;
+    let mut last_song: Option<Song> = None;
+    LAST_FM_ACTIVE.store(true, Ordering::Relaxed);
+    println!("ListenBrainz connected");
+
+    while true {
+        let song = &mut song;
+        let last_song = &mut last_song;
+
+        let scrobbler = &scrobbler;
+
+        select! {
+            recv(song_tx) -> res => {
+                if let Ok(_song) = res {
+                    let title = if let Some(tag) = _song.get_tag(&Tag::Title) {
+                        tag.as_str()
+                    } else {
+                        continue
+                    };
+                    let artist = if let Some(tag) = _song.get_tag(&Tag::Artist) {
+                        tag.as_str()
+                    } else {
+                        ""
+                    };
+                    let album = if let Some(tag) = _song.get_tag(&Tag::Album) {
+                        tag.as_str()
+                    } else {
+                        ""
+                    };
+
+                    match scrobbler.now_playing(&Scrobble::new(artist, title, album)) {
+                        Ok(_) => println!("Song Scrobbling = {artist} - {title} - {album}"),
+                        Err(e) => println!("Error at last.fm now playing:\n{e}")
+                    };
+
+                    *song = Some(_song);
+                }
+            },
+            recv(abt_fn_tx) -> _ => {
+                *last_song = song.take();
+                println!("song = {:?}", last_song.as_ref().map(|s| s.get_tag(&Tag::Title).map_or("No Title", |t| t.as_str())));
+            },
+            recv(eos_tx) -> _ => {
+                if let Some(song) = last_song {
+                    let title = if let Some(tag) = song.get_tag(&Tag::Title) {
+                        tag.as_str()
+                    } else {
+                        continue
+                    };
+                    let artist = if let Some(tag) = song.get_tag(&Tag::Artist) {
+                        tag.as_str()
+                    } else {
+                        ""
+                    };
+                    let album = if let Some(tag) = song.get_tag(&Tag::Album) {
+                        tag.as_str()
+                    } else {
+                        ""
+                    };
+
+                    match scrobbler.scrobble(&Scrobble::new(artist, title, album)) {
+                        Ok(_) => println!("Song Scrobbled"),
+                        Err(e) => println!("Error at last.fm scrobbler:\n{e:?}")
+                    }
+                }
+            }
+        }
+    }
+    LAST_FM_ACTIVE.store(false, Ordering::Relaxed);
+}
+
 
 
 #[derive(Deserialize)]
