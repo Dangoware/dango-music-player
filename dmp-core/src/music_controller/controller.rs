@@ -20,11 +20,12 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::config::ConfigError;
+use crate::music_controller::connections::handle_connections;
 use crate::music_storage::library::Song;
 use crate::music_storage::playlist::{ExternalPlaylist, Playlist};
 use crate::{config::Config, music_storage::library::MusicLibrary};
 
-use super::connections::{ConnectionsInput, ConnectionsNotification, ControllerConnections};
+use super::connections::{ConnectionsNotification, ControllerConnections};
 use super::controller_handle::{LibraryCommandInput, PlayerCommandInput, QueueCommandInput};
 use super::queue::{QueueAlbum, QueueSong};
 
@@ -163,7 +164,6 @@ pub struct ControllerInput {
     config: Arc<RwLock<Config>>,
     playback_info: Arc<AtomicCell<PlaybackInfo>>,
     notify_next_song: Sender<Song>,
-    connections: Option<ConnectionsInput>,
 }
 
 pub struct ControllerHandle {
@@ -176,7 +176,6 @@ impl ControllerHandle {
     pub fn new(
         library: MusicLibrary,
         config: Arc<RwLock<Config>>,
-        connections: Option<ConnectionsInput>,
     ) -> (
         Self,
         ControllerInput,
@@ -202,7 +201,6 @@ impl ControllerHandle {
                 config,
                 playback_info: Arc::clone(&playback_info),
                 notify_next_song: notify_next_song.0,
-                connections,
             },
             playback_info,
             notify_next_song.1,
@@ -254,7 +252,6 @@ impl Controller {
             config,
             playback_info,
             notify_next_song,
-            connections,
         }: ControllerInput,
     ) -> Result<(), Box<dyn Error>> {
         let queue: Queue<QueueSong, QueueAlbum> = Queue {
@@ -322,6 +319,7 @@ impl Controller {
                 })
             });
 
+            let _notifications_rx = notifications_rx.clone();
             let c = scope.spawn(|| {
                 Controller::player_monitor_loop(
                     player_state,
@@ -330,27 +328,26 @@ impl Controller {
                     finished_tx,
                     player_mail.0,
                     notify_next_song,
-                    notifications_rx,
+                    _notifications_rx,
                     playback_info,
                 )
                 .unwrap();
             });
 
-            if let Some(inner) = connections {
-                dbg!(&inner);
-                let d = scope.spawn(|| {
-                    Controller::handle_connections(
-                        config,
-                        ControllerConnections {
-                            notifications_tx,
-                            inner,
-                        },
-                    );
-                });
-            }
+            let d = scope.spawn(|| {
+                handle_connections(
+                    config,
+                    ControllerConnections {
+                        notifications_rx,
+                        notifications_tx,
+                    },
+                );
+            });
+
             a.join().unwrap();
             b.join().unwrap();
             c.join().unwrap();
+            d.join().unwrap();
         });
 
         Ok(())

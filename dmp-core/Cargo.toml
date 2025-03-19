@@ -41,3 +41,7 @@ prismriver = { git = "https://github.com/Dangoware/prismriver.git" }
 parking_lot = "0.12.3"
 discord-presence = { version = "1.4.1", features = ["activity_type"] }
 listenbrainz = "0.8.1"
+rustfm-scrobble = "1.1.1"
+reqwest = { version = "0.12.12", features = ["json"] }
+tokio = { version = "1.43.0", features = ["macros"] }
+opener = "0.7.2"

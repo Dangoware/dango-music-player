@@ -94,7 +94,9 @@ impl ConfigLibraries {
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ConfigConnections {
+    pub discord_rpc_client_id: Option<u64>,
     pub listenbrainz_token: Option<String>,
+    pub last_fm_session: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
