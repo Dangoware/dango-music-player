@@ -36,6 +36,7 @@ pub(super) enum ConnectionsNotification {
     TryEnableConnection(TryConnectionType)
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub(super) enum TryConnectionType {
     Discord(u64),
@@ -45,11 +46,10 @@ pub(super) enum TryConnectionType {
         auth: LastFMAuth
     },
     ListenBrainz(String),
-    Custom(String)
 }
 
 #[derive(Debug, Clone)]
-pub(super) enum LastFMAuth {
+pub enum LastFMAuth {
     Session(Option<String>),
     UserPass {
         username: String,
@@ -74,45 +74,59 @@ pub(super) fn handle_connections(
     }: ControllerConnections,
 ) {
     let (dc_state_rx, dc_state_tx) = unbounded::<PrismState>();
-    let (dc_song_rx, dc_song_tx) = unbounded::<Song>();
-    let (lb_song_rx, lb_song_tx) = unbounded::<Song>();
-    let (lb_abt_fin_rx, lb_abt_fin_tx) = unbounded::<()>();
-    let (lb_eos_rx, lb_eos_tx) = unbounded::<()>();
-    let (last_song_rx, last_song_tx) = unbounded::<Song>();
-    let (last_abt_fin_rx, last_abt_fin_tx) = unbounded::<()>();
-    let (last_eos_rx, last_eos_tx) = unbounded::<()>();
+    let (dc_now_playing_rx, dc_now_playing_tx) = unbounded::<Song>();
+    let (lb_now_playing_rx, lb_now_playing_tx) = unbounded::<Song>();
+    let (lb_scrobble_rx, lb_scrobble_tx) = unbounded::<()>();
+    let (last_now_playing_rx, last_now_playing_tx) = unbounded::<Song>();
+    let (last_scrobble_rx, last_scrobble_tx) = unbounded::<()>();
 
+    let mut song_scrobbled = false;
 
     use ConnectionsNotification::*;
     while true {
         match notifications_tx.recv().unwrap() {
-            Playback { .. } => {}
+            Playback { position: _position, duration: _duration } => {
+                if song_scrobbled { continue }
+
+                let Some(position) = _position.map(|t| t.num_milliseconds()) else { continue };
+                let Some(duration) = _duration.map(|t| t.num_milliseconds()) else { continue };
+
+                // Scrobble at 50% or at 4 minutes
+                if duration < 30000 || position == 0 { continue }
+                let percent_played = position as f32 / duration as f32;
+
+                if  percent_played != 0.0 && (percent_played > 0.5 || position >= 240000)  {
+                    if LB_ACTIVE.load(Ordering::Relaxed) {
+                        lb_scrobble_rx.send(()).unwrap();
+                    }
+                    if LAST_FM_ACTIVE.load(Ordering::Relaxed) {
+                        last_scrobble_rx.send(()).unwrap();
+                    }
+                    song_scrobbled = true;
+                }
+            }
             StateChange(state) => {
                 if DC_ACTIVE.load(Ordering::Relaxed) {
                     dc_state_rx.send(state.clone()).unwrap();
                 }
             }
             SongChange(song) => {
+                song_scrobbled = false;
                 if DC_ACTIVE.load(Ordering::Relaxed) {
-                    dc_song_rx.send(song.clone()).unwrap();
+                    dc_now_playing_rx.send(song.clone()).unwrap();
                 }
                 if LB_ACTIVE.load(Ordering::Relaxed) {
-                    lb_song_rx.send(song).unwrap();
+                    lb_now_playing_rx.send(song.clone()).unwrap();
+                }
+                if LAST_FM_ACTIVE.load(Ordering::Relaxed) {
+                    last_now_playing_rx.send(song.clone()).unwrap();
                 }
             }
-            EOS => {
-                if LB_ACTIVE.load(Ordering::Relaxed) {
-                    lb_eos_rx.send(()).unwrap();
-                }
-            }
-            AboutToFinish => {
-                if LB_ACTIVE.load(Ordering::Relaxed) {
-                    lb_abt_fin_rx.send(()).unwrap();
-                }
-            }
+            EOS => { continue }
+            AboutToFinish => { continue }
             TryEnableConnection(c) => { match c {
                 TryConnectionType::Discord(client_id) => {
-                    let (dc_song_tx, dc_state_tx) = (dc_song_tx.clone(), dc_state_tx.clone());
+                    let (dc_song_tx, dc_state_tx) = (dc_now_playing_tx.clone(), dc_state_tx.clone());
                     std::thread::Builder::new()
                         .name("Discord RPC Handler".to_string())
                         .spawn(move || {
@@ -122,17 +136,17 @@ pub(super) fn handle_connections(
                         .unwrap();
                 },
                 TryConnectionType::ListenBrainz(token) => {
-                    let (lb_song_tx, lb_abt_fin_tx, lb_eos_tx) = (lb_song_tx.clone(), lb_abt_fin_tx.clone(), lb_eos_tx.clone());
+                    let (lb_now_playing_tx, lb_scrobble_tx) = (lb_now_playing_tx.clone(), lb_scrobble_tx.clone());
                     std::thread::Builder::new()
                         .name("ListenBrainz Handler".to_string())
                         .spawn(move || {
-                            listenbrainz_scrobble(&token, lb_song_tx, lb_abt_fin_tx, lb_eos_tx);
+                            listenbrainz_scrobble(&token, lb_now_playing_tx, lb_scrobble_tx);
                         })
                         .unwrap();
                 }
                 TryConnectionType::LastFM { api_key, api_secret, auth } => {
                     let (config, notifications_rx) = (config.clone(), notifications_rx.clone());
-                    let (last_song_tx, last_abt_fin_tx, last_eos_tx) = (last_song_tx.clone(), last_abt_fin_tx.clone(), last_eos_tx.clone());
+                    let (last_now_playing_tx, last_scrobble_tx) = (last_now_playing_tx.clone(), last_scrobble_tx.clone());
                     std::thread::Builder::new()
                         .name("last.fm Handler".to_string())
                         .spawn(move || {
@@ -152,15 +166,13 @@ pub(super) fn handle_connections(
                                     scrobbler
                                 }
                             };
-                            last_fm_scrobble(scrobbler, last_song_tx, last_abt_fin_tx, last_eos_tx);
+                            last_fm_scrobble(scrobbler, last_now_playing_tx, last_scrobble_tx);
                         })
                         .unwrap();
                 }
-                TryConnectionType::Custom(_) => unimplemented!()
             }}
         }
     }
-
 }
 
 fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<PrismState>) {
@@ -249,7 +261,7 @@ fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<Prism
     DC_ACTIVE.store(false, Ordering::Relaxed);
 }
 
-fn listenbrainz_scrobble(token: &str, song_tx: Receiver<Song>, abt_fn_tx: Receiver<()>, eos_tx: Receiver<()>) {
+fn listenbrainz_scrobble(token: &str, now_playing_tx: Receiver<Song>, scrobble_tx: Receiver<()>) {
     let mut client = ListenBrainz::new();
     client.authenticate(token).unwrap();
     if !client.is_authenticated() {
@@ -257,17 +269,15 @@ fn listenbrainz_scrobble(token: &str, song_tx: Receiver<Song>, abt_fn_tx: Receiv
     }
 
     let mut song: Option<Song> = None;
-    let mut last_song: Option<Song> = None;
     LB_ACTIVE.store(true, Ordering::Relaxed);
     println!("ListenBrainz connected");
 
     while true {
-        let song = &mut song;
-        let last_song = &mut last_song;
+        let now_playing = &mut song;
 
         let client = &client;
         select! {
-            recv(song_tx) -> res => {
+            recv(now_playing_tx) -> res => {
                 if let Ok(_song) = res {
                     let artist = if let Some(tag) = _song.get_tag(&Tag::Artist) {
                         tag.as_str()
@@ -283,15 +293,11 @@ fn listenbrainz_scrobble(token: &str, song_tx: Receiver<Song>, abt_fn_tx: Receiv
 
                     client.playing_now(artist, title, release).unwrap();
                     println!("Song Listening = {artist} - {title}");
-                    *song = Some(_song);
+                    *now_playing = Some(_song);
                 }
             },
-            recv(abt_fn_tx) -> _ => {
-                *last_song = song.take();
-                println!("song = {:?}", last_song.as_ref().map(|s| s.get_tag(&Tag::Title).map_or("No Title", |t| t.as_str())));
-            },
-            recv(eos_tx) -> _ => {
-                if let Some(song) = last_song {
+            recv(scrobble_tx) -> _ => {
+                if let Some(song) = now_playing.take() {
                     let artist = if let Some(tag) = song.get_tag(&Tag::Artist) {
                         tag.as_str()
                     } else {
@@ -305,7 +311,7 @@ fn listenbrainz_scrobble(token: &str, song_tx: Receiver<Song>, abt_fn_tx: Receiv
                     let release = song.get_tag(&Tag::Key(String::from("MusicBrainzReleaseId"))).map(|id| id.as_str());
 
                     client.listen(artist, title, release).unwrap();
-                    println!("Song Scrobbled");
+                    println!("Song {title} Listened");
                 }
             }
         }
@@ -320,6 +326,7 @@ fn last_fm_auth(
 ) -> Result<Scrobbler, Box<dyn std::error::Error>> {
     let token = {
         tokio::runtime::Builder::new_current_thread()
+        .enable_all()
         .build()
         .unwrap()
         .block_on(
@@ -345,27 +352,29 @@ fn last_fm_auth(
         sleep(Duration::from_millis(1000));
     };
     println!("Session: {}", session.key);
-
-    config.write().connections.last_fm_session = Some(session.key);
+    {
+        let mut config = config.write();
+        config.connections.last_fm_session = Some(session.key);
+        config.write_file().unwrap();
+    }
     Ok(scrobbler)
 }
 
-fn last_fm_scrobble(scrobbler: Scrobbler, song_tx: Receiver<Song>, abt_fn_tx: Receiver<()>, eos_tx: Receiver<()>) {
+fn last_fm_scrobble(scrobbler: Scrobbler, now_playing_tx: Receiver<Song>, scrobble_tx: Receiver<()>) {
     // TODO: Add support for scrobble storage for later
 
     let mut song: Option<Song> = None;
     let mut last_song: Option<Song> = None;
     LAST_FM_ACTIVE.store(true, Ordering::Relaxed);
-    println!("ListenBrainz connected");
+    println!("last.fm connected");
 
     while true {
-        let song = &mut song;
-        let last_song = &mut last_song;
+        let now_playing = &mut song;
 
         let scrobbler = &scrobbler;
 
         select! {
-            recv(song_tx) -> res => {
+            recv(now_playing_tx) -> res => {
                 if let Ok(_song) = res {
                     let title = if let Some(tag) = _song.get_tag(&Tag::Title) {
                         tag.as_str()
@@ -388,15 +397,11 @@ fn last_fm_scrobble(scrobbler: Scrobbler, song_tx: Receiver<Song>, abt_fn_tx: Re
                         Err(e) => println!("Error at last.fm now playing:\n{e}")
                     };
 
-                    *song = Some(_song);
+                    *now_playing = Some(_song);
                 }
             },
-            recv(abt_fn_tx) -> _ => {
-                *last_song = song.take();
-                println!("song = {:?}", last_song.as_ref().map(|s| s.get_tag(&Tag::Title).map_or("No Title", |t| t.as_str())));
-            },
-            recv(eos_tx) -> _ => {
-                if let Some(song) = last_song {
+            recv(scrobble_tx) -> _ => {
+                if let Some(song) = now_playing.take() {
                     let title = if let Some(tag) = song.get_tag(&Tag::Title) {
                         tag.as_str()
                     } else {
@@ -414,7 +419,7 @@ fn last_fm_scrobble(scrobbler: Scrobbler, song_tx: Receiver<Song>, abt_fn_tx: Re
                     };
 
                     match scrobbler.scrobble(&Scrobble::new(artist, title, album)) {
-                        Ok(_) => println!("Song Scrobbled"),
+                        Ok(_) => println!("Song {title} Scrobbled"),
                         Err(e) => println!("Error at last.fm scrobbler:\n{e:?}")
                     }
                 }

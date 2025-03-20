@@ -176,6 +176,21 @@ impl ControllerHandle {
         };
         res
     }
+
+    // The Connections Section
+    pub fn discord_rpc(&self, client_id: u64) {
+        self.connections_rx.send(super::connections::ConnectionsNotification::TryEnableConnection(super::connections::TryConnectionType::Discord(client_id))).unwrap();
+    }
+
+    pub fn listenbrainz_scrobble(&self, token: String) {
+        self.connections_rx.send(super::connections::ConnectionsNotification::TryEnableConnection(super::connections::TryConnectionType::ListenBrainz(token))).unwrap();
+    }
+
+    pub fn last_fm_scrobble_auth(&self, api_key: String, api_secret: String, auth: super::connections::LastFMAuth) {
+        self.connections_rx.send(super::connections::ConnectionsNotification::TryEnableConnection(super::connections::TryConnectionType::LastFM { api_key, api_secret, auth })).unwrap();
+    }
+
+
 }
 
 pub(super) struct LibraryCommandInput {

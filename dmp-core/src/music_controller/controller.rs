@@ -160,6 +160,10 @@ pub struct ControllerInput {
         async_channel::Sender<QueueCommandInput>,
         async_channel::Receiver<QueueCommandInput>,
     ),
+    connections_mail: (
+        crossbeam_channel::Sender<ConnectionsNotification>,
+        crossbeam_channel::Receiver<ConnectionsNotification>
+    ),
     library: MusicLibrary,
     config: Arc<RwLock<Config>>,
     playback_info: Arc<AtomicCell<PlaybackInfo>>,
@@ -170,6 +174,7 @@ pub struct ControllerHandle {
     pub(super) lib_mail_rx: async_channel::Sender<LibraryCommandInput>,
     pub(super) player_mail_rx: async_channel::Sender<PlayerCommandInput>,
     pub(super) queue_mail_rx: async_channel::Sender<QueueCommandInput>,
+    pub(super) connections_rx: crossbeam_channel::Sender<ConnectionsNotification>,
 }
 
 impl ControllerHandle {
@@ -185,6 +190,7 @@ impl ControllerHandle {
         let (lib_mail_rx, lib_mail_tx) = async_channel::unbounded();
         let (player_mail_rx, player_mail_tx) = async_channel::unbounded();
         let (queue_mail_rx, queue_mail_tx) = async_channel::unbounded();
+        let (connections_mail_rx, connections_mail_tx) = crossbeam_channel::unbounded();
         let playback_info = Arc::new(AtomicCell::new(PlaybackInfo::default()));
         let notify_next_song = crossbeam::channel::unbounded::<Song>();
         (
@@ -192,11 +198,13 @@ impl ControllerHandle {
                 lib_mail_rx: lib_mail_rx.clone(),
                 player_mail_rx: player_mail_rx.clone(),
                 queue_mail_rx: queue_mail_rx.clone(),
+                connections_rx: connections_mail_rx.clone(),
             },
             ControllerInput {
                 player_mail: (player_mail_rx, player_mail_tx),
                 lib_mail: (lib_mail_rx, lib_mail_tx),
                 queue_mail: (queue_mail_rx, queue_mail_tx),
+                connections_mail: (connections_mail_rx, connections_mail_tx),
                 library,
                 config,
                 playback_info: Arc::clone(&playback_info),
@@ -241,13 +249,14 @@ impl ControllerState {
     }
 }
 
-#[allow(unused_variables)]
+// #[allow(unused_variables)]
 impl Controller {
     pub async fn start(
         ControllerInput {
             player_mail,
             lib_mail,
             queue_mail,
+            connections_mail,
             mut library,
             config,
             playback_info,
@@ -276,12 +285,10 @@ impl Controller {
             let player_timing = player.get_timing_recv();
             let about_to_finish_tx = player.get_about_to_finish_recv();
             let finished_tx = player.get_finished_recv();
-            let (notifications_rx, notifications_tx) =
-                crossbeam_channel::unbounded::<ConnectionsNotification>();
 
             let a = scope.spawn({
                 let queue_mail = queue_mail.clone();
-                let _notifications_rx = notifications_rx.clone();
+                let _notifications_rx = connections_mail.0.clone();
                 let _config = config.clone();
                 move || {
                     futures::executor::block_on(async {
@@ -319,7 +326,7 @@ impl Controller {
                 })
             });
 
-            let _notifications_rx = notifications_rx.clone();
+            let _notifications_rx = connections_mail.0.clone();
             let c = scope.spawn(|| {
                 Controller::player_monitor_loop(
                     player_state,
@@ -338,8 +345,8 @@ impl Controller {
                 handle_connections(
                     config,
                     ControllerConnections {
-                        notifications_rx,
-                        notifications_tx,
+                        notifications_rx: connections_mail.0,
+                        notifications_tx: connections_mail.1,
                     },
                 );
             });

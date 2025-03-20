@@ -1,15 +1,14 @@
 use std::{fs::OpenOptions, io::Write};
 
 use dmp_core::music_controller::{
-    controller::{ControllerHandle, PlayerLocation},
-    queue::QueueSong,
+    connections::LastFMAuth, controller::{ControllerHandle, PlayerLocation}, queue::QueueSong
 };
 use kushi::QueueItem;
 use tauri::{AppHandle, Emitter, State, Wry};
 use tempfile::TempDir;
 use uuid::Uuid;
 
-use crate::wrappers::_Song;
+use crate::{wrappers::_Song, LAST_FM_API_KEY, LAST_FM_API_SECRET};
 
 #[tauri::command]
 pub async fn add_song_to_queue(
@@ -78,5 +77,11 @@ pub async fn display_album_art(
         }
         Err(e) => return Err(e.to_string()),
     };
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn last_fm_init_auth(ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
+    ctrl_handle.last_fm_scrobble_auth(LAST_FM_API_KEY.to_string(), LAST_FM_API_SECRET.to_string(), LastFMAuth::Session(None));
     Ok(())
 }
