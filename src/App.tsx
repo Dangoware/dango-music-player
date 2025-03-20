@@ -288,6 +288,8 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
   const [seekBarSize, setSeekBarSize] = useState(0);
   const seekBarRef = React.createRef<HTMLDivElement>();
 
+  const [lastFmLoggedIn, setLastFmLoggedIn] = useState(false);
+
   useEffect(() => {
     const unlisten = appWindow.listen<any>("playback_info", ({ payload, }) => {
       const info = payload as playbackInfo;
@@ -296,7 +298,7 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
 
       setPosition(pos_);
       setDuration(dur_);
-      let progress = ((dur_/pos_) * 100);
+      let progress = ((pos_/dur_) * 100);
       setSeekBarSize(progress)
     })
     return () => { unlisten.then((f) => f()) }
@@ -305,10 +307,16 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
   const seek = (event: React.MouseEvent<HTMLDivElement>) => {
     event.stopPropagation();
     let rect = seekBarRef.current!.getBoundingClientRect();
-    let val = ((event.clientX-rect.left) / (rect.width))*position;
+    let val = ((event.clientX-rect.left) / (rect.width))*duration;
 
     invoke('seek', { time: Math.round(val * 1000) }).then()
   };
+
+  const lastFmLogin = () => {
+    invoke('last_fm_init_auth').then(() => {
+      setLastFmLoggedIn(true);
+    })
+  }
 
   return (
     <section id="playBar" className="playBar unselectable">
@@ -326,16 +334,17 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
           <button onClick={ () => invoke('next').then(() => {}) }>⏭</button>
         </div>
         <div className="bottomRight">
+          <button id="lastFmLogin" onClick={ lastFmLogin } style={{visibility: lastFmLoggedIn ? 'hidden' : 'visible' }} >last.fm</button>
           <button>🔀</button>
           <button>🔁</button>
           <input type="range" name="volume" id="volumeSlider" onChange={ (volume) => {
             invoke('set_volume', { volume: volume.target.value }).then(() => {})
           }} />
           <p id="timeDisplay">
-            { Math.floor(+duration / 60).toString().padStart(2, "0") }:
-            { (+duration % 60).toString().padStart(2, "0") }/
             { Math.floor(+position / 60).toString().padStart(2, "0") }:
-            { (+position % 60).toString().padStart(2, "0") }
+            { (+position % 60).toString().padStart(2, "0") }/
+            { Math.floor(+duration / 60).toString().padStart(2, "0") }:
+            { (+duration % 60).toString().padStart(2, "0") }
 
           </p>
         </div>

@@ -34,7 +34,7 @@ impl Controller {
                 move || {
                     println!("playback monitor started");
                     while true {
-                        let (position, duration) = playback_time_tx.recv().unwrap();
+                        let (duration, position) = playback_time_tx.recv().unwrap();
                         notify_connections
                             .send(ConnectionsNotification::Playback {
                                 position: position.clone(),
