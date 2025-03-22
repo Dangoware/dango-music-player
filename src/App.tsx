@@ -200,6 +200,7 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary }: Play
       } }>Library</button>
         { playlists }
       <button onClick={ handle_import }>Import .m3u Playlist</button>
+      <button onClick={() => { invoke('open_config_window').then(() => {}) }} style={{marginLeft: "auto", float: "right"}}>Edit DMP</button>
     </section>
   )
 }
@@ -312,12 +313,6 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
     invoke('seek', { time: Math.round(val * 1000) }).then()
   };
 
-  const lastFmLogin = () => {
-    invoke('last_fm_init_auth').then(() => {
-      setLastFmLoggedIn(true);
-    })
-  }
-
   return (
     <section id="playBar" className="playBar unselectable">
       <div className="seekBar" ref={ seekBarRef } onClick={ seek } onDrag={ seek }>
@@ -334,7 +329,6 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
           <button onClick={ () => invoke('next').then(() => {}) }>⏭</button>
         </div>
         <div className="bottomRight">
-          <button id="lastFmLogin" onClick={ lastFmLogin } style={{visibility: lastFmLoggedIn ? 'hidden' : 'visible' }} >last.fm</button>
           <button>🔀</button>
           <button>🔁</button>
           <input type="range" name="volume" id="volumeSlider" onChange={ (volume) => {
@@ -414,7 +408,7 @@ function QueueSong({ song, location, index }: QueueSongProps) {
 }
 
 function getConfig(): any {
-  invoke('get_config').then( (_config) => {
+  invoke('init_get_config').then( (_config) => {
     let config = _config as Config;
     if (config.libraries.libraries.length == 0) {
       invoke('create_new_library').then(() => {})

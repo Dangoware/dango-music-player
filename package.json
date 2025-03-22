@@ -10,11 +10,8 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@jprochazk/cbor": "github:jprochazk/cbor",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-shell": "^2",
-    "cbor": "github:jprochazk/cbor",
-    "cbor-x": "^1.6.0",
     "node-fetch": "^3.3.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

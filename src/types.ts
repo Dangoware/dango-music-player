@@ -20,6 +20,8 @@ export interface Config {
 }
 
 export interface ConfigConnections {
+    discord_rpc_client_id?: number,
+    last_fm_session?: string,
     listenbrainz_token?: string
 }
 

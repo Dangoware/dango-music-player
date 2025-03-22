@@ -182,7 +182,7 @@ impl ControllerHandle {
         self.connections_rx.send(super::connections::ConnectionsNotification::TryEnableConnection(super::connections::TryConnectionType::Discord(client_id))).unwrap();
     }
 
-    pub fn listenbrainz_scrobble(&self, token: String) {
+    pub fn listenbrainz_scrobble_auth(&self, token: String) {
         self.connections_rx.send(super::connections::ConnectionsNotification::TryEnableConnection(super::connections::TryConnectionType::ListenBrainz(token))).unwrap();
     }
 

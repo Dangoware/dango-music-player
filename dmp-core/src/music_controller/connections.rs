@@ -364,7 +364,6 @@ fn last_fm_scrobble(scrobbler: Scrobbler, now_playing_tx: Receiver<Song>, scrobb
     // TODO: Add support for scrobble storage for later
 
     let mut song: Option<Song> = None;
-    let mut last_song: Option<Song> = None;
     LAST_FM_ACTIVE.store(true, Ordering::Relaxed);
     println!("last.fm connected");
 

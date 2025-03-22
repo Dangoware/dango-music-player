@@ -8,16 +8,13 @@ use std::{
     time::Duration,
 };
 
+use config::{close_window, get_config, open_config_window, save_config};
 use crossbeam::channel::{bounded, unbounded, Receiver, Sender};
 use dmp_core::{
     config::{Config, ConfigLibrary},
-    music_controller::{
-        connections::ConnectionsInput,
-        controller::{Controller, ControllerHandle, PlaybackInfo},
-    },
+    music_controller::{connections::LastFMAuth, controller::{Controller, ControllerHandle, PlaybackInfo}},
     music_storage::library::{MusicLibrary, Song},
 };
-use futures::channel::oneshot;
 use parking_lot::RwLock;
 use tauri::{http::Response, Emitter, Manager, State, Wry};
 use uuid::Uuid;
@@ -27,23 +24,28 @@ use crate::wrappers::{
     get_library, get_playlist, get_playlists, get_queue, get_song, import_playlist, next, pause,
     play, prev, remove_from_queue, seek, set_volume,
 };
-use commands::{add_song_to_queue, display_album_art, play_now};
+use commands::{add_song_to_queue, display_album_art, last_fm_init_auth, play_now};
 
 pub mod commands;
 pub mod wrappers;
+pub mod config;
 
 const DEFAULT_IMAGE: &[u8] = include_bytes!("../icons/icon.png");
 
+const DISCORD_CLIENT_ID: u64 = 1198868728243290152;
+const LAST_FM_API_KEY: &str = env!("LAST_FM_API_KEY", "None");
+const LAST_FM_API_SECRET: &str = env!("LAST_FM_API_SECRET", "None");
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let (rx, tx) = unbounded::<Config>();
+    let (config_rx, config_tx) = unbounded::<Config>();
     let (lib_rx, lib_tx) = unbounded::<Option<PathBuf>>();
     let (handle_rx, handle_tx) = unbounded::<ControllerHandle>();
     let (playback_info_rx, playback_info_tx) = bounded(1);
     let (next_rx, next_tx) = bounded(1);
 
     let _controller_thread = spawn(move || {
-        let mut config = { tx.recv().unwrap() };
+        let mut config = { config_tx.recv().unwrap() };
         let scan_path = { lib_tx.recv().unwrap() };
         let _temp_config = ConfigLibrary::default();
         let _lib = config.libraries.get_default().unwrap_or(&_temp_config);
@@ -97,14 +99,23 @@ pub fn run() {
 
         library.save(save_path).unwrap();
 
+        let last_fm_session = config.connections.last_fm_session.clone();
+        let listenbrainz_token = config.connections.listenbrainz_token.clone();
+
         let (handle, input, playback_info, next_song_notification) = ControllerHandle::new(
             library,
-            std::sync::Arc::new(RwLock::new(config)),
-            Some(ConnectionsInput {
-                discord_rpc_client_id: std::option_env!("DISCORD_CLIENT_ID")
-                    .map(|id| id.parse::<u64>().unwrap()),
-            }),
+            std::sync::Arc::new(RwLock::new(config))
         );
+
+        handle.discord_rpc(DISCORD_CLIENT_ID);
+        if let Some(token) = listenbrainz_token {
+            handle.listenbrainz_scrobble_auth(token);
+        } else {
+            println!("No ListenBrainz token found");
+        }
+        if let Some(session) = last_fm_session {
+            handle.last_fm_scrobble_auth(LAST_FM_API_KEY.to_string(), LAST_FM_API_SECRET.to_string(), LastFMAuth::Session(Some(session)));
+        }
 
         handle_rx.send(handle).unwrap();
         playback_info_rx.send(playback_info).unwrap();
@@ -112,10 +123,11 @@ pub fn run() {
 
         let _controller = futures::executor::block_on(Controller::start(input)).unwrap();
     });
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
-            get_config,
+            init_get_config,
             create_new_library,
             get_library,
             play,
@@ -135,8 +147,13 @@ pub fn run() {
             remove_from_queue,
             display_album_art,
             seek,
+            last_fm_init_auth,
+            open_config_window,
+            get_config,
+            save_config,
+            close_window,
         ])
-        .manage(ConfigRx(rx))
+        .manage(ConfigRx(config_rx))
         .manage(LibRx(lib_rx))
         .manage(HandleTx(handle_tx))
         .manage(tempfile::TempDir::new().unwrap())
@@ -238,7 +255,7 @@ struct LibRx(Sender<Option<PathBuf>>);
 struct HandleTx(Receiver<ControllerHandle>);
 
 #[tauri::command]
-async fn get_config(state: State<'_, ConfigRx>) -> Result<Config, String> {
+async fn init_get_config(state: State<'_, ConfigRx>) -> Result<Config, String> {
     if let Some(dir) = directories::ProjectDirs::from("", "Dangoware", "dmp") {
         let path = dir.config_dir();
         fs::create_dir_all(path)
@@ -268,6 +285,7 @@ async fn get_config(state: State<'_, ConfigRx>) -> Result<Config, String> {
 
         state.inner().0.send(config.clone()).unwrap();
 
+        println!("got config");
         Ok(config)
     } else {
         panic!("No config dir for DMP")

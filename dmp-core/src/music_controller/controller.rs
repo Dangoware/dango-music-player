@@ -175,6 +175,7 @@ pub struct ControllerHandle {
     pub(super) player_mail_rx: async_channel::Sender<PlayerCommandInput>,
     pub(super) queue_mail_rx: async_channel::Sender<QueueCommandInput>,
     pub(super) connections_rx: crossbeam_channel::Sender<ConnectionsNotification>,
+    pub config: Arc<RwLock<Config>>,
 }
 
 impl ControllerHandle {
@@ -199,6 +200,7 @@ impl ControllerHandle {
                 player_mail_rx: player_mail_rx.clone(),
                 queue_mail_rx: queue_mail_rx.clone(),
                 connections_rx: connections_mail_rx.clone(),
+                config: config.clone(),
             },
             ControllerInput {
                 player_mail: (player_mail_rx, player_mail_tx),
