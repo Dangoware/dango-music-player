@@ -2,14 +2,12 @@ use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
-    },
-    thread::sleep,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    }, thread::sleep, time::{Duration, Instant, SystemTime, UNIX_EPOCH}
 };
 
 use chrono::TimeDelta;
 use crossbeam::select;
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use discord_presence::Client;
 use listenbrainz::ListenBrainz;
 use parking_lot::RwLock;
@@ -75,6 +73,7 @@ pub(super) fn handle_connections(
 ) {
     let (dc_state_rx, dc_state_tx) = unbounded::<PrismState>();
     let (dc_now_playing_rx, dc_now_playing_tx) = unbounded::<Song>();
+    let (dc_position_rx, dc_position_tx) = bounded::<Option<TimeDelta>>(0);
     let (lb_now_playing_rx, lb_now_playing_tx) = unbounded::<Song>();
     let (lb_scrobble_rx, lb_scrobble_tx) = unbounded::<()>();
     let (last_now_playing_rx, last_now_playing_tx) = unbounded::<Song>();
@@ -82,10 +81,19 @@ pub(super) fn handle_connections(
 
     let mut song_scrobbled = false;
 
+    //TODO: update scrobble position on seek
+    // /// The position at which you can scrobble the song. changes on seek
+    // struct ScrobblePosition {
+    //     percent: f32,
+    //     position: i32
+    // }
+    // let mut scrobble_position = ScrobblePosition { percent: f32::MAX, position: i32::MAX };
+
     use ConnectionsNotification::*;
     while true {
         match notifications_tx.recv().unwrap() {
             Playback { position: _position, duration: _duration } => {
+                _ = dc_position_rx.send_timeout(_position.clone(), Duration::from_millis(0));
                 if song_scrobbled { continue }
 
                 let Some(position) = _position.map(|t| t.num_milliseconds()) else { continue };
@@ -126,12 +134,12 @@ pub(super) fn handle_connections(
             AboutToFinish => { continue }
             TryEnableConnection(c) => { match c {
                 TryConnectionType::Discord(client_id) => {
-                    let (dc_song_tx, dc_state_tx) = (dc_now_playing_tx.clone(), dc_state_tx.clone());
+                    let (dc_song_tx, dc_state_tx, dc_position_tx) = (dc_now_playing_tx.clone(), dc_state_tx.clone(), dc_position_tx.clone());
                     std::thread::Builder::new()
                         .name("Discord RPC Handler".to_string())
                         .spawn(move || {
                                 // TODO: add proper error handling here
-                                discord_rpc(client_id, dc_song_tx, dc_state_tx);
+                                discord_rpc(client_id, dc_song_tx, dc_state_tx, dc_position_tx);
                         })
                         .unwrap();
                 },
@@ -175,8 +183,7 @@ pub(super) fn handle_connections(
     }
 }
 
-fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<PrismState>) {
-    // TODO: Handle seeking position change and pause
+fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<PrismState>, position_tx: Receiver<Option<TimeDelta>>) {
     let mut client =
         discord_presence::Client::with_error_config(client_id, Duration::from_secs(5), None);
     client.start();
@@ -185,26 +192,24 @@ fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<Prism
     }
     println!("discord connected");
 
-    let mut state = "Started".to_string();
+    let mut state = None;
     let mut song: Option<Song> = None;
     let mut now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards?")
         .as_secs();
+    let mut tick = Instant::now();
+
     DC_ACTIVE.store(true, Ordering::Relaxed);
 
     while true {
-        let state = &mut state;
-        let song = &mut song;
+        let state: &mut Option<PrismState> = &mut state;
+        let song: &mut Option<Song> = &mut song;
+
         select! {
             recv(state_tx) -> res => {
                 if let Ok(state_) = res {
-                    *state = match state_ {
-                        PrismState::Playing => "Playing",
-                        PrismState::Paused => "Paused",
-                        PrismState::Stopped => "Stopped",
-                        _ => "I'm Scared, Boss"
-                    }.to_string();
+                    *state = Some(state_);
                 }
             },
             recv(song_tx) -> res => {
@@ -213,12 +218,26 @@ fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<Prism
                     now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards?").as_secs();
                 }
             },
-            default(Duration::from_millis(99)) => ()
+            recv(position_tx) -> pos => {
+                let elapsed = tick.elapsed().as_secs();
+                if elapsed >= 5 {
+                    if let Ok(Some(pos)) = pos {
+                        // set back the start position to where it would be if it hadn't been paused / seeked
+                        now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .expect("Time went backwards?")
+                        .as_secs() - u64::try_from(pos.num_seconds()).unwrap() - 1;
+                        tick = Instant::now();
+                    }
+                }
+
+            }
+            default(Duration::from_millis(1000)) => {}
         }
 
         client
             .set_activity(|activity| {
-                let a = activity
+                let activity = activity
                     .state(song.as_ref().map_or(String::new(), |s| {
                         format!(
                             "{}{}{}",
@@ -243,17 +262,23 @@ fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<Prism
                         String::new()
                     });
                 if let Some(s) = song {
-                    if state.as_str() == "Playing" {
-                        a.timestamps(|timestamps| {
+                    if *state == Some(PrismState::Playing) {
+                        activity.timestamps(|timestamps| {
                             timestamps.start(now).end(now + s.duration.as_secs())
                         })
                     } else {
-                        a
+                        activity
                     }
                 } else {
-                    a
+                    activity
                 }
-                .assets(|a| a.large_text(state.clone()))
+                .assets(|a| a.large_text(match state {
+                    Some(PrismState::Playing) => "Playing",
+                    Some(PrismState::Paused) => "Paused",
+                    Some(PrismState::Stopped) => "Stopped",
+                    None => "Started",
+                    _ => "I'm Scared, Boss"
+                }))
                 .instance(true)
             })
             .unwrap();
