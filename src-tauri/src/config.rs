@@ -5,7 +5,7 @@ use tauri::{State, WebviewWindowBuilder, Window, Wry};
 
 #[tauri::command]
 pub async fn open_config_window(app: tauri::AppHandle<Wry>) -> Result<(), String> {
-    WebviewWindowBuilder::new(&app, "editdmpconfig", tauri::WebviewUrl::App(PathBuf::from("src/config/index.html")))
+    WebviewWindowBuilder::new(&app, "config", tauri::WebviewUrl::App(PathBuf::from("src/config/index.html")))
     .title("Edit Dango Music Player")
     .build()
     .unwrap();
