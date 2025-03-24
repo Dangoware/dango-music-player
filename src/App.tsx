@@ -48,14 +48,14 @@ function App() {
     const unlisten = appWindow.listen<any>("queue_updated", (_) => {
         // console.log(event);
         invoke('get_queue').then((_songs) => {
-          let songs = _songs as any[]
+          let songs = _songs as any[];
             setQueue(
               songs.filter((_, i) => i != 0).map((song, i) =>
                 <QueueSong
                   song={ song[0] }
                   location={ song[1] as "Library" | {"Playlist" : string}}
                   index={i+1}
-                  key={ song.uuid + '_' + Math.floor((Math.random() * 100_000) + 1) + '_' + Date.now() }
+                  key={ Math.floor((Math.random() * 100_000_000_000) + 1) + '_' + Date.now() }
                 />
               )
             )
@@ -126,7 +126,7 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary }: Play
                   // console.log(song);
                   return (
                     <Song
-                      key={ song.uuid }
+                      key={ song.uuid + Math.floor(Math.random() * 100_000_000_000) }
                       location={ song.location }
                       playerLocation={ {"Playlist" : item.uuid } }
                       uuid={ song.uuid }
@@ -221,7 +221,7 @@ function MainView({ lib_ref, viewName }: MainViewProps) {
 
           return (
             <Song
-              key={ song.uuid }
+              key={ song.uuid + Math.floor(Math.random() * 100_000_000_000) }
               location={ song.location }
               playerLocation="Library"
               uuid={ song.uuid }
