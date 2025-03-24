@@ -12,7 +12,6 @@ keywords = []
 categories = []
 
 [dependencies]
-kushi = { path = "../kushi-queue" }
 file-format = { version = "0.26", features = ["reader"] }
 lofty = "0.21"
 serde = { version = "1.0.195", features = ["derive"] }

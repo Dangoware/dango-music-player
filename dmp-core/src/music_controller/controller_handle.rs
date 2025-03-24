@@ -1,10 +1,9 @@
 use std::path::PathBuf;
 
 use async_channel::{Receiver, Sender};
-use kushi::{QueueError, QueueItem};
 use uuid::Uuid;
 
-use crate::music_storage::{library::Song, playlist::ExternalPlaylist};
+use crate::music_storage::{library::Song, playlist::ExternalPlaylist, queue::{QueueError, QueueItem}};
 
 use super::{
     controller::{

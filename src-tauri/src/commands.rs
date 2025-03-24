@@ -1,9 +1,8 @@
 use std::{fs::OpenOptions, io::Write};
 
-use dmp_core::music_controller::{
+use dmp_core::{music_controller::{
     connections::LastFMAuth, controller::{ControllerHandle, PlayerLocation}, queue::QueueSong
-};
-use kushi::QueueItem;
+}, music_storage::queue::{QueueItem, QueueItemType}};
 use tauri::{AppHandle, Emitter, State, Wry};
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -20,7 +19,7 @@ pub async fn add_song_to_queue(
     dbg!(&location);
     let (song, _) = ctrl_handle.lib_get_song(uuid).await;
     match ctrl_handle
-        .queue_append(QueueItem::from_item_type(kushi::QueueItemType::Single(
+        .queue_append(QueueItem::from_item_type(QueueItemType::Single(
             QueueSong { song, location },
         )))
         .await

@@ -5,8 +5,6 @@
 use chrono::TimeDelta;
 use crossbeam::atomic::AtomicCell;
 use crossbeam_channel::{Receiver, Sender};
-use kushi::Queue;
-use kushi::{QueueError, QueueItem};
 use parking_lot::RwLock;
 use prismriver::{Error as PrismError, Prismriver};
 use serde::{Deserialize, Serialize};
@@ -23,6 +21,7 @@ use crate::config::ConfigError;
 use crate::music_controller::connections::handle_connections;
 use crate::music_storage::library::Song;
 use crate::music_storage::playlist::{ExternalPlaylist, Playlist};
+use crate::music_storage::queue::{Queue, QueueError, QueueItem};
 use crate::{config::Config, music_storage::library::MusicLibrary};
 
 use super::connections::{ConnectionsNotification, ControllerConnections};

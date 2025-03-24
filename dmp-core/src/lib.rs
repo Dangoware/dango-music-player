@@ -1,6 +1,7 @@
 #![allow(while_true)]
 pub mod music_storage {
     pub mod library;
+    pub mod queue;
     pub mod music_collection;
     pub mod playlist;
     mod utils;

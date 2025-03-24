@@ -3,7 +3,6 @@ resolver = "2"
 members = [
     "src-tauri",
     "dmp-core",
-    "kushi-queue",
 ]
 
 [workspace.package]

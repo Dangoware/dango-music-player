@@ -1,12 +1,11 @@
 use chrono::TimeDelta;
 use crossbeam_channel::Sender;
-use kushi::{QueueItem, QueueItemType};
 use prismriver::{Prismriver, Volume};
 
-use crate::music_controller::{
+use crate::{music_controller::{
     controller::{LibraryCommand, LibraryResponse},
     queue::QueueSong,
-};
+}, music_storage::queue::{QueueItem, QueueItemType}};
 
 use super::{
     connections::ConnectionsNotification,

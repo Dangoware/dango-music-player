@@ -19,7 +19,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 dmp-core = { path = "../dmp-core" }
-kushi = { path = "../kushi-queue" }
 tauri = { version = "2", features = [ "protocol-asset", "unstable"] }
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
