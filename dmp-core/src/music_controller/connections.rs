@@ -198,7 +198,6 @@ fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<Prism
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards?")
         .as_secs();
-    let mut tick = Instant::now();
 
     DC_ACTIVE.store(true, Ordering::Relaxed);
 
@@ -218,21 +217,15 @@ fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<Prism
                     now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards?").as_secs();
                 }
             },
-            recv(position_tx) -> pos => {
-                let elapsed = tick.elapsed().as_secs();
-                if elapsed >= 5 {
-                    if let Ok(Some(pos)) = pos {
-                        // set back the start position to where it would be if it hadn't been paused / seeked
-                        now = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .expect("Time went backwards?")
-                        .as_secs() - u64::try_from(pos.num_seconds()).unwrap() - 1;
-                        tick = Instant::now();
-                    }
-                }
-
-            }
             default(Duration::from_millis(1000)) => {}
+        }
+
+        if let Ok(Some(pos)) = position_tx.recv_timeout(Duration::from_millis(100)) {
+            // set back the start position to where it would be if it hadn't been paused / seeked
+            now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards?")
+            .as_secs() - u64::try_from(pos.num_seconds()).unwrap();
         }
 
         client
