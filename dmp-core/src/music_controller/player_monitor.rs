@@ -52,7 +52,9 @@ impl Controller {
                 futures::executor::block_on(async {
                     while true {
                         _ = about_to_finish_tx.recv();
-                        notify_connections.send(ConnectionsNotification::AboutToFinish).unwrap();
+                        notify_connections
+                            .send(ConnectionsNotification::AboutToFinish)
+                            .unwrap();
                         println!("About to Finish");
                     }
                 })
@@ -79,8 +81,8 @@ impl Controller {
                         }
 
                         notify_connections
-                                .send(ConnectionsNotification::EOS)
-                                .unwrap();
+                            .send(ConnectionsNotification::EOS)
+                            .unwrap();
                         println!("End of song");
                     }
                 });

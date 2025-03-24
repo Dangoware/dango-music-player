@@ -12,7 +12,10 @@ use config::{close_window, get_config, open_config_window, save_config};
 use crossbeam::channel::{bounded, unbounded, Receiver, Sender};
 use dmp_core::{
     config::{Config, ConfigLibrary},
-    music_controller::{connections::LastFMAuth, controller::{Controller, ControllerHandle, PlaybackInfo}},
+    music_controller::{
+        connections::LastFMAuth,
+        controller::{Controller, ControllerHandle, PlaybackInfo},
+    },
     music_storage::library::{MusicLibrary, Song},
 };
 use parking_lot::RwLock;
@@ -27,8 +30,8 @@ use crate::wrappers::{
 use commands::{add_song_to_queue, display_album_art, last_fm_init_auth, play_now};
 
 pub mod commands;
-pub mod wrappers;
 pub mod config;
+pub mod wrappers;
 
 const DEFAULT_IMAGE: &[u8] = include_bytes!("../icons/icon.png");
 
@@ -102,10 +105,8 @@ pub fn run() {
         let last_fm_session = config.connections.last_fm_session.clone();
         let listenbrainz_token = config.connections.listenbrainz_token.clone();
 
-        let (handle, input, playback_info, next_song_notification) = ControllerHandle::new(
-            library,
-            std::sync::Arc::new(RwLock::new(config))
-        );
+        let (handle, input, playback_info, next_song_notification) =
+            ControllerHandle::new(library, std::sync::Arc::new(RwLock::new(config)));
 
         handle.discord_rpc(DISCORD_CLIENT_ID);
         if let Some(token) = listenbrainz_token {
@@ -114,7 +115,11 @@ pub fn run() {
             println!("No ListenBrainz token found");
         }
         if let Some(session) = last_fm_session {
-            handle.last_fm_scrobble_auth(LAST_FM_API_KEY.to_string(), LAST_FM_API_SECRET.to_string(), LastFMAuth::Session(Some(session)));
+            handle.last_fm_scrobble_auth(
+                LAST_FM_API_KEY.to_string(),
+                LAST_FM_API_SECRET.to_string(),
+                LastFMAuth::Session(Some(session)),
+            );
         }
 
         handle_rx.send(handle).unwrap();

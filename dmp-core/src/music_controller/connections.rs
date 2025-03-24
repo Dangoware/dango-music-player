@@ -2,7 +2,9 @@ use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
-    }, thread::sleep, time::{Duration, Instant, SystemTime, UNIX_EPOCH}
+    },
+    thread::sleep,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use chrono::TimeDelta;
@@ -20,7 +22,6 @@ use crate::{
     music_storage::library::{Song, Tag},
 };
 
-
 #[derive(Debug, Clone)]
 pub(super) enum ConnectionsNotification {
     Playback {
@@ -31,7 +32,7 @@ pub(super) enum ConnectionsNotification {
     SongChange(Song),
     AboutToFinish,
     EOS,
-    TryEnableConnection(TryConnectionType)
+    TryEnableConnection(TryConnectionType),
 }
 
 #[non_exhaustive]
@@ -41,7 +42,7 @@ pub(super) enum TryConnectionType {
     LastFM {
         api_key: String,
         api_secret: String,
-        auth: LastFMAuth
+        auth: LastFMAuth,
     },
     ListenBrainz(String),
 }
@@ -49,10 +50,7 @@ pub(super) enum TryConnectionType {
 #[derive(Debug, Clone)]
 pub enum LastFMAuth {
     Session(Option<String>),
-    UserPass {
-        username: String,
-        password: String
-    }
+    UserPass { username: String, password: String },
 }
 
 pub(super) struct ControllerConnections {
@@ -92,18 +90,29 @@ pub(super) fn handle_connections(
     use ConnectionsNotification::*;
     while true {
         match notifications_tx.recv().unwrap() {
-            Playback { position: _position, duration: _duration } => {
+            Playback {
+                position: _position,
+                duration: _duration,
+            } => {
                 _ = dc_position_rx.send_timeout(_position.clone(), Duration::from_millis(0));
-                if song_scrobbled { continue }
+                if song_scrobbled {
+                    continue;
+                }
 
-                let Some(position) = _position.map(|t| t.num_milliseconds()) else { continue };
-                let Some(duration) = _duration.map(|t| t.num_milliseconds()) else { continue };
+                let Some(position) = _position.map(|t| t.num_milliseconds()) else {
+                    continue;
+                };
+                let Some(duration) = _duration.map(|t| t.num_milliseconds()) else {
+                    continue;
+                };
 
                 // Scrobble at 50% or at 4 minutes
-                if duration < 30000 || position == 0 { continue }
+                if duration < 30000 || position == 0 {
+                    continue;
+                }
                 let percent_played = position as f32 / duration as f32;
 
-                if  percent_played != 0.0 && (percent_played > 0.5 || position >= 240000)  {
+                if percent_played != 0.0 && (percent_played > 0.5 || position >= 240000) {
                     if LB_ACTIVE.load(Ordering::Relaxed) {
                         lb_scrobble_rx.send(()).unwrap();
                     }
@@ -130,60 +139,83 @@ pub(super) fn handle_connections(
                     last_now_playing_rx.send(song.clone()).unwrap();
                 }
             }
-            EOS => { continue }
-            AboutToFinish => { continue }
-            TryEnableConnection(c) => { match c {
-                TryConnectionType::Discord(client_id) => {
-                    let (dc_song_tx, dc_state_tx, dc_position_tx) = (dc_now_playing_tx.clone(), dc_state_tx.clone(), dc_position_tx.clone());
-                    std::thread::Builder::new()
-                        .name("Discord RPC Handler".to_string())
-                        .spawn(move || {
+            EOS => continue,
+            AboutToFinish => continue,
+            TryEnableConnection(c) => {
+                match c {
+                    TryConnectionType::Discord(client_id) => {
+                        let (dc_song_tx, dc_state_tx, dc_position_tx) = (
+                            dc_now_playing_tx.clone(),
+                            dc_state_tx.clone(),
+                            dc_position_tx.clone(),
+                        );
+                        std::thread::Builder::new()
+                            .name("Discord RPC Handler".to_string())
+                            .spawn(move || {
                                 // TODO: add proper error handling here
                                 discord_rpc(client_id, dc_song_tx, dc_state_tx, dc_position_tx);
-                        })
-                        .unwrap();
-                },
-                TryConnectionType::ListenBrainz(token) => {
-                    let (lb_now_playing_tx, lb_scrobble_tx) = (lb_now_playing_tx.clone(), lb_scrobble_tx.clone());
-                    std::thread::Builder::new()
-                        .name("ListenBrainz Handler".to_string())
-                        .spawn(move || {
-                            listenbrainz_scrobble(&token, lb_now_playing_tx, lb_scrobble_tx);
-                        })
-                        .unwrap();
-                }
-                TryConnectionType::LastFM { api_key, api_secret, auth } => {
-                    let (config, notifications_rx) = (config.clone(), notifications_rx.clone());
-                    let (last_now_playing_tx, last_scrobble_tx) = (last_now_playing_tx.clone(), last_scrobble_tx.clone());
-                    std::thread::Builder::new()
-                        .name("last.fm Handler".to_string())
-                        .spawn(move || {
-                            let scrobbler = match auth {
-                                LastFMAuth::Session(key) => {
-                                    if let Some(session) = key {
+                            })
+                            .unwrap();
+                    }
+                    TryConnectionType::ListenBrainz(token) => {
+                        let (lb_now_playing_tx, lb_scrobble_tx) =
+                            (lb_now_playing_tx.clone(), lb_scrobble_tx.clone());
+                        std::thread::Builder::new()
+                            .name("ListenBrainz Handler".to_string())
+                            .spawn(move || {
+                                listenbrainz_scrobble(&token, lb_now_playing_tx, lb_scrobble_tx);
+                            })
+                            .unwrap();
+                    }
+                    TryConnectionType::LastFM {
+                        api_key,
+                        api_secret,
+                        auth,
+                    } => {
+                        let (config, notifications_rx) = (config.clone(), notifications_rx.clone());
+                        let (last_now_playing_tx, last_scrobble_tx) =
+                            (last_now_playing_tx.clone(), last_scrobble_tx.clone());
+                        std::thread::Builder::new()
+                            .name("last.fm Handler".to_string())
+                            .spawn(move || {
+                                let scrobbler = match auth {
+                                    LastFMAuth::Session(key) => if let Some(session) = key {
                                         let mut scrobbler = Scrobbler::new(&api_key, &api_secret);
                                         scrobbler.authenticate_with_session_key(&session);
                                         Ok(scrobbler)
                                     } else {
-                                        last_fm_auth(config, notifications_rx, &api_key, &api_secret)
-                                    }.unwrap()
-                                },
-                                LastFMAuth::UserPass { username, password } => {
-                                    let mut scrobbler = Scrobbler::new(&api_key, &api_secret);
-                                    scrobbler.authenticate_with_password(&username, &password).unwrap();
-                                    scrobbler
-                                }
-                            };
-                            last_fm_scrobble(scrobbler, last_now_playing_tx, last_scrobble_tx);
-                        })
-                        .unwrap();
+                                        last_fm_auth(
+                                            config,
+                                            notifications_rx,
+                                            &api_key,
+                                            &api_secret,
+                                        )
+                                    }
+                                    .unwrap(),
+                                    LastFMAuth::UserPass { username, password } => {
+                                        let mut scrobbler = Scrobbler::new(&api_key, &api_secret);
+                                        scrobbler
+                                            .authenticate_with_password(&username, &password)
+                                            .unwrap();
+                                        scrobbler
+                                    }
+                                };
+                                last_fm_scrobble(scrobbler, last_now_playing_tx, last_scrobble_tx);
+                            })
+                            .unwrap();
+                    }
                 }
-            }}
+            }
         }
     }
 }
 
-fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<PrismState>, position_tx: Receiver<Option<TimeDelta>>) {
+fn discord_rpc(
+    client_id: u64,
+    song_tx: Receiver<Song>,
+    state_tx: Receiver<PrismState>,
+    position_tx: Receiver<Option<TimeDelta>>,
+) {
     let mut client =
         discord_presence::Client::with_error_config(client_id, Duration::from_secs(5), None);
     client.start();
@@ -223,9 +255,10 @@ fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<Prism
         if let Ok(Some(pos)) = position_tx.recv_timeout(Duration::from_millis(100)) {
             // set back the start position to where it would be if it hadn't been paused / seeked
             now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards?")
-            .as_secs() - u64::try_from(pos.num_seconds()).unwrap();
+                .duration_since(UNIX_EPOCH)
+                .expect("Time went backwards?")
+                .as_secs()
+                - u64::try_from(pos.num_seconds()).unwrap();
         }
 
         client
@@ -236,8 +269,7 @@ fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<Prism
                             "{}{}{}",
                             s.get_tag(&Tag::Artist)
                                 .map_or(String::new(), |album| album.clone()),
-                            if s.get_tag(&Tag::Album).is_some()
-                                && s.get_tag(&Tag::Artist).is_some()
+                            if s.get_tag(&Tag::Album).is_some() && s.get_tag(&Tag::Artist).is_some()
                             {
                                 " - "
                             } else {
@@ -265,13 +297,15 @@ fn discord_rpc(client_id: u64, song_tx: Receiver<Song>, state_tx: Receiver<Prism
                 } else {
                     activity
                 }
-                .assets(|a| a.large_text(match state {
-                    Some(PrismState::Playing) => "Playing",
-                    Some(PrismState::Paused) => "Paused",
-                    Some(PrismState::Stopped) => "Stopped",
-                    None => "Started",
-                    _ => "I'm Scared, Boss"
-                }))
+                .assets(|a| {
+                    a.large_text(match state {
+                        Some(PrismState::Playing) => "Playing",
+                        Some(PrismState::Paused) => "Paused",
+                        Some(PrismState::Stopped) => "Stopped",
+                        None => "Started",
+                        _ => "I'm Scared, Boss",
+                    })
+                })
                 .instance(true)
             })
             .unwrap();
@@ -340,7 +374,7 @@ fn last_fm_auth(
     config: Arc<RwLock<Config>>,
     notifications_rx: Sender<ConnectionsNotification>,
     api_key: &str,
-    api_secret: &str
+    api_secret: &str,
 ) -> Result<Scrobbler, Box<dyn std::error::Error>> {
     let token = {
         tokio::runtime::Builder::new_current_thread()
@@ -361,7 +395,11 @@ fn last_fm_auth(
     };
     let mut scrobbler = Scrobbler::new(api_key, api_secret);
     println!("Token: {}", token.token);
-    opener::open_browser(format!("http://www.last.fm/api/auth/?api_key={api_key}&token={}", token.token)).unwrap();
+    opener::open_browser(format!(
+        "http://www.last.fm/api/auth/?api_key={api_key}&token={}",
+        token.token
+    ))
+    .unwrap();
 
     let session = loop {
         if let Ok(session) = scrobbler.authenticate_with_token(&token.token) {
@@ -378,7 +416,11 @@ fn last_fm_auth(
     Ok(scrobbler)
 }
 
-fn last_fm_scrobble(scrobbler: Scrobbler, now_playing_tx: Receiver<Song>, scrobble_tx: Receiver<()>) {
+fn last_fm_scrobble(
+    scrobbler: Scrobbler,
+    now_playing_tx: Receiver<Song>,
+    scrobble_tx: Receiver<()>,
+) {
     // TODO: Add support for scrobble storage for later
 
     let mut song: Option<Song> = None;
@@ -445,8 +487,6 @@ fn last_fm_scrobble(scrobbler: Scrobbler, now_playing_tx: Receiver<Song>, scrobb
     }
     LAST_FM_ACTIVE.store(false, Ordering::Relaxed);
 }
-
-
 
 #[derive(Deserialize)]
 pub struct Token {

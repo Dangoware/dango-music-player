@@ -4,7 +4,10 @@ use chrono::{serde::ts_milliseconds_option, DateTime, Utc};
 use crossbeam::channel::Sender;
 use dmp_core::{
     music_controller::controller::{ControllerHandle, PlayerLocation},
-    music_storage::{library::{Song, Tag, URI}, queue::QueueItemType},
+    music_storage::{
+        library::{Song, Tag, URI},
+        queue::QueueItemType,
+    },
 };
 use itertools::Itertools;
 use serde::Serialize;

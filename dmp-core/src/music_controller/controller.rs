@@ -161,7 +161,7 @@ pub struct ControllerInput {
     ),
     connections_mail: (
         crossbeam_channel::Sender<ConnectionsNotification>,
-        crossbeam_channel::Receiver<ConnectionsNotification>
+        crossbeam_channel::Receiver<ConnectionsNotification>,
     ),
     library: MusicLibrary,
     config: Arc<RwLock<Config>>,

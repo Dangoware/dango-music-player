@@ -1,8 +1,13 @@
 use std::{fs::OpenOptions, io::Write};
 
-use dmp_core::{music_controller::{
-    connections::LastFMAuth, controller::{ControllerHandle, PlayerLocation}, queue::QueueSong
-}, music_storage::queue::{QueueItem, QueueItemType}};
+use dmp_core::{
+    music_controller::{
+        connections::LastFMAuth,
+        controller::{ControllerHandle, PlayerLocation},
+        queue::QueueSong,
+    },
+    music_storage::queue::{QueueItem, QueueItemType},
+};
 use tauri::{AppHandle, Emitter, State, Wry};
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -81,6 +86,10 @@ pub async fn display_album_art(
 
 #[tauri::command]
 pub async fn last_fm_init_auth(ctrl_handle: State<'_, ControllerHandle>) -> Result<(), String> {
-    ctrl_handle.last_fm_scrobble_auth(LAST_FM_API_KEY.to_string(), LAST_FM_API_SECRET.to_string(), LastFMAuth::Session(None));
+    ctrl_handle.last_fm_scrobble_auth(
+        LAST_FM_API_KEY.to_string(),
+        LAST_FM_API_SECRET.to_string(),
+        LastFMAuth::Session(None),
+    );
     Ok(())
 }
