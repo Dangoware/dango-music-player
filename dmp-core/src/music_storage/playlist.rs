@@ -335,6 +335,24 @@ impl Playlist {
 
         (songs, invalid_uuids)
     }
+
+    pub fn query_uuid(&self, uuid: &Uuid) -> Option<(&Uuid, usize)> {
+        let result = self
+            .tracks
+            .par_iter()
+            .enumerate()
+            .try_for_each(|(i, track)| {
+                if uuid == track {
+                    return std::ops::ControlFlow::Break((track, i));
+                }
+                std::ops::ControlFlow::Continue(())
+            });
+
+        match result {
+            std::ops::ControlFlow::Break(song) => Some(song),
+            std::ops::ControlFlow::Continue(_) => None,
+        }
+    }
 }
 
 impl Default for Playlist {

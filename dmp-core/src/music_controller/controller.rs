@@ -109,6 +109,10 @@ pub enum LibraryCommand {
     AllSongs,
     GetLibrary,
     ExternalPlaylist(Uuid),
+    PlaylistSong{
+        list_uuid: Uuid,
+        item_uuid: Uuid
+    },
     Playlist(Uuid),
     ImportM3UPlayList(PathBuf),
     Save,
@@ -122,6 +126,7 @@ pub enum LibraryResponse {
     AllSongs(Vec<Song>),
     Library(MusicLibrary),
     ExternalPlaylist(ExternalPlaylist),
+    PlaylistSong(Song, usize),
     Playlist(Playlist),
     ImportM3UPlayList(Uuid, String),
     Playlists(Vec<(Uuid, String)>),

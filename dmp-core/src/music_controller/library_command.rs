@@ -89,6 +89,15 @@ impl Controller {
                         .await
                         .unwrap();
                 }
+                LibraryCommand::PlaylistSong { list_uuid, item_uuid } => {
+                    let playlist= library.playlists.query_uuid(&list_uuid).unwrap();
+                    let Some((uuid, index)) = playlist.query_uuid(&item_uuid) else { todo!() };
+                    let Some((song, _)) = library.query_uuid(uuid) else { todo!() };
+                    res_rx
+                        .send(LibraryResponse::PlaylistSong(song.clone(), index))
+                        .await
+                        .unwrap();
+                }
                 _ => {
                     todo!()
                 }

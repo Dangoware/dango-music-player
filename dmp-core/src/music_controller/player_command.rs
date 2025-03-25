@@ -91,42 +91,80 @@ impl Controller {
                                     panic!("This is temporary, handle queueItemTypes at some point")
                                 };
 
-                                let (command, tx) =
-                                    LibraryCommandInput::command(LibraryCommand::AllSongs);
-                                // Append next song in library
-                                lib_mail.send(command).await.unwrap();
-                                let LibraryResponse::AllSongs(songs) = tx.recv().await.unwrap()
-                                else {
-                                    continue;
-                                };
-
-                                let (command, tx) = LibraryCommandInput::command(
-                                    LibraryCommand::Song(np_song.song.uuid),
-                                );
-                                lib_mail.send(command).await.unwrap();
-                                let LibraryResponse::Song(_, i) = tx.recv().await.unwrap() else {
-                                    unreachable!()
-                                };
-                                if let Some(song) = songs.get(i + 49) {
-                                    let (command, tx) =
-                                        QueueCommandInput::command(QueueCommand::Append(
-                                            QueueItem::from_item_type(QueueItemType::Single(
-                                                QueueSong {
-                                                    song: song.clone(),
-                                                    location: np_song.location,
-                                                },
-                                            )),
-                                            false,
-                                        ));
-                                    queue_mail.send(command).await.unwrap();
-                                    let QueueResponse::Empty(Ok(())) = tx.recv().await.unwrap()
-                                    else {
-                                        unreachable!()
-                                    };
-                                } else {
-                                    println!("Library Empty");
+                                match np_song.location {
+                                    PlayerLocation::Library => {
+                                        let (command, tx) =
+                                            LibraryCommandInput::command(LibraryCommand::AllSongs);
+                                        // Append next song in library
+                                        lib_mail.send(command).await.unwrap();
+                                        let LibraryResponse::AllSongs(songs) = tx.recv().await.unwrap()
+                                        else {
+                                            continue;
+                                        };
+                                        let (command, tx) = LibraryCommandInput::command(
+                                            LibraryCommand::Song(np_song.song.uuid),
+                                        );
+                                        lib_mail.send(command).await.unwrap();
+                                        let LibraryResponse::Song(_, i) = tx.recv().await.unwrap() else {
+                                            unreachable!()
+                                        };
+                                        if let Some(song) = songs.get(i + 49) {
+                                            let (command, tx) =
+                                                QueueCommandInput::command(QueueCommand::Append(
+                                                    QueueItem::from_item_type(QueueItemType::Single(
+                                                        QueueSong {
+                                                            song: song.clone(),
+                                                            location: np_song.location,
+                                                        },
+                                                    )),
+                                                    false,
+                                                ));
+                                            queue_mail.send(command).await.unwrap();
+                                            let QueueResponse::Empty(Ok(())) = tx.recv().await.unwrap()
+                                            else {
+                                                unreachable!()
+                                            };
+                                        } else {
+                                            println!("Library Empty");
+                                        }
+                                    }
+                                    PlayerLocation::Playlist(uuid) => {
+                                        let (command, tx) = LibraryCommandInput::command(
+                                            LibraryCommand::ExternalPlaylist(uuid),
+                                        );
+                                        lib_mail.send(command).await.unwrap();
+                                        let LibraryResponse::ExternalPlaylist(playlist) = tx.recv().await.unwrap() else {
+                                            unreachable!()
+                                        };
+                                        let (command, tx) = LibraryCommandInput::command(
+                                            LibraryCommand::PlaylistSong { list_uuid: playlist.uuid, item_uuid: np_song.song.uuid }
+                                        );
+                                        lib_mail.send(command).await.unwrap();
+                                        let LibraryResponse::PlaylistSong(_, i) = tx.recv().await.unwrap() else {
+                                            unreachable!()
+                                        };
+                                        if let Some(song) = playlist.tracks.get(i + 49) {
+                                            let (command, tx) =
+                                                QueueCommandInput::command(QueueCommand::Append(
+                                                    QueueItem::from_item_type(QueueItemType::Single(
+                                                        QueueSong {
+                                                            song: song.clone(),
+                                                            location: np_song.location,
+                                                        },
+                                                    )),
+                                                    false,
+                                                ));
+                                            queue_mail.send(command).await.unwrap();
+                                            let QueueResponse::Empty(Ok(())) = tx.recv().await.unwrap()
+                                            else {
+                                                unreachable!()
+                                            };
+                                        } else {
+                                            println!("Playlist Empty");
+                                        }
+                                    }
+                                    _ => todo!()
                                 }
-
                                 res_rx
                                     .send(PlayerResponse::NowPlaying(Ok(np_song.song.clone())))
                                     .await
