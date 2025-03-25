@@ -4,12 +4,12 @@ use std::{
     fs,
     path::PathBuf,
     sync::Arc,
-    thread::{scope, spawn},
+    thread::{scope, spawn, JoinHandle},
     time::Duration,
 };
 
 use config::{close_window, get_config, open_config_window, save_config};
-use crossbeam::channel::{bounded, unbounded, Receiver, Sender};
+use crossbeam::channel::{bounded, Receiver};
 use dmp_core::{
     config::{Config, ConfigLibrary},
     music_controller::{
@@ -19,7 +19,7 @@ use dmp_core::{
     music_storage::library::{MusicLibrary, Song},
 };
 use parking_lot::RwLock;
-use tauri::{http::Response, Emitter, Manager, State, Wry};
+use tauri::{http::Response, AppHandle, Emitter, Manager};
 use uuid::Uuid;
 use wrappers::{_Song, stop};
 
@@ -41,99 +41,13 @@ const LAST_FM_API_SECRET: &str = env!("LAST_FM_API_SECRET", "None");
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let (config_rx, config_tx) = unbounded::<Config>();
-    let (lib_rx, lib_tx) = unbounded::<Option<PathBuf>>();
-    let (handle_rx, handle_tx) = unbounded::<ControllerHandle>();
-    let (playback_info_rx, playback_info_tx) = bounded(1);
-    let (next_rx, next_tx) = bounded(1);
+    let (app_rx, app_tx) = bounded::<AppHandle>(1);
 
-    let _controller_thread = spawn(move || {
-        let mut config = { config_tx.recv().unwrap() };
-        let scan_path = { lib_tx.recv().unwrap() };
-        let _temp_config = ConfigLibrary::default();
-        let _lib = config.libraries.get_default().unwrap_or(&_temp_config);
 
-        let save_path = if _lib.path == PathBuf::default() {
-            let p = scan_path.as_ref().unwrap().clone().canonicalize().unwrap();
-
-            if cfg!(windows) {
-                p.join("library_windows.dlib")
-            } else if cfg!(unix) {
-                p.join("library_unix.dlib")
-            } else {
-                p.join("library.dlib")
-            }
-        } else {
-            _lib.path.clone()
-        };
-        println!(
-            "save_path: {}\nscan_path:{scan_path:?}",
-            save_path.display()
-        );
-
-        let mut library = MusicLibrary::init(save_path.clone(), _lib.uuid).unwrap();
-
-        let scan_path = scan_path.unwrap_or_else(|| {
-            config
-                .libraries
-                .get_default()
-                .unwrap()
-                .scan_folders
-                .as_ref()
-                .unwrap()[0]
-                .clone()
-        });
-
-        if config.libraries.get_default().is_err() {
-            library.scan_folder(&scan_path).unwrap();
-            config.push_library(ConfigLibrary::new(
-                save_path.clone(),
-                String::from("Library"),
-                Some(vec![scan_path.clone()]),
-                Some(library.uuid),
-            ));
-        }
-        if library.library.is_empty() {
-            println!("library is empty");
-        } else {
-            config.write_file().unwrap();
-        }
-        println!("scan_path: {}", scan_path.display());
-
-        library.save(save_path).unwrap();
-
-        let last_fm_session = config.connections.last_fm_session.clone();
-        let listenbrainz_token = config.connections.listenbrainz_token.clone();
-
-        let (handle, input, playback_info, next_song_notification) =
-            ControllerHandle::new(library, std::sync::Arc::new(RwLock::new(config)));
-
-        handle.discord_rpc(DISCORD_CLIENT_ID);
-        if let Some(token) = listenbrainz_token {
-            handle.listenbrainz_scrobble_auth(token);
-        } else {
-            println!("No ListenBrainz token found");
-        }
-        if let Some(session) = last_fm_session {
-            handle.last_fm_scrobble_auth(
-                LAST_FM_API_KEY.to_string(),
-                LAST_FM_API_SECRET.to_string(),
-                LastFMAuth::Session(Some(session)),
-            );
-        }
-
-        handle_rx.send(handle).unwrap();
-        playback_info_rx.send(playback_info).unwrap();
-        next_rx.send(next_song_notification).unwrap();
-
-        let _controller = futures::executor::block_on(Controller::start(input)).unwrap();
-    });
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
-            init_get_config,
-            create_new_library,
             get_library,
             play,
             pause,
@@ -142,7 +56,6 @@ pub fn run() {
             next,
             prev,
             get_song,
-            lib_already_created,
             get_queue,
             add_song_to_queue,
             play_now,
@@ -158,50 +71,9 @@ pub fn run() {
             save_config,
             close_window,
         ])
-        .manage(ConfigRx(config_rx))
-        .manage(LibRx(lib_rx))
-        .manage(HandleTx(handle_tx))
         .manage(tempfile::TempDir::new().unwrap())
-        .setup(|app| {
-            let _app = app.handle().clone();
-            let app = _app.clone();
-
-            std::thread::Builder::new()
-                .name("PlaybackInfo handler".to_string())
-                .spawn(move || {
-                    let mut _info: Arc<RwLock<PlaybackInfo>> =
-                        Arc::new(RwLock::new(PlaybackInfo::default()));
-                    let mut _now_playing: Arc<RwLock<Option<Song>>> = Arc::new(RwLock::new(None));
-
-                    scope(|s| {
-                        let info = _info.clone();
-                        s.spawn(|| {
-                            let info = info;
-                            let playback_info = playback_info_tx.recv().unwrap();
-                            while true {
-                                let i = playback_info.take();
-                                app.emit("playback_info", i.clone()).unwrap();
-                                *info.write() = i;
-                                std::thread::sleep(Duration::from_millis(100));
-                            }
-                        });
-
-                        let now_playing = _now_playing.clone();
-                        s.spawn(|| {
-                            let now_playing = now_playing;
-                            let next_song_notification = next_tx.recv().unwrap();
-                            while true {
-                                let song = next_song_notification.recv().unwrap();
-                                app.emit("now_playing_change", _Song::from(&song)).unwrap();
-                                app.emit("queue_updated", ()).unwrap();
-                                app.emit("playing", ()).unwrap();
-                                _ = now_playing.write().insert(song);
-                            }
-                        });
-                    });
-                })
-                .unwrap();
-
+        .setup(move |app| {
+            app_rx.send(app.handle().clone()).unwrap();
             Ok(())
         })
         .register_asynchronous_uri_scheme_protocol("asset", move |ctx, req, res| {
@@ -245,6 +117,8 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
+    let _controller_thread = start_controller(app.handle().clone());
+
     app.run(|_app_handle, event| match event {
         tauri::RunEvent::ExitRequested { .. } => {
             // api.prevent_exit();
@@ -254,13 +128,108 @@ pub fn run() {
     });
 }
 
-struct ConfigRx(Sender<Config>);
+fn start_controller(app: AppHandle) -> JoinHandle<()> {
+    spawn(move || {
+        let mut config = init_get_config().unwrap();
 
-struct LibRx(Sender<Option<PathBuf>>);
-struct HandleTx(Receiver<ControllerHandle>);
+        let (lib_path, lib_uuid) = match config.libraries.get_default() {
+            Ok(library) => {
+                (library.path.clone(), library.uuid)
+            }
+            Err(_) => {
+                (create_new_library().unwrap(), Uuid::new_v4())
+            }
+        };
+        let scan_path = lib_path.parent().unwrap();
 
-#[tauri::command]
-async fn init_get_config(state: State<'_, ConfigRx>) -> Result<Config, String> {
+        println!(
+            "lib_path: {}\nscan_path:{scan_path:?}",
+            lib_path.display()
+        );
+
+        let mut library = MusicLibrary::init(lib_path.clone(), lib_uuid).unwrap();
+
+        if config.libraries.get_default().is_err() {
+            library.scan_folder(&scan_path).unwrap();
+            config.push_library(ConfigLibrary::new(
+                lib_path.clone(),
+                String::from("Library"),
+                Some(vec![scan_path.into()]),
+                Some(library.uuid),
+            ));
+        }
+        if library.library.is_empty() {
+            println!("library is empty");
+        } else {
+            config.write_file().unwrap();
+        }
+        library.save(lib_path).unwrap();
+        app.emit("library_loaded", ()).unwrap();
+
+
+        let last_fm_session = config.connections.last_fm_session.clone();
+        let listenbrainz_token = config.connections.listenbrainz_token.clone();
+
+        let (handle, input, playback_info, next_song_notification) =
+            ControllerHandle::new(library, std::sync::Arc::new(RwLock::new(config)));
+
+        handle.discord_rpc(DISCORD_CLIENT_ID);
+        if let Some(token) = listenbrainz_token {
+            handle.listenbrainz_scrobble_auth(token);
+        } else {
+            println!("No ListenBrainz token found");
+        }
+        if let Some(session) = last_fm_session {
+            handle.last_fm_scrobble_auth(
+                LAST_FM_API_KEY.to_string(),
+                LAST_FM_API_SECRET.to_string(),
+                LastFMAuth::Session(Some(session)),
+            );
+        }
+
+        app.manage(handle);
+
+        std::thread::Builder::new()
+            .name("PlaybackInfo handler".to_string())
+            .spawn(move || {
+                let mut _info: Arc<RwLock<PlaybackInfo>> =
+                    Arc::new(RwLock::new(PlaybackInfo::default()));
+                let mut _now_playing: Arc<RwLock<Option<Song>>> = Arc::new(RwLock::new(None));
+
+                scope(|s| {
+                    let info = _info.clone();
+                    s.spawn(|| {
+                        let info = info;
+                        let playback_info = playback_info;
+                        while true {
+                            let i = playback_info.take();
+                            app.emit("playback_info", i.clone()).unwrap();
+                            *info.write() = i;
+                            std::thread::sleep(Duration::from_millis(100));
+                        }
+                    });
+
+                    let now_playing = _now_playing.clone();
+                    s.spawn(|| {
+                        let now_playing = now_playing;
+                        let next_song_notification = next_song_notification;
+                        while true {
+                            let song = next_song_notification.recv().unwrap();
+                            app.emit("now_playing_change", _Song::from(&song)).unwrap();
+                            app.emit("queue_updated", ()).unwrap();
+                            app.emit("playing", true).unwrap();
+                            _ = now_playing.write().insert(song);
+                        }
+                    });
+                });
+            })
+            .unwrap();
+
+        let _controller = futures::executor::block_on(Controller::start(input)).unwrap();
+    })
+}
+
+fn init_get_config() -> Result<Config, String> {
     if let Some(dir) = directories::ProjectDirs::from("", "Dangoware", "dmp") {
         let path = dir.config_dir();
         fs::create_dir_all(path)
@@ -288,8 +257,6 @@ async fn init_get_config(state: State<'_, ConfigRx>) -> Result<Config, String> {
             c
         };
 
-        state.inner().0.send(config.clone()).unwrap();
-
         println!("got config");
         Ok(config)
     } else {
@@ -297,19 +264,14 @@ async fn init_get_config(state: State<'_, ConfigRx>) -> Result<Config, String> {
     }
 }
 
-#[tauri::command]
-async fn create_new_library(
-    app: tauri::AppHandle<Wry>,
-    lib_rx: State<'_, LibRx>,
-    handle_tx: State<'_, HandleTx>,
-) -> Result<(), String> {
-    let dir = rfd::AsyncFileDialog::new()
+
+fn create_new_library() -> Result<PathBuf, String> {
+    let dir = rfd::FileDialog::new()
         .set_title("Pick a library path")
         .pick_folder()
-        .await
         .unwrap();
 
-    let path = dir.path().canonicalize().unwrap();
+    let path = dir.as_path().canonicalize().unwrap();
     println!("{}", path.display());
 
     if !path.exists() {
@@ -318,21 +280,14 @@ async fn create_new_library(
         panic!("Path {} is not a directory!", path.display())
     }
 
-    lib_rx.inner().0.send(Some(path)).unwrap();
-    app.manage(handle_tx.inner().0.recv().unwrap());
-    app.emit("library_loaded", ()).unwrap();
-    Ok(())
+    let path = if cfg!(windows) {
+        path.join("library_windows.dlib")
+    } else if cfg!(unix) {
+        path.join("library_unix.dlib")
+    } else {
+        path.join("library.dlib")
+    };
+
+    Ok(path)
 }
 
-#[tauri::command]
-async fn lib_already_created(
-    app: tauri::AppHandle<Wry>,
-    lib_rx: State<'_, LibRx>,
-    handle_tx: State<'_, HandleTx>,
-) -> Result<(), String> {
-    println!("lib already created");
-    lib_rx.inner().0.send(None).unwrap();
-    app.manage(handle_tx.inner().0.recv().unwrap());
-    app.emit("library_loaded", ()).unwrap();
-    Ok(())
-}

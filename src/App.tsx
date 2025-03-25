@@ -65,22 +65,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const unlisten = appWindow.listen<any>("playing", (_) => {
-        setPlaying(true)
+    const unlisten = appWindow.listen<any>("playing", (isPlaying) => {
+        setPlaying(isPlaying.payload as boolean)
     })
     return () => { unlisten.then((f) => f()) }
   }, []);
-
-  useEffect(() => {
-    const unlisten = appWindow.listen<any>("paused", (_) => {
-        setPlaying(false)
-    })
-    return () => { unlisten.then((f) => f()) }
-  }, []);
-
-  useEffect(() => {
-    getConfig();
-  }, [])
 
   return (
     <main>
