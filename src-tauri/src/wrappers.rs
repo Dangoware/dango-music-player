@@ -23,7 +23,7 @@ pub async fn play(
 ) -> Result<(), String> {
     match ctrl_handle.play().await {
         Ok(()) => {
-            app.emit("playing", ()).unwrap();
+            app.emit("playing", true).unwrap();
             Ok(())
         }
         Err(e) => Err(e.to_string()),
@@ -37,7 +37,7 @@ pub async fn pause(
 ) -> Result<(), String> {
     match ctrl_handle.pause().await {
         Ok(()) => {
-            app.emit("paused", ()).unwrap();
+            app.emit("playing", false).unwrap();
             Ok(())
         }
         Err(e) => Err(e.to_string()),
@@ -84,7 +84,7 @@ pub async fn next(
     };
     app.emit("now_playing_change", _Song::from(&song)).unwrap();
     app.emit("queue_updated", ()).unwrap();
-    app.emit("playing", ()).unwrap();
+    app.emit("playing", true).unwrap();
     Ok(())
 }
 
