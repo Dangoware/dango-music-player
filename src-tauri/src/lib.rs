@@ -19,7 +19,7 @@ use dmp_core::{
     music_storage::library::{MusicLibrary, Song},
 };
 use parking_lot::RwLock;
-use tauri::{http::Response, AppHandle, Emitter, Manager};
+use tauri::{http::Response, AppHandle, Emitter, Listener, Manager};
 use uuid::Uuid;
 use wrappers::{_Song, stop};
 
@@ -27,7 +27,7 @@ use crate::wrappers::{
     get_library, get_playlist, get_playlists, get_queue, get_song, import_playlist, next, pause,
     play, prev, remove_from_queue, seek, set_volume,
 };
-use commands::{add_song_to_queue, display_album_art, last_fm_init_auth, play_now};
+use commands::{add_song_to_queue, display_album_art, last_fm_init_auth, play_now, synchronize};
 
 pub mod commands;
 pub mod config;
@@ -41,9 +41,7 @@ const LAST_FM_API_SECRET: &str = env!("LAST_FM_API_SECRET", "None");
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let (app_rx, app_tx) = bounded::<AppHandle>(1);
-
-
+    let (sync_rx, sync_tx) = bounded::<()>(1);
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -70,12 +68,10 @@ pub fn run() {
             get_config,
             save_config,
             close_window,
+            synchronize,
         ])
         .manage(tempfile::TempDir::new().unwrap())
-        .setup(move |app| {
-            app_rx.send(app.handle().clone()).unwrap();
-            Ok(())
-        })
+        .manage(sync_rx)
         .register_asynchronous_uri_scheme_protocol("asset", move |ctx, req, res| {
             let query = req
                 .clone()
@@ -116,9 +112,7 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
-
-    let _controller_thread = start_controller(app.handle().clone());
-
+    start_controller(app.handle().clone(), sync_tx);
     app.run(|_app_handle, event| match event {
         tauri::RunEvent::ExitRequested { .. } => {
             // api.prevent_exit();
@@ -128,8 +122,10 @@ pub fn run() {
     });
 }
 
-fn start_controller(app: AppHandle) -> JoinHandle<()> {
+fn start_controller(app: AppHandle, sync_tx: Receiver<()>) -> JoinHandle<()> {
     spawn(move || {
+        // wait for Front End Webview to be ready
+        sync_tx.recv().unwrap();
         let mut config = init_get_config().unwrap();
 
         let (lib_path, lib_uuid) = match config.libraries.get_default() {

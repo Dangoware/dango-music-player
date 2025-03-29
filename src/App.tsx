@@ -71,6 +71,10 @@ function App() {
     return () => { unlisten.then((f) => f()) }
   }, []);
 
+  useEffect(() => {
+    invoke("synchronize").then(() => {})
+  },)
+
   return (
     <main>
       <div className="container">
