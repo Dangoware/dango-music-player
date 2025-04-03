@@ -71,6 +71,10 @@ function App() {
     return () => { unlisten.then((f) => f()) }
   }, []);
 
+  useEffect(() => {
+    const invoke_: any = invoke("start_controller").then(() => {});
+  }, [])
+
   return (
     <main>
       <div className="container">

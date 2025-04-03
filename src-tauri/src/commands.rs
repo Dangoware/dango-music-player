@@ -1,5 +1,4 @@
 use std::{fs::OpenOptions, io::Write};
-
 use dmp_core::{
     music_controller::{
         connections::LastFMAuth,
