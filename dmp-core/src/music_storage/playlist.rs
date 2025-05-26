@@ -45,7 +45,7 @@ impl PlaylistFolder {
         for item in &self.items {
             match item {
                 PlaylistFolderItem::Folder(folder) => return folder.query_uuid(uuid),
-                PlaylistFolderItem::List(ref playlist) => {
+                PlaylistFolderItem::List(playlist) => {
                     if &playlist.uuid == uuid {
                         return Some(playlist);
                     }
@@ -59,7 +59,7 @@ impl PlaylistFolder {
         let mut vec = vec![];
         for item in &self.items {
             match item {
-                PlaylistFolderItem::List(ref playlist) => vec.push(playlist),
+                PlaylistFolderItem::List(playlist) => vec.push(playlist),
                 PlaylistFolderItem::Folder(folder) => vec.append(&mut folder.lists_recursive()),
             }
         }

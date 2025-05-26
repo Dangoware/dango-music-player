@@ -25,7 +25,7 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 // Time
-use chrono::{serde::ts_milliseconds_option, DateTime, Utc};
+use chrono::{DateTime, Utc, serde::ts_milliseconds_option};
 use std::time::Duration;
 
 // Serialization/Compression
@@ -267,7 +267,7 @@ impl Song {
                 ItemKey::Unknown(unknown)
                     if unknown == "ACOUSTID_FINGERPRINT" || unknown == "Acoustid Fingerprint" =>
                 {
-                    continue
+                    continue;
                 }
                 ItemKey::Unknown(unknown) => Tag::Key(unknown.to_string()),
                 custom => Tag::Key(format!("{:?}", custom)),
@@ -486,7 +486,7 @@ impl Song {
                             .to_vec(),
                     ))
                 }
-                AlbumArt::External(ref path) => {
+                AlbumArt::External(path) => {
                     let mut buf = vec![];
                     std::fs::File::open(path.path())?.read_to_end(&mut buf)?;
                     Ok(Some(buf))
@@ -962,7 +962,7 @@ impl MusicLibrary {
 
         match location {
             URI::Local(_) if self.query_path(location.path()).is_some() => {
-                return Err(format!("Location exists for {:?}", location).into())
+                return Err(format!("Location exists for {:?}", location).into());
             }
             _ => (),
         }
