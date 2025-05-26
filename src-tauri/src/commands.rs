@@ -1,4 +1,3 @@
-use std::{fs::OpenOptions, io::Write};
 use dmp_core::{
     music_controller::{
         connections::LastFMAuth,
@@ -7,6 +6,7 @@ use dmp_core::{
     },
     music_storage::queue::{QueueItem, QueueItemType},
 };
+use std::{fs::OpenOptions, io::Write};
 use tauri::{AppHandle, Emitter, State, Wry};
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -58,9 +58,9 @@ pub async fn display_album_art(
     temp_dir: State<'_, TempDir>,
     uuid: Uuid,
 ) -> Result<(), String> {
-    match ctrl_handle.lib_get_song(uuid.clone()).await.0.album_art(0) {
+    match ctrl_handle.lib_get_song(uuid).await.0.album_art(0) {
         Ok(art) => {
-            let mut art = art.unwrap();
+            let art = art.unwrap();
             let path = temp_dir.path().join(format!(
                 "CoverArt_{uuid}.{}",
                 file_format::FileFormat::from_bytes(&art).extension()
@@ -74,7 +74,7 @@ pub async fn display_album_art(
                     .read(true)
                     .open(path.clone())
                     .unwrap();
-                file.write_all(&mut art).unwrap();
+                file.write_all(&art).unwrap();
             }
             opener::open(path).unwrap();
         }
@@ -92,3 +92,20 @@ pub async fn last_fm_init_auth(ctrl_handle: State<'_, ControllerHandle>) -> Resu
     );
     Ok(())
 }
+
+// #[tauri::command]
+// pub async fn test_menu(
+//     ctrl_handle: State<'_, ControllerHandle>,
+//     app: AppHandle<Wry>,
+//     window: Window,
+//     uuid: Uuid,
+// ) -> Result<(), String> {
+//     let handle = app.app_handle();
+//     let menu = MenuBuilder::new(handle)
+//         .item(&MenuItem::new(handle, "Add to Queue", true, None::<&str>).unwrap())
+//         .build()
+//         .unwrap();
+//     window.set_menu(menu).unwrap();
+//     println!("Menu popup!");
+//     Ok(())
+// }

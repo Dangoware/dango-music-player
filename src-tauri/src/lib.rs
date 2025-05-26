@@ -4,12 +4,12 @@ use std::{
     fs,
     path::PathBuf,
     sync::Arc,
-    thread::{scope, spawn, JoinHandle},
+    thread::{scope, spawn},
     time::Duration,
 };
 
 use config::{close_window, get_config, open_config_window, save_config};
-use crossbeam::channel::{bounded, Receiver};
+use crossbeam::channel::bounded;
 use dmp_core::{
     config::{Config, ConfigLibrary},
     music_controller::{
@@ -19,7 +19,7 @@ use dmp_core::{
     music_storage::library::{MusicLibrary, Song},
 };
 use parking_lot::RwLock;
-use tauri::{http::Response, AppHandle, Emitter, Listener, Manager};
+use tauri::{http::Response, AppHandle, Emitter, Manager};
 use uuid::Uuid;
 use wrappers::{_Song, stop};
 
@@ -69,6 +69,7 @@ pub fn run() {
             save_config,
             close_window,
             start_controller,
+            // test_menu,
         ])
         .manage(tempfile::TempDir::new().unwrap())
         .manage(sync_rx)
@@ -128,19 +129,12 @@ fn start_controller(app: AppHandle) -> Result<(), String> {
         let mut config = init_get_config().unwrap();
 
         let (lib_path, lib_uuid) = match config.libraries.get_default() {
-            Ok(library) => {
-                (library.path.clone(), library.uuid)
-            }
-            Err(_) => {
-                (create_new_library().unwrap(), Uuid::new_v4())
-            }
+            Ok(library) => (library.path.clone(), library.uuid),
+            Err(_) => (create_new_library().unwrap(), Uuid::new_v4()),
         };
         let scan_path = lib_path.parent().unwrap();
 
-        println!(
-            "lib_path: {}\nscan_path:{scan_path:?}",
-            lib_path.display()
-        );
+        println!("lib_path: {}\nscan_path:{scan_path:?}", lib_path.display());
 
         let mut library = MusicLibrary::init(lib_path.clone(), lib_uuid).unwrap();
 
@@ -160,7 +154,6 @@ fn start_controller(app: AppHandle) -> Result<(), String> {
         }
         library.save(lib_path.to_path_buf()).unwrap();
         app.emit("library_loaded", ()).unwrap();
-
 
         let last_fm_session = config.connections.last_fm_session.clone();
         let listenbrainz_token = config.connections.listenbrainz_token.clone();
@@ -260,7 +253,6 @@ fn init_get_config() -> Result<Config, String> {
     }
 }
 
-
 fn create_new_library() -> Result<PathBuf, String> {
     let dir = rfd::FileDialog::new()
         .set_title("Pick a library path")
@@ -286,4 +278,3 @@ fn create_new_library() -> Result<PathBuf, String> {
 
     Ok(path)
 }
-

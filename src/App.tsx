@@ -1,4 +1,4 @@
-import React, { createRef, useEffect, useRef, useState } from "react";
+import React, { createRef, ReactEventHandler, useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import "./App.css";
 import { Config, playbackInfo } from "./types";
@@ -6,6 +6,9 @@ import { Config, playbackInfo } from "./types";
 // import { listen } from "@tauri-apps/api/event";
 // import { fetch } from "@tauri-apps/plugin-http";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWindow, LogicalPosition } from "@tauri-apps/api/window";
+import { Menu } from "@tauri-apps/api/menu";
+import { listen } from "@tauri-apps/api/event";
 
 const appWindow = getCurrentWebviewWindow();
 
@@ -24,6 +27,7 @@ function App() {
       artwork={<img src={convertFileSrc("abc") + "?" + "default" } id="nowPlayingArtwork" alt="Now Playing Artwork" key={'default_image'} />}
     />
   );
+
 
   useEffect(() => {
     const unlisten = appWindow.listen<any>("now_playing_change", ({ payload, }) => {
@@ -240,6 +244,7 @@ function MainView({ lib_ref, viewName }: MainViewProps) {
   )
 }
 
+
 interface SongProps {
   location: any,
   playerLocation: string | {"Playlist" : any},
@@ -255,11 +260,43 @@ interface SongProps {
 
 function Song(props: SongProps) {
   // console.log(props.tags);
+  const add_to_queue_test = (_: string) => {
+    invoke('add_song_to_queue', { uuid: props.uuid, location: props.playerLocation }).then(() => {});
+  }
+
+  const songMenuPromise = Menu.new({
+    items: [
+      { id: "add_song_to_queue" + props.uuid, text: "Add to Queue", action: add_to_queue_test}
+    ]
+  })
+
+  async function clickHandler(event: React.MouseEvent) {
+    event.preventDefault();
+    const menu = await songMenuPromise;
+    const pos = new LogicalPosition(event.clientX, event.clientY);
+    menu.popup(pos);
+  }
+ 
+  // useEffect(() => {
+  //   const unlistenPromise = listen<string>("add_song_to_queue", (event) => {
+  //     switch (event.payload) {
+  //       default:
+  //         console.log("Unimplemented application menu id:", event.payload);
+  //     }
+  //   });
+
+  //   return () => {
+  //     unlistenPromise.then((unlisten) => unlisten());
+  //   };
+  // }, []);
 
   return(
-    <div onDoubleClick={() => {
-      invoke("play_now", { uuid: props.uuid, location: props.playerLocation }).then(() => {})
-    }} className="song">
+    <div
+      onDoubleClick={() => {
+        invoke("play_now", { uuid: props.uuid, location: props.playerLocation }).then(() => {})
+      }}
+       onContextMenu={clickHandler}
+       className="song">
       <p className="artist unselectable">{ props.tags.TrackArtist }</p>
       <p className="title  unselectable">{ props.tags.TrackTitle }</p>
       <p className="album  unselectable">{ props.tags.AlbumTitle }</p>
@@ -270,6 +307,7 @@ function Song(props: SongProps) {
     </div>
   )
 }
+
 
 interface PlayBarProps {
   playing: boolean,
