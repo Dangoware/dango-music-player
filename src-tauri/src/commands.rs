@@ -1,5 +1,4 @@
 use std::{fs::OpenOptions, io::Write};
-
 use dmp_core::{
     music_controller::{
         connections::LastFMAuth,
@@ -49,7 +48,7 @@ pub async fn play_now(
     };
     app.emit("queue_updated", ()).unwrap();
     app.emit("now_playing_change", _Song::from(&song)).unwrap();
-    app.emit("playing", ()).unwrap();
+    app.emit("playing", true).unwrap();
     Ok(())
 }
 
