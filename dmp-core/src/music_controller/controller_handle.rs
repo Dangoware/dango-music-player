@@ -74,6 +74,15 @@ impl ControllerHandle {
         Ok((uuid, name))
     }
 
+    pub async fn playlist_add_song(&self, playlist: Uuid, song: Uuid) {
+        let (command, tx) =
+            LibraryCommandInput::command(LibraryCommand::PlaylistAddSong { playlist, song });
+        self.lib_mail_rx.send(command).await.unwrap();
+        let LibraryResponse::Ok = tx.recv().await.unwrap() else {
+            unreachable!()
+        };
+    }
+
     // The Queue Section
     pub async fn queue_append(
         &self,

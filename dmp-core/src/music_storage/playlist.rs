@@ -55,6 +55,20 @@ impl PlaylistFolder {
         None
     }
 
+    pub fn query_uuid_mut(&mut self, uuid: &Uuid) -> Option<&mut Playlist> {
+        for item in &mut self.items {
+            match item {
+                PlaylistFolderItem::Folder(folder) => return folder.query_uuid_mut(uuid),
+                PlaylistFolderItem::List(playlist) => {
+                    if &playlist.uuid == uuid {
+                        return Some(playlist);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn lists_recursive(&self) -> Vec<&Playlist> {
         let mut vec = vec![];
         for item in &self.items {

@@ -1232,6 +1232,10 @@ impl MusicLibrary {
         self.playlists.query_uuid(uuid)
     }
 
+    pub fn query_playlist_uuid_mut(&mut self, uuid: &Uuid) -> Option<&mut Playlist> {
+        self.playlists.query_uuid_mut(uuid)
+    }
+
     pub fn push_playlist(&mut self, playlist: PlaylistFolderItem) {
         self.playlists.items.push(playlist);
     }

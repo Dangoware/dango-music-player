@@ -24,8 +24,8 @@ use uuid::Uuid;
 use wrappers::{_Song, stop};
 
 use crate::wrappers::{
-    get_library, get_playlist, get_playlists, get_queue, get_song, import_playlist, next, pause,
-    play, prev, remove_from_queue, seek, set_volume,
+    add_song_to_playlist, get_library, get_playlist, get_playlists, get_queue, get_song,
+    import_playlist, next, pause, play, prev, remove_from_queue, seek, set_volume,
 };
 use commands::{add_song_to_queue, display_album_art, last_fm_init_auth, play_now};
 
@@ -69,6 +69,7 @@ pub fn run() {
             save_config,
             close_window,
             start_controller,
+            add_song_to_playlist,
             // test_menu,
         ])
         .manage(tempfile::TempDir::new().unwrap())

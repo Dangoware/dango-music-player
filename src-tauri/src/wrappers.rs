@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{collections::BTreeMap, path::PathBuf, thread::spawn};
 
 use chrono::{serde::ts_milliseconds_option, DateTime, Utc};
 use crossbeam::channel::Sender;
@@ -11,6 +11,7 @@ use dmp_core::{
 };
 use itertools::Itertools;
 use serde::Serialize;
+
 use tauri::{AppHandle, Emitter, State, Wry};
 use uuid::Uuid;
 
@@ -217,14 +218,18 @@ pub async fn get_playlists(
     ctrl_handle: State<'_, ControllerHandle>,
 ) -> Result<(), String> {
     let lists = ctrl_handle.playlist_get_all().await;
-    app.emit(
-        "playlists_gotten",
-        lists
-            .into_iter()
-            .map(|(uuid, name)| PlaylistPayload { uuid, name })
-            .collect_vec(),
-    )
-    .unwrap();
+    spawn(move || {
+        futures::executor::block_on(async {
+            app.emit(
+                "playlists_gotten",
+                lists
+                    .into_iter()
+                    .map(|(uuid, name)| PlaylistPayload { uuid, name })
+                    .collect_vec(),
+            )
+            .unwrap();
+        })
+    });
     Ok(())
 }
 
@@ -271,4 +276,13 @@ pub async fn get_song(
 #[tauri::command]
 pub async fn seek(ctrl_handle: State<'_, ControllerHandle>, time: i64) -> Result<(), String> {
     ctrl_handle.seek(time).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn add_song_to_playlist(
+    ctrl_handle: State<'_, ControllerHandle>,
+    song: Uuid,
+    playlist: Uuid,
+) -> Result<(), String> {
+    Ok(ctrl_handle.playlist_add_song(playlist, song).await)
 }

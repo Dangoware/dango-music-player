@@ -1,4 +1,4 @@
-import React, { createRef, ReactEventHandler, useEffect, useRef, useState } from "react";
+import React, { createRef, MutableRefObject, ReactEventHandler, useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import "./App.css";
 import { Config, playbackInfo } from "./types";
@@ -7,7 +7,7 @@ import { Config, playbackInfo } from "./types";
 // import { fetch } from "@tauri-apps/plugin-http";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow, LogicalPosition } from "@tauri-apps/api/window";
-import { Menu } from "@tauri-apps/api/menu";
+import { Menu, Submenu, SubmenuOptions } from "@tauri-apps/api/menu";
 import { listen } from "@tauri-apps/api/event";
 
 const appWindow = getCurrentWebviewWindow();
@@ -18,6 +18,7 @@ function App() {
   const [playing, setPlaying] = useState(false);
   const [playlists, setPlaylists] = useState<JSX.Element[]>([]);
   const [viewName, setViewName] = useState("Library");
+  const playlistsInfo= useRef<PlaylistInfo[]>([]);
 
   const [nowPlaying, setNowPlaying] = useState<JSX.Element>(
     <NowPlaying
@@ -83,8 +84,8 @@ function App() {
     <main>
       <div className="container">
         <div className="leftSide">
-          <PlaylistHead playlists={ playlists } setPlaylists={ setPlaylists } setViewName={ setViewName } setLibrary={ library[1] } />
-          <MainView lib_ref={ library } viewName={ viewName } />
+          <PlaylistHead playlists={ playlists } setPlaylists={ setPlaylists } setViewName={ setViewName } setLibrary={ library[1] } playlistsInfo={ playlistsInfo }/>
+          <MainView lib_ref={ library } viewName={ viewName } playlistsInfo={ playlistsInfo } />
         </div>
         <div className="rightSide">
           { nowPlaying }
@@ -100,22 +101,32 @@ function App() {
 
 export default App;
 
+interface PlaylistInfo {
+  uuid: string,
+  name: string,
+}
+
+
 interface PlaylistHeadProps {
   playlists: JSX.Element[]
   setPlaylists: React.Dispatch<React.SetStateAction<JSX.Element[]>>,
   setViewName: React.Dispatch<React.SetStateAction<string>>,
   setLibrary: React.Dispatch<React.SetStateAction<JSX.Element[]>>,
+  playlistsInfo: MutableRefObject<PlaylistInfo[]>,
 }
 
-function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary }: PlaylistHeadProps) {
+function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playlistsInfo }: PlaylistHeadProps) {
 
   useEffect(() => {
     const unlisten = appWindow.listen<any[]>("playlists_gotten", (_res) => {
         // console.log(event);
-        let res = _res.payload;
+        let res = _res.payload as PlaylistInfo[];
+        playlistsInfo.current = [...res];
+        console.log(playlistsInfo, res);
 
         setPlaylists([
           ...res.map( (item) => {
+
             return (
               <button onClick={ () => {
                 invoke('get_playlist', { uuid: item.uuid }).then((list) => {
@@ -130,6 +141,7 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary }: Play
                       plays={ song.plays }
                       duration={ song.duration }
                       tags={ song.tags }
+                      playlists={ playlistsInfo }
                     />
                   )
                   })])
@@ -163,6 +175,7 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary }: Play
                   plays={ song.plays }
                   duration={ song.duration }
                   tags={ song.tags }
+                  playlists={ playlistsInfo }
                 />
               )
             })])
@@ -190,6 +203,7 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary }: Play
                 plays={ song.plays }
                 duration={ song.duration }
                 tags={ song.tags }
+                playlists={ playlistsInfo }
               />
             )
           })])
@@ -204,10 +218,11 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary }: Play
 
 interface MainViewProps {
   lib_ref: [JSX.Element[], React.Dispatch<React.SetStateAction<JSX.Element[]>>],
-  viewName: string
+  viewName: string,
+  playlistsInfo: MutableRefObject<PlaylistInfo[]>,
 }
 
-function MainView({ lib_ref, viewName }: MainViewProps) {
+function MainView({ lib_ref, viewName, playlistsInfo }: MainViewProps) {
   const [library, setLibrary] = lib_ref;
 
   useEffect(() => {
@@ -225,6 +240,7 @@ function MainView({ lib_ref, viewName }: MainViewProps) {
               plays={ song.plays }
               duration={ song.duration }
               tags={ song.tags }
+              playlists={ playlistsInfo }
             />
           )
         })])
@@ -255,7 +271,8 @@ interface SongProps {
   last_played?: string,
   date_added?: string,
   date_modified?: string,
-  tags: any
+  tags: any,
+  playlists: MutableRefObject<PlaylistInfo[]>
 }
 
 function Song(props: SongProps) {
@@ -264,15 +281,27 @@ function Song(props: SongProps) {
     invoke('add_song_to_queue', { uuid: props.uuid, location: props.playerLocation }).then(() => {});
   }
 
-  const songMenuPromise = Menu.new({
-    items: [
-      { id: "add_song_to_queue" + props.uuid, text: "Add to Queue", action: add_to_queue_test}
-    ]
-  })
-
   async function clickHandler(event: React.MouseEvent) {
     event.preventDefault();
-    const menu = await songMenuPromise;
+    console.log(props.playlists);
+    const _ = await invoke('get_playlists');
+    const menu = await Menu.new({
+    items: [
+      { id: "add_song_to_queue" + props.uuid, text: "Add to Queue", action: add_to_queue_test },
+      await Submenu.new(
+        {
+          text: "Add to Playlist...",
+          items: [...props.playlists.current.map((list) => {
+            const addToPlaylist = () => {
+              invoke('add_song_to_playlist', { playlist: list.uuid, song: props.uuid }).then(() => {});
+            }
+            return { id: "add_song_to_playlists" + props.uuid + list.uuid, text: list.name, action: addToPlaylist }
+          })] 
+        } as SubmenuOptions
+      )
+    ]
+  })
+;
     const pos = new LogicalPosition(event.clientX, event.clientY);
     menu.popup(pos);
   }
@@ -419,11 +448,10 @@ interface QueueSongProps {
 function QueueSong({ song, location, index }: QueueSongProps) {
   // console.log(song.tags);
 
-  let removeFromQueue = () => {
+  const removeFromQueue = () => {
     invoke('remove_from_queue', { index: index }).then(() => {})
   }
-
-  let playNow = () => {
+  const playNow = () => {
     invoke('play_now', { uuid: song.uuid, location: location }).then(() => {})
   }
 

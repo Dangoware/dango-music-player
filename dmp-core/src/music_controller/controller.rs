@@ -109,14 +109,12 @@ pub enum LibraryCommand {
     AllSongs,
     GetLibrary,
     ExternalPlaylist(Uuid),
-    PlaylistSong{
-        list_uuid: Uuid,
-        item_uuid: Uuid
-    },
+    PlaylistSong { list_uuid: Uuid, item_uuid: Uuid },
     Playlist(Uuid),
     ImportM3UPlayList(PathBuf),
     Save,
     Playlists,
+    PlaylistAddSong { playlist: Uuid, song: Uuid },
 }
 
 #[derive(Debug, Clone)]
