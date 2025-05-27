@@ -277,19 +277,6 @@ function Song(props: SongProps) {
     menu.popup(pos);
   }
  
-  // useEffect(() => {
-  //   const unlistenPromise = listen<string>("add_song_to_queue", (event) => {
-  //     switch (event.payload) {
-  //       default:
-  //         console.log("Unimplemented application menu id:", event.payload);
-  //     }
-  //   });
-
-  //   return () => {
-  //     unlistenPromise.then((unlisten) => unlisten());
-  //   };
-  // }, []);
-
   return(
     <div
       onDoubleClick={() => {
@@ -424,7 +411,7 @@ function QueueSong({ song, location, index }: QueueSongProps) {
   }
 
   let playNow = () => {
-    invoke('play_now', { uuid: song.uuid, location: location }).then(() => {})
+    invoke('queue_move_to', { index: index }).then(() => {})
   }
 
   return (

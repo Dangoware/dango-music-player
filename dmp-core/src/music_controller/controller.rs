@@ -109,10 +109,7 @@ pub enum LibraryCommand {
     AllSongs,
     GetLibrary,
     ExternalPlaylist(Uuid),
-    PlaylistSong{
-        list_uuid: Uuid,
-        item_uuid: Uuid
-    },
+    PlaylistSong { list_uuid: Uuid, item_uuid: Uuid },
     Playlist(Uuid),
     ImportM3UPlayList(PathBuf),
     Save,
@@ -142,6 +139,7 @@ pub enum QueueCommand {
     Get,
     Clear,
     Remove(usize),
+    MoveTo(usize),
 }
 
 #[derive(Debug, PartialEq, Clone)]

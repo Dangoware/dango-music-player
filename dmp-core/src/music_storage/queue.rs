@@ -30,9 +30,9 @@ pub enum QueueItemType<
 }
 
 impl<
-        T: Debug + Clone + PartialEq,                // T: The Singular Item Type
-        U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
-    > QueueItemType<T, U>
+    T: Debug + Clone + PartialEq,                // T: The Singular Item Type
+    U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
+> QueueItemType<T, U>
 {
     pub fn from_single(item: T) -> Self {
         QueueItemType::Single(item)

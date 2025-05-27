@@ -272,3 +272,14 @@ pub async fn get_song(
 pub async fn seek(ctrl_handle: State<'_, ControllerHandle>, time: i64) -> Result<(), String> {
     ctrl_handle.seek(time).await.map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn queue_move_to(
+    ctrl_handle: State<'_, ControllerHandle>,
+    index: usize,
+) -> Result<(), String> {
+    ctrl_handle
+        .queue_move_to(index)
+        .await
+        .map_err(|e| e.to_string())
+}

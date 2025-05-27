@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use async_channel::{Receiver, Sender};
+use rcue::cue::Command;
 use uuid::Uuid;
 
 use crate::music_storage::{
@@ -106,6 +107,15 @@ impl ControllerHandle {
             unreachable!()
         };
         queue
+    }
+
+    pub async fn queue_move_to(&self, index: usize) -> Result<(), QueueError> {
+        let (command, tx) = QueueCommandInput::command(QueueCommand::MoveTo(index));
+        self.queue_mail_rx.send(command).await.unwrap();
+        let QueueResponse::Empty(res) = tx.recv().await.unwrap() else {
+            unreachable!()
+        };
+        res
     }
 
     // The Player Section

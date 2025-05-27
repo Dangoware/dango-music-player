@@ -1,3 +1,5 @@
+use rayon::iter::IndexedParallelIterator;
+
 use crate::music_storage::queue::{Queue, QueueError, QueueItemType};
 
 use super::{
@@ -66,6 +68,12 @@ impl Controller {
                 QueueCommand::Remove(index) => {
                     res_rx
                         .send(QueueResponse::Item(queue.remove_item(index)))
+                        .await
+                        .unwrap();
+                }
+                QueueCommand::MoveTo(index) => {
+                    res_rx
+                        .send(QueueResponse::Empty(queue.move_to(index)))
                         .await
                         .unwrap();
                 }
