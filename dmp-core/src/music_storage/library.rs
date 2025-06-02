@@ -18,6 +18,7 @@ use file_format::{FileFormat, Kind};
 use lofty::file::{AudioFile as _, TaggedFileExt as _};
 use lofty::probe::Probe;
 use lofty::tag::{ItemKey, ItemValue, TagType};
+use rayon::iter::plumbing::Folder;
 use rcue::parser::parse_from_file;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1238,6 +1239,25 @@ impl MusicLibrary {
 
     pub fn push_playlist(&mut self, playlist: PlaylistFolderItem) {
         self.playlists.items.push(playlist);
+    }
+
+    pub fn delete_playlist(&mut self, uuid: Uuid) -> Option<PlaylistFolderItem> {
+        let mut index = None;
+        for (i, item) in self.playlists.items.iter_mut().enumerate() {
+            match item {
+                PlaylistFolderItem::Folder(folder) => return folder.delete_uuid(uuid),
+                PlaylistFolderItem::List(list) => {
+                    if list.uuid == uuid {
+                        index = Some(i);
+                    }
+                }
+            }
+        }
+        if let Some(i) = index {
+            Some(self.playlists.items.remove(i))
+        } else {
+            None
+        }
     }
 }
 

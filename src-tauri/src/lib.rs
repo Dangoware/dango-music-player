@@ -19,13 +19,14 @@ use dmp_core::{
     music_storage::library::{MusicLibrary, Song},
 };
 use parking_lot::RwLock;
-use tauri::{http::Response, AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, http::Response};
 use uuid::Uuid;
 use wrappers::{_Song, stop};
 
 use crate::wrappers::{
-    add_song_to_playlist, get_library, get_playlist, get_playlists, get_queue, get_song,
-    import_playlist, next, pause, play, prev, remove_from_queue, seek, set_volume,
+    add_song_to_playlist, delete_playlist, get_library, get_playlist, get_playlists, get_queue,
+    get_song, import_playlist, next, pause, play, play_next_queue, prev, remove_from_queue, seek,
+    set_volume,
 };
 use commands::{add_song_to_queue, display_album_art, last_fm_init_auth, play_now};
 
@@ -70,6 +71,8 @@ pub fn run() {
             close_window,
             start_controller,
             add_song_to_playlist,
+            delete_playlist,
+            play_next_queue,
             // test_menu,
         ])
         .manage(tempfile::TempDir::new().unwrap())

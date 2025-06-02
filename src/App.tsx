@@ -125,18 +125,32 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playli
         console.log(playlistsInfo, res);
 
         setPlaylists([
-          ...res.map( (item) => {
+          ...res.map( (list) => {
+     
+            const deletePlaylist = () => {
+              invoke('delete_playlist', { uuid: list.uuid }).then(() => {});
+              invoke('get_playlists').then(() => {});
+            }
+            async function menuHandler(event: React.MouseEvent) {
+              event.preventDefault();
+              const menu = await Menu.new({
+                items: [
+                  { id: "delete_playlist" + list.uuid, text: "Delete Playlist", action: deletePlaylist }
+                ]
+              });
+              menu.popup();
+            }        
 
             return (
               <button onClick={ () => {
-                invoke('get_playlist', { uuid: item.uuid }).then((list) => {
-                setLibrary([...(list as any[]).map((song) => {
+                invoke('get_playlist', { uuid: list.uuid }).then((list_songs) => {
+                setLibrary([...(list_songs as any[]).map((song) => {
                   // console.log(song);
                   return (
                     <Song
                       key={ song.uuid + Math.floor(Math.random() * 100_000_000_000) }
                       location={ song.location }
-                      playerLocation={ {"Playlist" : item.uuid } }
+                      playerLocation={ {"Playlist" : list.uuid } }
                       uuid={ song.uuid }
                       plays={ song.plays }
                       duration={ song.duration }
@@ -146,8 +160,11 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playli
                   )
                   })])
                 })
-                setViewName( item.name )
-              } } key={ 'playlist_' + item.uuid }>{ item.name }</button>
+                setViewName( list.name )
+                
+              } }
+                onContextMenu={ menuHandler }
+                 key={ 'playlist_' + list.uuid }>{ list.name }</button>
             )
           })
         ])
@@ -164,6 +181,7 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playli
           invoke('get_playlist', { uuid: res.uuid }).then((list) => {
             console.log((list as any[]).length);
 
+   
             setLibrary([...(list as any[]).map((song) => {
               // console.log(song);
               return (
@@ -454,9 +472,22 @@ function QueueSong({ song, location, index }: QueueSongProps) {
   const playNow = () => {
     invoke('play_now', { uuid: song.uuid, location: location }).then(() => {})
   }
+  const play_next = () => invoke('play_next_queue', { uuid: song.uuid, location }).then(() => {});
+
+  async function menuHandler(event: React.MouseEvent) {
+    event.preventDefault();
+
+    const menu = await Menu.new({
+     items: [
+       { id: "play_next_" + song.uuid + index, text: "Play Next in Queue", action: play_next },
+       { id: "remove_queue" + song.uuid + index, text: "Remove from Queue", action: removeFromQueue }
+     ] 
+    })
+    menu.popup();
+  }
 
   return (
-    <div className="queueSong unselectable"  onAuxClickCapture={ removeFromQueue } onDoubleClickCapture={ playNow }>
+    <div className="queueSong unselectable"  onAuxClickCapture={ removeFromQueue } onDoubleClickCapture={ playNow } onContextMenu={ menuHandler }>
       <img className="queueSongCoverArt" src={ convertFileSrc('abc') + '?' + song.uuid } key={ 'coverArt_' + song.uuid }/>
       <div className="queueSongTags">
         <p className="queueSongTitle">{ song.tags.TrackTitle }</p>

@@ -30,9 +30,9 @@ pub enum QueueItemType<
 }
 
 impl<
-        T: Debug + Clone + PartialEq,                // T: The Singular Item Type
-        U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
-    > QueueItemType<T, U>
+    T: Debug + Clone + PartialEq,                // T: The Singular Item Type
+    U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
+> QueueItemType<T, U>
 {
     pub fn from_single(item: T) -> Self {
         QueueItemType::Single(item)
@@ -219,7 +219,7 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
     }
 
     /// Add multiple Items after the currently playing Item
-    pub fn add_multi_next(&mut self, items: Vec<QueueItemType<T, U>>) {
+    pub fn add_multiple_next(&mut self, items: Vec<QueueItemType<T, U>>) {
         use QueueState::*;
         let empty = self.items.is_empty();
 

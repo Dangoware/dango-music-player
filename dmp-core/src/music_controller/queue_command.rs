@@ -1,4 +1,7 @@
-use crate::music_storage::queue::{Queue, QueueError, QueueItemType};
+use crate::music_storage::{
+    library::Song,
+    queue::{Queue, QueueError, QueueItemType},
+};
 
 use super::{
     controller::{Controller, QueueCommand, QueueResponse},
@@ -68,6 +71,17 @@ impl Controller {
                         .send(QueueResponse::Item(queue.remove_item(index)))
                         .await
                         .unwrap();
+                }
+                QueueCommand::PlayNext(item, by_human) => {
+                    match item.item {
+                        QueueItemType::Single(song) => {
+                            queue.add_item_next(song);
+                        }
+                        QueueItemType::Multi(album) => {
+                            unimplemented!()
+                        }
+                    };
+                    res_rx.send(QueueResponse::Empty(Ok(()))).await.unwrap();
                 }
             }
         }

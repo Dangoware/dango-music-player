@@ -11,6 +11,7 @@ use std::time::Duration;
 
 // use chrono::Duration;
 use super::library::{AlbumArt, MusicLibrary, Song, Tag, URI};
+use chrono::format::Item;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -78,6 +79,25 @@ impl PlaylistFolder {
             }
         }
         vec
+    }
+
+    pub fn delete_uuid(&mut self, uuid: Uuid) -> Option<PlaylistFolderItem> {
+        let mut index = None;
+        for (i, item) in &mut self.items.iter_mut().enumerate() {
+            match item {
+                PlaylistFolderItem::Folder(folder) => return folder.delete_uuid(uuid),
+                PlaylistFolderItem::List(playlist) => {
+                    if playlist.uuid == uuid {
+                        index = Some(i);
+                    }
+                }
+            }
+        }
+        if let Some(i) = index {
+            Some(self.items.remove(i))
+        } else {
+            None
+        }
     }
 }
 

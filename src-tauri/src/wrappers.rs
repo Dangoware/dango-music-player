@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, path::PathBuf, thread::spawn};
 
-use chrono::{serde::ts_milliseconds_option, DateTime, Utc};
+use chrono::{DateTime, Utc, serde::ts_milliseconds_option};
 use crossbeam::channel::Sender;
 use dmp_core::{
     music_controller::controller::{ControllerHandle, PlayerLocation},
@@ -285,4 +285,27 @@ pub async fn add_song_to_playlist(
     playlist: Uuid,
 ) -> Result<(), String> {
     Ok(ctrl_handle.playlist_add_song(playlist, song).await)
+}
+
+#[tauri::command]
+pub async fn delete_playlist(
+    ctrl_handle: State<'_, ControllerHandle>,
+    uuid: Uuid,
+) -> Result<(), String> {
+    Ok(ctrl_handle.playlist_delete(uuid).await)
+}
+
+#[tauri::command]
+pub async fn play_next_queue(
+    app: AppHandle<Wry>,
+    ctrl_handle: State<'_, ControllerHandle>,
+    uuid: Uuid,
+    location: PlayerLocation,
+) -> Result<(), String> {
+    let res = ctrl_handle
+        .queue_play_next(uuid, location)
+        .await
+        .map_err(|e| e.to_string());
+    app.emit("queue_updated", ()).unwrap();
+    res
 }

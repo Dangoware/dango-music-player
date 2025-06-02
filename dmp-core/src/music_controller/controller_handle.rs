@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
 use async_channel::{Receiver, Sender};
+use discord_presence::models::Command;
 use uuid::Uuid;
 
 use crate::music_storage::{
     library::Song,
     playlist::ExternalPlaylist,
-    queue::{QueueError, QueueItem},
+    queue::{QueueError, QueueItem, QueueItemType},
 };
 
 use super::{
@@ -83,6 +84,14 @@ impl ControllerHandle {
         };
     }
 
+    pub async fn playlist_delete(&self, playlist: Uuid) {
+        let (command, tx) = LibraryCommandInput::command(LibraryCommand::DeletePlaylist(playlist));
+        self.lib_mail_rx.send(command).await.unwrap();
+        let LibraryResponse::Ok = tx.recv().await.unwrap() else {
+            unreachable!()
+        };
+    }
+
     // The Queue Section
     pub async fn queue_append(
         &self,
@@ -115,6 +124,27 @@ impl ControllerHandle {
             unreachable!()
         };
         queue
+    }
+
+    pub async fn queue_play_next(
+        &self,
+        uuid: Uuid,
+        location: PlayerLocation,
+    ) -> Result<(), QueueError> {
+        let (command, tx) = LibraryCommandInput::command(LibraryCommand::Song(uuid));
+        self.lib_mail_rx.send(command).await.unwrap();
+        let LibraryResponse::Song(song, _) = tx.recv().await.unwrap() else {
+            unimplemented!()
+        };
+        let (command, tx) = QueueCommandInput::command(QueueCommand::PlayNext(
+            QueueItem::from_item_type(QueueItemType::from_single(QueueSong { song, location })),
+            false,
+        ));
+        self.queue_mail_rx.send(command).await.unwrap();
+        let QueueResponse::Empty(_) = tx.recv().await.unwrap() else {
+            unimplemented!()
+        };
+        Ok(())
     }
 
     // The Player Section

@@ -115,6 +115,7 @@ pub enum LibraryCommand {
     Save,
     Playlists,
     PlaylistAddSong { playlist: Uuid, song: Uuid },
+    DeletePlaylist(Uuid),
 }
 
 #[derive(Debug, Clone)]
@@ -132,7 +133,7 @@ pub enum LibraryResponse {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum QueueCommand {
-    Append(QueueItem_, bool),
+    Append(QueueItem<QueueSong, QueueAlbum>, bool),
     Next,
     Prev,
     GetIndex(usize),
@@ -140,6 +141,7 @@ pub enum QueueCommand {
     Get,
     Clear,
     Remove(usize),
+    PlayNext(QueueItem<QueueSong, QueueAlbum>, bool),
 }
 
 #[derive(Debug, PartialEq, Clone)]
