@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use async_channel::{Receiver, Sender};
-use discord_presence::models::Command;
+use discord_presence::models::{Command, commands};
 use uuid::Uuid;
 
 use crate::music_storage::{
@@ -145,6 +145,15 @@ impl ControllerHandle {
             unimplemented!()
         };
         Ok(())
+    }
+
+    pub async fn queue_clear(&self) -> Result<(), QueueError> {
+        let (command, tx) = QueueCommandInput::command(QueueCommand::Clear);
+        self.queue_mail_rx.send(command).await.unwrap();
+        let QueueResponse::Empty(res) = tx.recv().await.unwrap() else {
+            unreachable!()
+        };
+        res
     }
 
     // The Player Section

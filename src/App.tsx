@@ -472,15 +472,18 @@ function QueueSong({ song, location, index }: QueueSongProps) {
   const playNow = () => {
     invoke('play_now', { uuid: song.uuid, location: location }).then(() => {})
   }
-  const play_next = () => invoke('play_next_queue', { uuid: song.uuid, location }).then(() => {});
+  const playNext = () => invoke('play_next_queue', { uuid: song.uuid, location }).then(() => {});
+  const clearQueue = () => invoke('clear_queue').then();
 
   async function menuHandler(event: React.MouseEvent) {
     event.preventDefault();
 
     const menu = await Menu.new({
      items: [
-       { id: "play_next_" + song.uuid + index, text: "Play Next in Queue", action: play_next },
-       { id: "remove_queue" + song.uuid + index, text: "Remove from Queue", action: removeFromQueue }
+       { id: "play_now" + index, text: "Play Now", action: playNow },
+       { id: "play_next_" + song.uuid + index, text: "Play Next in Queue", action: playNext },
+       { id: "remove_queue" + song.uuid + index, text: "Remove from Queue", action: removeFromQueue },
+       { id: "clear_queue", text: "Clear Queue", action: clearQueue },
      ] 
     })
     menu.popup();

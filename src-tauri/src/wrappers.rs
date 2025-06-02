@@ -309,3 +309,13 @@ pub async fn play_next_queue(
     app.emit("queue_updated", ()).unwrap();
     res
 }
+
+#[tauri::command]
+pub async fn clear_queue(
+    app: AppHandle<Wry>,
+    ctrl_handle: State<'_, ControllerHandle>,
+) -> Result<(), String> {
+    let res = ctrl_handle.queue_clear().await.map_err(|e| e.to_string());
+    app.emit("queue_updated", ());
+    res
+}
