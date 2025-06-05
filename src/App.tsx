@@ -116,17 +116,39 @@ interface PlaylistHeadProps {
 }
 
 function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playlistsInfo }: PlaylistHeadProps) {
+  function getPlaylist(playlist: PlaylistInfo) {
+    invoke('get_playlist', { uuid: playlist.uuid }).then((list) => {
+      setLibrary([...(list as any[]).map((song) => {
+        // console.log(song);
+        const reload = () => getPlaylist(playlist)
+        return (
+          <Song
+            key={ song.uuid + Math.floor(Math.random() * 100_000_000_000) }
+            location={ song.location }
+            playerLocation={ {"Playlist" : playlist.uuid } }
+            uuid={ song.uuid }
+            plays={ song.plays }
+            duration={ song.duration }
+            tags={ song.tags }
+            playlists={ playlistsInfo }
+            reload = { reload }
+          />
+        )
+      })])
+    })
+    setViewName( playlist.name )
+  }
 
   useEffect(() => {
     const unlisten = appWindow.listen<any[]>("playlists_gotten", (_res) => {
         // console.log(event);
         let res = _res.payload as PlaylistInfo[];
         playlistsInfo.current = [...res];
-        console.log(playlistsInfo, res);
+        // console.log(playlistsInfo, res);
 
         setPlaylists([
           ...res.map( (list) => {
-     
+            const _getPlaylist = () => getPlaylist(list)
             const deletePlaylist = () => {
               invoke('delete_playlist', { uuid: list.uuid }).then(() => {});
               invoke('get_playlists').then(() => {});
@@ -139,30 +161,10 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playli
                 ]
               });
               menu.popup();
-            }        
+            }
 
             return (
-              <button onClick={ () => {
-                invoke('get_playlist', { uuid: list.uuid }).then((list_songs) => {
-                setLibrary([...(list_songs as any[]).map((song) => {
-                  // console.log(song);
-                  return (
-                    <Song
-                      key={ song.uuid + Math.floor(Math.random() * 100_000_000_000) }
-                      location={ song.location }
-                      playerLocation={ {"Playlist" : list.uuid } }
-                      uuid={ song.uuid }
-                      plays={ song.plays }
-                      duration={ song.duration }
-                      tags={ song.tags }
-                      playlists={ playlistsInfo }
-                    />
-                  )
-                  })])
-                })
-                setViewName( list.name )
-                
-              } }
+              <button onClick={ _getPlaylist }
                 onContextMenu={ menuHandler }
                  key={ 'playlist_' + list.uuid }>{ list.name }</button>
             )
@@ -177,31 +179,9 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playli
 
       setPlaylists([
         ...playlists,
-        <button onClick={ () => {
-          invoke('get_playlist', { uuid: res.uuid }).then((list) => {
-            console.log((list as any[]).length);
-
-   
-            setLibrary([...(list as any[]).map((song) => {
-              // console.log(song);
-              return (
-                <Song
-                  key={ song.uuid }
-                  location={ song.location }
-                  playerLocation={ {"Playlist" : res.uuid } }
-                  uuid={ song.uuid }
-                  plays={ song.plays }
-                  duration={ song.duration }
-                  tags={ song.tags }
-                  playlists={ playlistsInfo }
-                />
-              )
-            })])
-          })
-          setViewName( res.name )
-        } } key={ 'playlist_' + res.uuid }>{ res.name }</button>
+        <button onClick={ () => getPlaylist(res) } key={ 'playlist_' + res.uuid }>{ res.name }</button>
       ])
-      console.log(res.name);
+      // console.log(res.name);
     })
   }
   return (
@@ -210,11 +190,11 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playli
         setViewName("Library");
         invoke('get_library').then((lib) => {
           setLibrary([...(lib as any[]).map((song) => {
-            console.log(song);
+            // console.log(song);
 
             return (
               <Song
-                key={ song.uuid }
+                key={ song.uuid + Math.floor(Math.random() * 100_000_000_000) }
                 location={ song.location }
                 playerLocation="Library"
                 uuid={ song.uuid }
@@ -290,22 +270,37 @@ interface SongProps {
   date_added?: string,
   date_modified?: string,
   tags: any,
-  playlists: MutableRefObject<PlaylistInfo[]>
+  playlists: MutableRefObject<PlaylistInfo[]>,
+  reload?: () => void
 }
 
 function Song(props: SongProps) {
   // console.log(props.tags);
-  const add_to_queue_test = (_: string) => {
+  const addToQueue = (_: string) => {
     invoke('add_song_to_queue', { uuid: props.uuid, location: props.playerLocation }).then(() => {});
   }
-
+  const playNow = () => invoke("play_now", { uuid: props.uuid, location: props.playerLocation }).then(() => {})
+  const playNext = () => invoke("play_next_queue", { uuid: props.uuid, location: props.playerLocation }).then(() => {})
+  const removeLibPlaylist = () => {
+    invoke("remove_from_lib_playlist", { song: props.uuid, location: props.playerLocation }).then(() => {
+      if (props.reload !== undefined) {
+        props.reload()
+      }
+    })
+  }
   async function clickHandler(event: React.MouseEvent) {
     event.preventDefault();
-    console.log(props.playlists);
+
     const _ = await invoke('get_playlists');
+    let removeText = "Remove from Library";
+    if (props.playerLocation != "Library") {
+      removeText = "Remove from Playlist";
+    }
     const menu = await Menu.new({
     items: [
-      { id: "add_song_to_queue" + props.uuid, text: "Add to Queue", action: add_to_queue_test },
+      { id: "play_now_" + props.uuid, text: "Play Now", action: playNow },
+      { id: "play_next_" + props.uuid, text: "Play Next", action: playNext },
+      { id: "add_song_to_queue" + props.uuid, text: "Add to Queue", action: addToQueue },
       await Submenu.new(
         {
           text: "Add to Playlist...",
@@ -314,16 +309,17 @@ function Song(props: SongProps) {
               invoke('add_song_to_playlist', { playlist: list.uuid, song: props.uuid }).then(() => {});
             }
             return { id: "add_song_to_playlists" + props.uuid + list.uuid, text: list.name, action: addToPlaylist }
-          })] 
+          })]
         } as SubmenuOptions
-      )
+      ),
+      { id: "remove_from_lib_playlist" + props.location + props.uuid, text: removeText, action: removeLibPlaylist },
     ]
   })
 ;
     const pos = new LogicalPosition(event.clientX, event.clientY);
     menu.popup(pos);
   }
- 
+
   // useEffect(() => {
   //   const unlistenPromise = listen<string>("add_song_to_queue", (event) => {
   //     switch (event.payload) {
@@ -339,10 +335,8 @@ function Song(props: SongProps) {
 
   return(
     <div
-      onDoubleClick={() => {
-        invoke("play_now", { uuid: props.uuid, location: props.playerLocation }).then(() => {})
-      }}
-       onContextMenu={clickHandler}
+      onDoubleClick = { playNow }
+       onContextMenu={ clickHandler }
        className="song">
       <p className="artist unselectable">{ props.tags.TrackArtist }</p>
       <p className="title  unselectable">{ props.tags.TrackTitle }</p>
@@ -484,7 +478,7 @@ function QueueSong({ song, location, index }: QueueSongProps) {
        { id: "play_next_" + song.uuid + index, text: "Play Next in Queue", action: playNext },
        { id: "remove_queue" + song.uuid + index, text: "Remove from Queue", action: removeFromQueue },
        { id: "clear_queue", text: "Clear Queue", action: clearQueue },
-     ] 
+     ]
     })
     menu.popup();
   }

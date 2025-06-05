@@ -18,7 +18,6 @@ use file_format::{FileFormat, Kind};
 use lofty::file::{AudioFile as _, TaggedFileExt as _};
 use lofty::probe::Probe;
 use lofty::tag::{ItemKey, ItemValue, TagType};
-use rayon::iter::plumbing::Folder;
 use rcue::parser::parse_from_file;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -978,6 +977,17 @@ impl MusicLibrary {
         let location = match self.query_uri(target_uri) {
             Some(value) => value.1,
             None => return Err("URI not in database".into()),
+        };
+
+        self.library.remove(location);
+
+        Ok(location)
+    }
+
+    pub fn remove_uuid(&mut self, target_uuid: &Uuid) -> Result<usize, Box<dyn Error>> {
+        let location = match self.query_uuid(target_uuid) {
+            Some(value) => value.1,
+            None => return Err("Uuid not in database".into()),
         };
 
         self.library.remove(location);

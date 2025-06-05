@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, State, Wry};
 use tempfile::TempDir;
 use uuid::Uuid;
 
-use crate::{wrappers::_Song, LAST_FM_API_KEY, LAST_FM_API_SECRET};
+use crate::{LAST_FM_API_KEY, LAST_FM_API_SECRET, wrappers::_Song};
 
 #[tauri::command]
 pub async fn add_song_to_queue(
@@ -93,19 +93,23 @@ pub async fn last_fm_init_auth(ctrl_handle: State<'_, ControllerHandle>) -> Resu
     Ok(())
 }
 
-// #[tauri::command]
-// pub async fn test_menu(
-//     ctrl_handle: State<'_, ControllerHandle>,
-//     app: AppHandle<Wry>,
-//     window: Window,
-//     uuid: Uuid,
-// ) -> Result<(), String> {
-//     let handle = app.app_handle();
-//     let menu = MenuBuilder::new(handle)
-//         .item(&MenuItem::new(handle, "Add to Queue", true, None::<&str>).unwrap())
-//         .build()
-//         .unwrap();
-//     window.set_menu(menu).unwrap();
-//     println!("Menu popup!");
-//     Ok(())
-// }
+#[tauri::command]
+pub async fn remove_from_lib_playlist(
+    app: AppHandle<Wry>,
+    ctrl_handle: State<'_, ControllerHandle>,
+    song: Uuid,
+    location: PlayerLocation,
+) -> Result<(), String> {
+    match location {
+        PlayerLocation::Library => {
+            ctrl_handle.lib_remove_song(song).await;
+            app.emit("library_loaded", ()).unwrap();
+        }
+        PlayerLocation::Playlist(uuid) => {
+            ctrl_handle.playlist_remove_song(song, uuid).await;
+        }
+        _ => unimplemented!(),
+    }
+
+    Ok(())
+}

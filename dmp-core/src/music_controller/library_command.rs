@@ -108,11 +108,55 @@ impl Controller {
                 LibraryCommand::PlaylistAddSong { playlist, song } => {
                     let playlist = library.query_playlist_uuid_mut(&playlist).unwrap();
                     playlist.add_track(song);
-                    library.save(config.read().path.clone()).unwrap();
+                    let lib_uuid = library.uuid;
+                    library
+                        .save(
+                            config
+                                .read()
+                                .libraries
+                                .get_library(&lib_uuid)
+                                .unwrap()
+                                .path
+                                .clone(),
+                        )
+                        .unwrap();
                     res_rx.send(LibraryResponse::Ok).await.unwrap();
                 }
                 LibraryCommand::DeletePlaylist(uuid) => {
                     _ = library.playlists.delete_uuid(uuid);
+                    let lib_uuid = library.uuid;
+                    library
+                        .save(
+                            config
+                                .read()
+                                .libraries
+                                .get_library(&lib_uuid)
+                                .unwrap()
+                                .path
+                                .clone(),
+                        )
+                        .unwrap();
+                    res_rx.send(LibraryResponse::Ok).await.unwrap();
+                }
+                LibraryCommand::LibraryRemoveSong(uuid) => {
+                    library.remove_uuid(&uuid).unwrap();
+                    let lib_uuid = library.uuid;
+                    library
+                        .save_path(
+                            &config
+                                .read()
+                                .libraries
+                                .get_library(&lib_uuid)
+                                .unwrap()
+                                .path
+                                .clone(),
+                        )
+                        .unwrap();
+                    res_rx.send(LibraryResponse::Ok).await.unwrap();
+                }
+                LibraryCommand::PlaylistRemoveSong { playlist, song } => {
+                    library.playlists.delete_song(song, &playlist).unwrap();
+
                     let lib_uuid = library.uuid;
                     library
                         .save(

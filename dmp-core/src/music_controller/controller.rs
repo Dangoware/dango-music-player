@@ -108,6 +108,7 @@ pub enum LibraryCommand {
     Song(Uuid),
     AllSongs,
     GetLibrary,
+    LibraryRemoveSong(Uuid),
     ExternalPlaylist(Uuid),
     PlaylistSong { list_uuid: Uuid, item_uuid: Uuid },
     Playlist(Uuid),
@@ -115,6 +116,7 @@ pub enum LibraryCommand {
     Save,
     Playlists,
     PlaylistAddSong { playlist: Uuid, song: Uuid },
+    PlaylistRemoveSong { playlist: Uuid, song: Uuid },
     DeletePlaylist(Uuid),
 }
 

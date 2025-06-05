@@ -14,6 +14,7 @@ use super::library::{AlbumArt, MusicLibrary, Song, Tag, URI};
 use chrono::format::Item;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use uuid::Uuid;
 
 use m3u8_rs::{MediaPlaylist, MediaPlaylistType, MediaSegment, Playlist as List2};
@@ -99,6 +100,20 @@ impl PlaylistFolder {
             None
         }
     }
+
+    pub fn delete_song(&mut self, song: Uuid, playlist: &Uuid) -> Result<(), PlaylistError> {
+        match self.query_uuid_mut(playlist) {
+            Some(list) => {
+                if let Some((_, index)) = list.query_uuid(&song) {
+                    list.remove_track(index);
+                    Ok(())
+                } else {
+                    Err(PlaylistError::NoUuid(song, *playlist))
+                }
+            }
+            None => Err(PlaylistError::NoPlaylist(*playlist)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -146,9 +161,9 @@ impl Playlist {
         self.tracks.push(track);
     }
 
-    pub fn remove_track(&mut self, index: i32) {
-        let index = index as usize;
-        if (self.tracks.len() - 1) >= index {
+    pub fn remove_track(&mut self, index: usize) {
+        let len = self.tracks.len();
+        if len > 0 && (len - 1) >= index {
             self.tracks.remove(index);
         }
     }
@@ -451,6 +466,14 @@ impl ExternalPlaylist {
         }
         false
     }
+}
+
+#[derive(Debug, Error)]
+pub enum PlaylistError {
+    #[error("No uuid {0} found in playlist {1}")]
+    NoUuid(Uuid, Uuid),
+    #[error("No Playlist found with uuid {0}")]
+    NoPlaylist(Uuid),
 }
 
 #[cfg(test)]

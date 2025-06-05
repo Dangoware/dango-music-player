@@ -46,6 +46,14 @@ impl ControllerHandle {
         };
     }
 
+    pub async fn lib_remove_song(&self, song: Uuid) {
+        let (command, tx) = LibraryCommandInput::command(LibraryCommand::LibraryRemoveSong(song));
+        self.lib_mail_rx.send(command).await.unwrap();
+        let LibraryResponse::Ok = tx.recv().await.unwrap() else {
+            unreachable!()
+        };
+    }
+
     // The Playlist Section
     pub async fn playlist_get(&self, uuid: Uuid) -> Result<ExternalPlaylist, ()> {
         let (command, tx) = LibraryCommandInput::command(LibraryCommand::ExternalPlaylist(uuid));
@@ -86,6 +94,15 @@ impl ControllerHandle {
 
     pub async fn playlist_delete(&self, playlist: Uuid) {
         let (command, tx) = LibraryCommandInput::command(LibraryCommand::DeletePlaylist(playlist));
+        self.lib_mail_rx.send(command).await.unwrap();
+        let LibraryResponse::Ok = tx.recv().await.unwrap() else {
+            unreachable!()
+        };
+    }
+
+    pub async fn playlist_remove_song(&self, song: Uuid, playlist: Uuid) {
+        let (command, tx) =
+            LibraryCommandInput::command(LibraryCommand::PlaylistRemoveSong { song, playlist });
         self.lib_mail_rx.send(command).await.unwrap();
         let LibraryResponse::Ok = tx.recv().await.unwrap() else {
             unreachable!()

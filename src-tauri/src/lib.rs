@@ -28,7 +28,9 @@ use crate::wrappers::{
     get_queue, get_song, import_playlist, next, pause, play, play_next_queue, prev,
     remove_from_queue, seek, set_volume,
 };
-use commands::{add_song_to_queue, display_album_art, last_fm_init_auth, play_now};
+use commands::{
+    add_song_to_queue, display_album_art, last_fm_init_auth, play_now, remove_from_lib_playlist,
+};
 
 pub mod commands;
 pub mod config;
@@ -74,6 +76,7 @@ pub fn run() {
             delete_playlist,
             play_next_queue,
             clear_queue,
+            remove_from_lib_playlist,
             // test_menu,
         ])
         .manage(tempfile::TempDir::new().unwrap())

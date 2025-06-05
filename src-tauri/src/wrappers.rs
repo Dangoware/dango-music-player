@@ -316,6 +316,6 @@ pub async fn clear_queue(
     ctrl_handle: State<'_, ControllerHandle>,
 ) -> Result<(), String> {
     let res = ctrl_handle.queue_clear().await.map_err(|e| e.to_string());
-    app.emit("queue_updated", ());
+    _ = app.emit("queue_updated", ());
     res
 }
