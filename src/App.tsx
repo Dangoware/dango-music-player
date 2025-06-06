@@ -309,8 +309,9 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
 
     invoke('seek', { time: Math.round(val * 1000) }).then()
   };
-  
+
   const wheelVolume = (event: React.WheelEvent<HTMLDivElement>) => {
+	  let x = volumeSlider.value;
 	  if (event.deltaY < 0) {
 	    volumeSlider.value++;
 	  } else {
