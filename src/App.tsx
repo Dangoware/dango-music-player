@@ -1,4 +1,4 @@
-import React, { createRef, MutableRefObject, ReactEventHandler, useEffect, useRef, useState } from "react";
+import React, { MutableRefObject, useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import "./App.css";
 import { Config, playbackInfo } from "./types";
@@ -6,11 +6,20 @@ import { Config, playbackInfo } from "./types";
 // import { listen } from "@tauri-apps/api/event";
 // import { fetch } from "@tauri-apps/plugin-http";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { getCurrentWindow, LogicalPosition } from "@tauri-apps/api/window";
+import { cursorPosition, LogicalPosition, PhysicalPosition } from "@tauri-apps/api/window";
 import { Menu, Submenu, SubmenuOptions } from "@tauri-apps/api/menu";
-import { listen } from "@tauri-apps/api/event";
+import { TauriEvent } from "@tauri-apps/api/event";
+
 
 const appWindow = getCurrentWebviewWindow();
+
+type Location = "Library" | { "Playlist": string };
+
+// This needs to be changed to properly reflect cursor position
+// this will do for now.
+async function contextMenuPosition(event: React.MouseEvent)  {
+  return new PhysicalPosition(event.clientX, event.clientY);
+}
 
 function App() {
   const library = useState<JSX.Element[]>([]);
@@ -19,8 +28,10 @@ function App() {
   const [playlists, setPlaylists] = useState<JSX.Element[]>([]);
   const [viewName, setViewName] = useState("Library");
   const playlistsInfo= useRef<PlaylistInfo[]>([]);
-  const selectedSong = useRef<SongProps>();
-  const setSelected = (props: SongProps) =>  {selectedSong.current = props;} 
+  const selectedSongMain = useRef<SongProps>();
+  const selectedSongQueue = useRef<selectedQueueSong>({uuid: "0", index: 0, location: "Library"});
+  const setSelectedSongMain = (props: SongProps) =>  {selectedSongMain.current = props;} 
+  const setSelectedSongQueue = (song: selectedQueueSong) => {selectedSongQueue.current = song; console.log(selectedSongQueue)}
 
   const [nowPlaying, setNowPlaying] = useState<JSX.Element>(
     <NowPlaying
@@ -63,6 +74,7 @@ function App() {
                   location={ song[1] as "Library" | {"Playlist" : string}}
                   index={i+1}
                   key={ Math.floor((Math.random() * 100_000_000_000) + 1) + '_' + Date.now() }
+                  setSelectedSong={ setSelectedSongQueue }
                 />
               )
             )
@@ -79,19 +91,20 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const invoke_: any = invoke("start_controller").then(() => {});
+    invoke("start_controller").then(() => {});
   }, [])
+
 
   return (
     <main>
       <div className="container">
         <div className="leftSide">
-          <PlaylistHead playlists={ playlists } setPlaylists={ setPlaylists } setViewName={ setViewName } setLibrary={ library[1] } playlistsInfo={ playlistsInfo } setSelected={ setSelected } />
-          <MainView lib_ref={ library } viewName={ viewName } playlistsInfo={ playlistsInfo } setSelected={ setSelected } selectedSong={ selectedSong} />
+          <PlaylistHead playlists={ playlists } setPlaylists={ setPlaylists } setViewName={ setViewName } setLibrary={ library[1] } playlistsInfo={ playlistsInfo } setSelected={ setSelectedSongMain } />
+          <MainView lib_ref={ library } viewName={ viewName } playlistsInfo={ playlistsInfo } setSelected={ setSelectedSongMain } selectedSong={ selectedSongMain} />
         </div>
         <div className="rightSide">
           { nowPlaying }
-          <Queue songs={ queue } />
+          <Queue songs={ queue } selectedSong={ selectedSongQueue } />
         </div>
       </div>
       <div className="bottom">
@@ -120,12 +133,10 @@ interface PlaylistHeadProps {
 
 function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playlistsInfo, setSelected }: PlaylistHeadProps) {
   function getPlaylist(playlist: PlaylistInfo) {
-    invoke('get_playlist', { uuid: playlist.uuid }).then((list) => {
-      let i = 0;
-      setLibrary([...(list as any[]).map((song) => {
+    invoke('get_playlist', { uuid: playlist.uuid }).then((list) => {      
+      setLibrary([...(list as any[]).map((song, i) => {
         // console.log(song);
         const reload = () => getPlaylist(playlist)
-        i++;
         return (
           <Song
             key={ song.uuid + Math.floor(Math.random() * 100_000_000_000) }
@@ -137,7 +148,7 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playli
             tags={ song.tags }
             playlists={ playlistsInfo }
             reload = { reload }
-            index = { i - 1 }
+            index = { i }
             setSelected={ setSelected }
           />
         )
@@ -167,7 +178,7 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playli
                   { id: "delete_playlist" + list.uuid, text: "Delete Playlist", action: deletePlaylist }
                 ]
               });
-              menu.popup();
+              menu.popup(await contextMenuPosition(event));
             }
 
             return (
@@ -251,33 +262,30 @@ function MainView({ lib_ref, viewName, playlistsInfo, setSelected, selectedSong 
     async function clickHandler(event: React.MouseEvent) {
       event.preventDefault();
 
-      const _ = await invoke('get_playlists');
+      await invoke('get_playlists');
       let removeText = "Remove from Library";
-    if (selectedSong.current!.playerLocation != "Library") {
+      if (selectedSong.current!.playerLocation != "Library") {
         removeText = "Remove from Playlist";
       }
       const menu = await Menu.new({
       items: [
-      { id: "play_now_" + selectedSong.current!.uuid, text: "Play Now", action: playNow },
-      { id: "play_next_" + selectedSong.current!.uuid, text: "Play Next", action: playNext },
-      { id: "add_song_to_queue" + selectedSong.current!.uuid, text: "Add to Queue", action: addToQueue },
-        await Submenu.new(
-          {
-            text: "Add to Playlist...",
-          items: [...selectedSong.current!.playlists.current.map((list) => {
-              const addToPlaylist = () => {
-              invoke('add_song_to_playlist', { playlist: list.uuid, song: selectedSong.current!.uuid }).then(() => {});
-              }
-            return { id: "add_song_to_playlists" + selectedSong.current!.uuid + list.uuid, text: list.name, action: addToPlaylist }
-            })]
-          } as SubmenuOptions
-        ),
-      { id: "remove_from_lib_playlist" + selectedSong.current!.location + selectedSong.current!.uuid, text: removeText, action: removeLibPlaylist },
-      ]
-    })
-  ;
-      const pos = new LogicalPosition(event.clientX, event.clientY);
-      menu.popup(pos);
+        { id: "play_now_" + selectedSong.current!.uuid, text: "Play Now", action: playNow },
+        { id: "play_next_" + selectedSong.current!.uuid, text: "Play Next", action: playNext },
+        { id: "add_song_to_queue" + selectedSong.current!.uuid, text: "Add to Queue", action: addToQueue },
+          await Submenu.new(
+            {
+              text: "Add to Playlist...",
+            items: [...selectedSong.current!.playlists.current.map((list) => {
+                const addToPlaylist = () => {
+                invoke('add_song_to_playlist', { playlist: list.uuid, song: selectedSong.current!.uuid }).then(() => {});
+                }
+              return { id: "add_song_to_playlists" + selectedSong.current!.uuid + list.uuid, text: list.name, action: addToPlaylist }
+              })]
+            } as SubmenuOptions
+          ),
+        { id: "remove_from_lib_playlist" + selectedSong.current!.location + selectedSong.current!.uuid, text: removeText, action: removeLibPlaylist },
+      ]});
+      menu.popup(await contextMenuPosition(event));
     }
 
 
@@ -466,11 +474,46 @@ function NowPlaying({ title, artist, album, artwork }: NowPlayingProps) {
 
 interface QueueProps {
   songs: JSX.Element[],
+  // song element. put the proper type here :]???
+  selectedSong: MutableRefObject<selectedQueueSong>,
 }
 
-function Queue({ songs }: QueueProps) {
+interface selectedQueueSong {
+  uuid: string,
+  index: number
+  location: Location,
+}
+
+function Queue({ songs, selectedSong, }: QueueProps) {
+   const removeFromQueue = () => {
+        invoke('remove_from_queue', { index: selectedSong.current.index }).then(() => {})
+      }
+      const playNow = () => {
+        invoke('play_now', { uuid: selectedSong.current.uuid, location: selectedSong.current.location }).then(() => {})
+      }
+      const playNext = () => invoke('play_next_queue', { uuid: selectedSong.current.uuid, location: selectedSong.current.location }).then(() => {});
+      const clearQueue = () => invoke('clear_queue').then();
+
+      async function menuHandler(event: React.MouseEvent) {
+        event.preventDefault();
+
+        const menu = await Menu.new({
+         items: [
+           { id: "play_now" + selectedSong.current.index, text: "Play Now", action: playNow },
+           { id: "play_next_" + selectedSong.current.uuid + selectedSong.current.index, text: "Play Next in Queue", action: playNext },
+           { id: "remove_queue" + selectedSong.current.uuid + selectedSong.current.index, text: "Remove from Queue", action: removeFromQueue },
+           { id: "clear_queue", text: "Clear Queue", action: clearQueue },
+         ]
+        })
+        menu.popup(await contextMenuPosition(event));
+      }
+
   return (
-    <section className="Queue">
+    <section className="Queue"
+      onAuxClickCapture={ removeFromQueue }
+      onDoubleClick={ playNow }
+      onContextMenu={ menuHandler }
+      >
       { songs }
     </section>
   )
@@ -478,38 +521,18 @@ function Queue({ songs }: QueueProps) {
 
 interface QueueSongProps {
   song: any,
-  location: "Library" | {"Playlist": string},
+  location: Location,
   index: number,
+  setSelectedSong: (song: selectedQueueSong) => void,
 }
 
-function QueueSong({ song, location, index }: QueueSongProps) {
+function QueueSong({ song, location, index, setSelectedSong }: QueueSongProps) {
   // console.log(song.tags);
 
-  const removeFromQueue = () => {
-    invoke('remove_from_queue', { index: index }).then(() => {})
-  }
-  const playNow = () => {
-    invoke('play_now', { uuid: song.uuid, location: location }).then(() => {})
-  }
-  const playNext = () => invoke('play_next_queue', { uuid: song.uuid, location }).then(() => {});
-  const clearQueue = () => invoke('clear_queue').then();
-
-  async function menuHandler(event: React.MouseEvent) {
-    event.preventDefault();
-
-    const menu = await Menu.new({
-     items: [
-       { id: "play_now" + index, text: "Play Now", action: playNow },
-       { id: "play_next_" + song.uuid + index, text: "Play Next in Queue", action: playNext },
-       { id: "remove_queue" + song.uuid + index, text: "Remove from Queue", action: removeFromQueue },
-       { id: "clear_queue", text: "Clear Queue", action: clearQueue },
-     ]
-    })
-    menu.popup();
-  }
+  let setSelected = () => setSelectedSong({uuid: song.uuid, index: index, location: location })
 
   return (
-    <div className="queueSong unselectable"  onAuxClickCapture={ removeFromQueue } onDoubleClickCapture={ playNow } onContextMenu={ menuHandler }>
+    <div className="queueSong unselectable"  onAuxClickCapture={ setSelected } onClick={ setSelected } onContextMenu={ setSelected }>
       <img className="queueSongCoverArt" src={ convertFileSrc('abc') + '?' + song.uuid } key={ 'coverArt_' + song.uuid }/>
       <div className="queueSongTags">
         <p className="queueSongTitle">{ song.tags.TrackTitle }</p>
@@ -530,3 +553,4 @@ function getConfig(): any {
     }
   })
 }
+
