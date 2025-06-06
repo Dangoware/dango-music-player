@@ -6,9 +6,8 @@ import { Config, playbackInfo } from "./types";
 // import { listen } from "@tauri-apps/api/event";
 // import { fetch } from "@tauri-apps/plugin-http";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { cursorPosition, LogicalPosition, PhysicalPosition } from "@tauri-apps/api/window";
+import { PhysicalPosition } from "@tauri-apps/api/window";
 import { Menu, Submenu, SubmenuOptions } from "@tauri-apps/api/menu";
-import { TauriEvent } from "@tauri-apps/api/event";
 
 
 const appWindow = getCurrentWebviewWindow();
@@ -393,6 +392,7 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
   const [duration, setDuration] = useState(0);
   const [seekBarSize, setSeekBarSize] = useState(0);
   const seekBarRef = React.createRef<HTMLDivElement>();
+  const volumeSliderRef = React.createRef<HTMLInputElement>();
 
   const [lastFmLoggedIn, setLastFmLoggedIn] = useState(false);
 
@@ -419,13 +419,13 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
   };
 
   const wheelVolume = (event: React.WheelEvent<HTMLDivElement>) => {
-	  let x = volumeSlider.value;
+    const n = 5;
 	  if (event.deltaY < 0) {
-	    volumeSlider.value++;
+	    volumeSliderRef.current!.stepUp(n);
 	  } else {
-	    volumeSlider.value--;
+	    volumeSliderRef.current!.stepDown(n);
 	  }
-	  invoke('set_volume', { volume: volumeSlider.value }).then(() => {})
+	  invoke('set_volume', { volume: volumeSliderRef.current?.valueAsNumber!.toString() }).then(() => {})
   };
 
   return (
@@ -446,7 +446,7 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
         <div className="bottomRight">
           <button>🔀</button>
           <button>🔁</button>
-          <input onWheel={wheelVolume} type="range" name="volume" id="volumeSlider" onChange={ (volume) => {
+          <input ref={ volumeSliderRef } onWheel={wheelVolume} type="range" name="volume" id="volumeSlider" onChange={ (volume) => {
             invoke('set_volume', { volume: volume.target.value }).then(() => {})
           }} />
           <p id="timeDisplay">
