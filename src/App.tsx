@@ -418,6 +418,16 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
     invoke('seek', { time: Math.round(val * 1000) }).then()
   };
 
+  const wheelVolume = (event: React.WheelEvent<HTMLDivElement>) => {
+	  let x = volumeSlider.value;
+	  if (event.deltaY < 0) {
+	    volumeSlider.value++;
+	  } else {
+	    volumeSlider.value--;
+	  }
+	  invoke('set_volume', { volume: volumeSlider.value }).then(() => {})
+  };
+
   return (
     <section id="playBar" className="playBar unselectable">
       <div className="seekBar" ref={ seekBarRef } onClick={ seek } onDrag={ seek }>
@@ -436,7 +446,7 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
         <div className="bottomRight">
           <button>🔀</button>
           <button>🔁</button>
-          <input type="range" name="volume" id="volumeSlider" onChange={ (volume) => {
+          <input onWheel={wheelVolume} type="range" name="volume" id="volumeSlider" onChange={ (volume) => {
             invoke('set_volume', { volume: volume.target.value }).then(() => {})
           }} />
           <p id="timeDisplay">
