@@ -29,7 +29,7 @@ function App() {
   const playlistsInfo= useRef<PlaylistInfo[]>([]);
   const selectedSongMain = useRef<SongProps>();
   const selectedSongQueue = useRef<selectedQueueSong>({uuid: "0", index: 0, location: "Library"});
-  const setSelectedSongMain = (props: SongProps) =>  {selectedSongMain.current = props;} 
+  const setSelectedSongMain = (props: SongProps) =>  {selectedSongMain.current = props;}
   const setSelectedSongQueue = (song: selectedQueueSong) => {selectedSongQueue.current = song; console.log(selectedSongQueue)}
 
   const [nowPlaying, setNowPlaying] = useState<JSX.Element>(
@@ -132,7 +132,7 @@ interface PlaylistHeadProps {
 
 function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playlistsInfo, setSelected }: PlaylistHeadProps) {
   function getPlaylist(playlist: PlaylistInfo) {
-    invoke('get_playlist', { uuid: playlist.uuid }).then((list) => {      
+    invoke('get_playlist', { uuid: playlist.uuid }).then((list) => {
       setLibrary([...(list as any[]).map((song, i) => {
         // console.log(song);
         const reload = () => getPlaylist(playlist)
@@ -244,7 +244,7 @@ interface MainViewProps {
 
 function MainView({ lib_ref, viewName, playlistsInfo, setSelected, selectedSong }: MainViewProps) {
   const [library, setLibrary] = lib_ref;
-  
+
 
   const addToQueue = (_: string) => {
     invoke('add_song_to_queue', { uuid: selectedSong.current!.uuid, location: selectedSong.current!.playerLocation }).then(() => {});

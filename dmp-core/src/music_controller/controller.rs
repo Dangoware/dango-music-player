@@ -144,6 +144,7 @@ pub enum QueueCommand {
     Clear,
     Remove(usize),
     PlayNext(QueueItem<QueueSong, QueueAlbum>, bool),
+    MoveTo(usize),
 }
 
 #[derive(Debug, PartialEq, Clone)]

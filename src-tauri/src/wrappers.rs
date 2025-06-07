@@ -319,3 +319,14 @@ pub async fn clear_queue(
     _ = app.emit("queue_updated", ());
     res
 }
+
+#[tauri::command]
+pub async fn queue_move_to(
+    ctrl_handle: State<'_, ControllerHandle>,
+    index: usize,
+) -> Result<(), String> {
+    ctrl_handle
+        .queue_move_to(index)
+        .await
+        .map_err(|e| e.to_string())
+}

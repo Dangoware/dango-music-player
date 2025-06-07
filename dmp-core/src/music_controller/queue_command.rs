@@ -83,6 +83,12 @@ impl Controller {
                     };
                     res_rx.send(QueueResponse::Empty(Ok(()))).await.unwrap();
                 }
+                QueueCommand::MoveTo(index) => {
+                    res_rx
+                        .send(QueueResponse::Empty(queue.move_to(index)))
+                        .await
+                        .unwrap();
+                }
             }
         }
     }
