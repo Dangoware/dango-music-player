@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use async_channel::{Receiver, Sender};
-use rcue::cue::Command;
+use discord_presence::models::Command;
 use uuid::Uuid;
 
 use crate::music_storage::{
@@ -190,6 +190,15 @@ impl ControllerHandle {
             unreachable!()
         };
         res
+    }
+
+    pub async fn enqueue(&self, index: usize) -> Result<Song, QueueError> {
+        let (command, tx) = PlayerCommandInput::command(PlayerCommand::Enqueue(index));
+        self.player_mail_rx.send(command).await.unwrap();
+        let PlayerResponse::NowPlaying(song) = tx.recv().await.unwrap() else {
+            unreachable!()
+        };
+        song
     }
 
     pub async fn play(&self) -> Result<(), PlayerError> {

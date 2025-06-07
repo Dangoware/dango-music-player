@@ -322,11 +322,22 @@ pub async fn clear_queue(
 
 #[tauri::command]
 pub async fn queue_move_to(
+    app: AppHandle<Wry>,
     ctrl_handle: State<'_, ControllerHandle>,
     index: usize,
 ) -> Result<(), String> {
     ctrl_handle
         .queue_move_to(index)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    match ctrl_handle.enqueue(0).await.map_err(|e| e.to_string()) {
+        Ok(song) => {
+            app.emit("queue_updated", ()).unwrap();
+            app.emit("now_playing_change", _Song::from(&song)).unwrap();
+            app.emit("playing", true).unwrap();
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
 }

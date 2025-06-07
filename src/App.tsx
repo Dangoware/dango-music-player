@@ -496,27 +496,27 @@ interface selectedQueueSong {
 
 function Queue({ songs, selectedSong, }: QueueProps) {
    const removeFromQueue = () => {
-        invoke('remove_from_queue', { index: selectedSong.current.index }).then(() => {})
-      }
-      const playNow = () => {
-        invoke('play_now', { uuid: selectedSong.current.uuid, location: selectedSong.current.location }).then(() => {})
-      }
-      const playNext = () => invoke('play_next_queue', { uuid: selectedSong.current.uuid, location: selectedSong.current.location }).then(() => {});
-      const clearQueue = () => invoke('clear_queue').then();
+      invoke('remove_from_queue', { index: selectedSong.current.index }).then(() => {});
+    }
+    const playNow = () => {
+      invoke('queue_move_to', { index: selectedSong.current.index }).then(() => {});
+    }
+    const playNext = () => invoke('play_next_queue', { uuid: selectedSong.current.uuid, location: selectedSong.current.location }).then(() => {});
+    const clearQueue = () => invoke('clear_queue').then();
 
-      async function menuHandler(event: React.MouseEvent) {
-        event.preventDefault();
+    async function menuHandler(event: React.MouseEvent) {
+      event.preventDefault();
 
-        const menu = await Menu.new({
-         items: [
-           { id: "play_now" + selectedSong.current.index, text: "Play Now", action: playNow },
-           { id: "play_next_" + selectedSong.current.uuid + selectedSong.current.index, text: "Play Next in Queue", action: playNext },
-           { id: "remove_queue" + selectedSong.current.uuid + selectedSong.current.index, text: "Remove from Queue", action: removeFromQueue },
-           { id: "clear_queue", text: "Clear Queue", action: clearQueue },
-         ]
-        })
-        menu.popup(await contextMenuPosition(event));
-      }
+      const menu = await Menu.new({
+       items: [
+         { id: "play_now" + selectedSong.current.index, text: "Play Now", action: playNow },
+         { id: "play_next_" + selectedSong.current.uuid + selectedSong.current.index, text: "Play Next in Queue", action: playNext },
+         { id: "remove_queue" + selectedSong.current.uuid + selectedSong.current.index, text: "Remove from Queue", action: removeFromQueue },
+         { id: "clear_queue", text: "Clear Queue", action: clearQueue },
+       ]
+      })
+      menu.popup(await contextMenuPosition(event));
+    }
 
   return (
     <section className="Queue"

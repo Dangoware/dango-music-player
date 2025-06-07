@@ -97,7 +97,8 @@ impl Controller {
                                             LibraryCommandInput::command(LibraryCommand::AllSongs);
                                         // Append next song in library
                                         lib_mail.send(command).await.unwrap();
-                                        let LibraryResponse::AllSongs(songs) = tx.recv().await.unwrap()
+                                        let LibraryResponse::AllSongs(songs) =
+                                            tx.recv().await.unwrap()
                                         else {
                                             continue;
                                         };
@@ -105,22 +106,24 @@ impl Controller {
                                             LibraryCommand::Song(np_song.song.uuid),
                                         );
                                         lib_mail.send(command).await.unwrap();
-                                        let LibraryResponse::Song(_, i) = tx.recv().await.unwrap() else {
+                                        let LibraryResponse::Song(_, i) = tx.recv().await.unwrap()
+                                        else {
                                             unreachable!()
                                         };
                                         if let Some(song) = songs.get(i + 49) {
                                             let (command, tx) =
                                                 QueueCommandInput::command(QueueCommand::Append(
-                                                    QueueItem::from_item_type(QueueItemType::Single(
-                                                        QueueSong {
+                                                    QueueItem::from_item_type(
+                                                        QueueItemType::Single(QueueSong {
                                                             song: song.clone(),
                                                             location: np_song.location,
-                                                        },
-                                                    )),
+                                                        }),
+                                                    ),
                                                     false,
                                                 ));
                                             queue_mail.send(command).await.unwrap();
-                                            let QueueResponse::Empty(Ok(())) = tx.recv().await.unwrap()
+                                            let QueueResponse::Empty(Ok(())) =
+                                                tx.recv().await.unwrap()
                                             else {
                                                 unreachable!()
                                             };
@@ -133,29 +136,37 @@ impl Controller {
                                             LibraryCommand::ExternalPlaylist(uuid),
                                         );
                                         lib_mail.send(command).await.unwrap();
-                                        let LibraryResponse::ExternalPlaylist(playlist) = tx.recv().await.unwrap() else {
+                                        let LibraryResponse::ExternalPlaylist(playlist) =
+                                            tx.recv().await.unwrap()
+                                        else {
                                             unreachable!()
                                         };
                                         let (command, tx) = LibraryCommandInput::command(
-                                            LibraryCommand::PlaylistSong { list_uuid: playlist.uuid, item_uuid: np_song.song.uuid }
+                                            LibraryCommand::PlaylistSong {
+                                                list_uuid: playlist.uuid,
+                                                item_uuid: np_song.song.uuid,
+                                            },
                                         );
                                         lib_mail.send(command).await.unwrap();
-                                        let LibraryResponse::PlaylistSong(_, i) = tx.recv().await.unwrap() else {
+                                        let LibraryResponse::PlaylistSong(_, i) =
+                                            tx.recv().await.unwrap()
+                                        else {
                                             unreachable!()
                                         };
                                         if let Some(song) = playlist.tracks.get(i + 49) {
                                             let (command, tx) =
                                                 QueueCommandInput::command(QueueCommand::Append(
-                                                    QueueItem::from_item_type(QueueItemType::Single(
-                                                        QueueSong {
+                                                    QueueItem::from_item_type(
+                                                        QueueItemType::Single(QueueSong {
                                                             song: song.clone(),
                                                             location: np_song.location,
-                                                        },
-                                                    )),
+                                                        }),
+                                                    ),
                                                     false,
                                                 ));
                                             queue_mail.send(command).await.unwrap();
-                                            let QueueResponse::Empty(Ok(())) = tx.recv().await.unwrap()
+                                            let QueueResponse::Empty(Ok(())) =
+                                                tx.recv().await.unwrap()
                                             else {
                                                 unreachable!()
                                             };
@@ -163,7 +174,7 @@ impl Controller {
                                             println!("Playlist Empty");
                                         }
                                     }
-                                    _ => todo!()
+                                    _ => todo!(),
                                 }
                                 res_rx
                                     .send(PlayerResponse::NowPlaying(Ok(np_song.song.clone())))
@@ -234,7 +245,7 @@ impl Controller {
                         queue_mail.send(command).await.unwrap();
                         match tx.recv().await.unwrap() {
                             QueueResponse::Item(Ok(item)) => {
-                                match item.item {
+                                let mut song = match item.item {
                                     QueueItemType::Single(np_song) => {
                                         let prism_uri = prismriver::utils::path_to_uri(
                                             &np_song
@@ -251,17 +262,24 @@ impl Controller {
 
                                         state.now_playing = np_song.song.uuid;
                                         _ = state.write_file();
+
                                         notify_connections_
-                                            .send(ConnectionsNotification::SongChange(np_song.song))
+                                            .send(ConnectionsNotification::SongChange(
+                                                np_song.song.clone(),
+                                            ))
                                             .unwrap();
+                                        np_song.song
                                     }
                                     _ => unimplemented!(),
-                                }
-                                res_rx.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
+                                };
+                                res_rx
+                                    .send(PlayerResponse::NowPlaying(Ok(song)))
+                                    .await
+                                    .unwrap();
                             }
                             QueueResponse::Item(Err(e)) => {
                                 res_rx
-                                    .send(PlayerResponse::Empty(Err(e.into())))
+                                    .send(PlayerResponse::NowPlaying(Err(e.into())))
                                     .await
                                     .unwrap();
                             }
