@@ -323,43 +323,13 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
     }
 
     pub fn move_to(&mut self, index: usize) -> Result<(), QueueError> {
-        use QueueState::*;
-
-        let empty = self.items.is_empty();
-        let index = if !empty {
-            index
-        } else {
-            return Err(QueueError::EmptyQueue);
-        };
-
-        if !empty && dbg!(index < self.items.len()) {
-            let to_item = self.items[index].clone();
-
-            if let QueueItemType::Multi(_) = to_item.item {
-                unimplemented!(); //TODO: Add logic for multi items
-            }
-
-            loop {
-                let empty = self.items.is_empty();
-                let item = self.items[0].item.to_owned();
-
-                if item != to_item.item && !empty {
-                    if self.items[0].state == AddHere && self.items.get(1).is_some() {
-                        self.items[1].state = AddHere;
-                    }
-                    let item = self.items.remove(0);
-                    self.played.push(item);
-
-                // dbg!(&to_item.item, &self.items[ind].item);
-                } else if empty {
-                    return Err(QueueError::EmptyQueue);
-                } else {
-                    break;
-                }
-            }
-        } else {
+        if self.items.is_empty() {
             return Err(QueueError::EmptyQueue);
         }
+        for _ in 0..index {
+            self.next()?;
+        }
+
         Ok(())
     }
 
