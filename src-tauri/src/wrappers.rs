@@ -1,11 +1,10 @@
-use std::{collections::BTreeMap, path::PathBuf, thread::spawn};
+use std::{path::PathBuf, thread::spawn};
 
-use chrono::{DateTime, Utc, serde::ts_milliseconds_option};
 use crossbeam::channel::Sender;
 use dmp_core::{
     music_controller::controller::{ControllerHandle, PlayerLocation},
     music_storage::{
-        library::{Song, Tag, URI},
+        library::{Song, Tag},
         queue::QueueItemType,
     },
 };
@@ -83,7 +82,7 @@ pub async fn next(
         Ok(s) => s,
         Err(e) => return Err(e.to_string()),
     };
-    app.emit("now_playing_change", _Song::from(&song)).unwrap();
+    app.emit("now_playing_change", song).unwrap();
     app.emit("queue_updated", ()).unwrap();
     app.emit("playing", true).unwrap();
     Ok(())
@@ -99,7 +98,7 @@ pub async fn prev(
         Err(e) => return Err(e.to_string()),
     };
     println!("prev");
-    app.emit("now_playing_change", _Song::from(&song)).unwrap();
+    app.emit("now_playing_change", song).unwrap();
     app.emit("queue_updated", ()).unwrap();
     Ok(())
 }
@@ -112,7 +111,7 @@ pub async fn now_playing(_ctrl_handle: State<'_, ControllerHandle>) -> Result<()
 #[tauri::command]
 pub async fn get_queue(
     ctrl_handle: State<'_, ControllerHandle>,
-) -> Result<Vec<(_Song, PlayerLocation)>, String> {
+) -> Result<Vec<(Song, PlayerLocation)>, String> {
     Ok(ctrl_handle
         .queue_get_all()
         .await
@@ -121,7 +120,7 @@ pub async fn get_queue(
             let QueueItemType::Single(song) = item.item else {
                 unreachable!("There should be no albums in the queue right now")
             };
-            (_Song::from(&song.song), song.location)
+            (song.song, song.location)
         })
         .collect_vec())
 }
@@ -141,51 +140,9 @@ pub async fn remove_from_queue(
     }
 }
 
-//Grab Album art from custom protocol
-#[derive(Serialize, Debug, Clone)]
-pub struct _Song {
-    pub location: Vec<URI>,
-    pub uuid: Uuid,
-    pub plays: i32,
-    pub format: Option<String>,
-    pub duration: String,
-    #[serde(with = "ts_milliseconds_option")]
-    pub last_played: Option<DateTime<Utc>>,
-    #[serde(with = "ts_milliseconds_option")]
-    pub date_added: Option<DateTime<Utc>>,
-    #[serde(with = "ts_milliseconds_option")]
-    pub date_modified: Option<DateTime<Utc>>,
-    pub tags: BTreeMap<String, String>,
-}
-
-impl From<&Song> for _Song {
-    fn from(value: &Song) -> Self {
-        _Song {
-            location: value.location.clone(),
-            uuid: value.uuid.clone(),
-            plays: value.plays.clone(),
-            duration: value.duration.as_secs().to_string(),
-            format: value.format.clone().map(|format| format.to_string()),
-            last_played: value.last_played,
-            date_added: value.date_added,
-            date_modified: value.date_modified,
-            tags: value
-                .tags
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.clone()))
-                .collect(),
-        }
-    }
-}
-
 #[tauri::command]
-pub async fn get_library(ctrl_handle: State<'_, ControllerHandle>) -> Result<Vec<_Song>, String> {
-    let songs = ctrl_handle
-        .lib_get_all()
-        .await
-        .iter()
-        .map(|song| _Song::from(song))
-        .collect_vec();
+pub async fn get_library(ctrl_handle: State<'_, ControllerHandle>) -> Result<Vec<Song>, String> {
+    let songs = ctrl_handle.lib_get_all().await;
     Ok(songs)
 }
 
@@ -193,23 +150,17 @@ pub async fn get_library(ctrl_handle: State<'_, ControllerHandle>) -> Result<Vec
 pub async fn get_playlist(
     ctrl_handle: State<'_, ControllerHandle>,
     uuid: Uuid,
-) -> Result<Vec<_Song>, String> {
+) -> Result<Vec<Song>, String> {
     let playlist = match ctrl_handle.playlist_get(uuid).await {
         Ok(list) => list,
         Err(_) => todo!(),
     };
-
-    let songs = playlist
-        .tracks
-        .iter()
-        .map(|song| _Song::from(song))
-        .collect::<Vec<_>>();
     println!(
         "Got Playlist {}, len {}",
         playlist.title,
         playlist.tracks.len()
     );
-    Ok(songs)
+    Ok(playlist.tracks)
 }
 
 #[tauri::command]
@@ -264,13 +215,13 @@ pub struct PlaylistPayload {
 pub async fn get_song(
     ctrl_handle: State<'_, ControllerHandle>,
     uuid: Uuid,
-) -> Result<_Song, String> {
+) -> Result<Song, String> {
     let song = ctrl_handle.lib_get_song(uuid).await.0;
     println!(
         "got song {}",
         &song.tags.get(&Tag::Title).unwrap_or(&String::new())
     );
-    Ok(_Song::from(&song))
+    Ok(song)
 }
 
 #[tauri::command]
@@ -334,7 +285,7 @@ pub async fn queue_move_to(
     match ctrl_handle.enqueue(0).await.map_err(|e| e.to_string()) {
         Ok(song) => {
             app.emit("queue_updated", ()).unwrap();
-            app.emit("now_playing_change", _Song::from(&song)).unwrap();
+            app.emit("now_playing_change", song).unwrap();
             app.emit("playing", true).unwrap();
             Ok(())
         }

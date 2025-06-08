@@ -1,6 +1,7 @@
 use super::playlist::{Playlist, PlaylistFolder};
 // Crate things
 use super::utils::{find_images, normalize, read_file, write_file};
+
 use crate::music_storage::playlist::PlaylistFolderItem;
 
 use std::cmp::Ordering;
@@ -19,6 +20,7 @@ use lofty::file::{AudioFile as _, TaggedFileExt as _};
 use lofty::probe::Probe;
 use lofty::tag::{ItemKey, ItemValue, TagType};
 use rcue::parser::parse_from_file;
+use serde::ser::SerializeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -35,6 +37,10 @@ use serde::{Deserialize, Serialize};
 use rayon::prelude::*;
 use std::sync::{Arc, Mutex};
 
+// TS
+use ts_rs::TS;
+
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub enum AlbumArt {
     Embedded(usize),
@@ -52,6 +58,7 @@ impl AlbumArt {
 
 /// A tag for a song
 #[non_exhaustive]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Tag {
     Title,
@@ -60,23 +67,26 @@ pub enum Tag {
     AlbumArtist,
     Genre,
     Comment,
-    Track,
-    Disk,
-    Key(String),
+    TrackNumber,
+    DiskNumber,
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     Field(String),
+    #[serde(untagged)]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
+    Key(String),
 }
 
 impl Display for Tag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let path_str: String = match self {
-            Self::Title => "TrackTitle".into(),
-            Self::Album => "AlbumTitle".into(),
-            Self::Artist => "TrackArtist".into(),
+            Self::Title => "Title".into(),
+            Self::Album => "Album".into(),
+            Self::Artist => "Artist".into(),
             Self::AlbumArtist => "AlbumArtist".into(),
             Self::Genre => "Genre".into(),
             Self::Comment => "Comment".into(),
-            Self::Track => "TrackNumber".into(),
-            Self::Disk => "DiscNumber".into(),
+            Self::TrackNumber => "TrackNumber".into(),
+            Self::DiskNumber => "DiscNumber".into(),
             Self::Key(key) => key.into(),
             Self::Field(f) => f.into(),
         };
@@ -121,6 +131,7 @@ impl Display for Field {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum InternalTag {
@@ -131,6 +142,7 @@ pub enum InternalTag {
     VolumeAdjustment(i8),
 }
 
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[non_exhaustive]
 pub enum BannedType {
@@ -138,6 +150,7 @@ pub enum BannedType {
     All,
 }
 
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum DoNotTrack {
@@ -148,6 +161,7 @@ pub enum DoNotTrack {
     Discord,
 }
 
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Debug, Default, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum SongType {
@@ -160,6 +174,7 @@ pub enum SongType {
 }
 
 /// Stores information about a single song
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct Song {
     pub location: Vec<URI>,
@@ -171,17 +186,73 @@ pub struct Song {
     pub rating: Option<u8>,
     /// MIME type
     pub format: Option<String>,
+    #[cfg_attr(
+        feature = "ts",
+        ts(type = "number"),
+        serde(serialize_with = "dur_ms", deserialize_with = "ms_dur")
+    )]
     pub duration: Duration,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub play_time: Duration,
     #[serde(with = "ts_milliseconds_option")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub last_played: Option<DateTime<Utc>>,
     #[serde(with = "ts_milliseconds_option")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub date_added: Option<DateTime<Utc>>,
     #[serde(with = "ts_milliseconds_option")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub date_modified: Option<DateTime<Utc>>,
     pub album_art: Vec<AlbumArt>,
+    #[cfg_attr(
+        feature = "ts",
+        // The combination of "Tag" and "Map" doesn't seem to play well, possibly because of the 'Field' variant,
+        // which will cause type errors on the TS side otherwise
+        ts(type = "any"),
+        serde(serialize_with = "tags_strings")
+    )]
     pub tags: BTreeMap<Tag, String>,
     pub internal_tags: Vec<InternalTag>,
+}
+
+#[cfg(feature = "ts")]
+fn tags_strings<S: serde::Serializer>(
+    tags: &BTreeMap<Tag, String>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let mut map = serializer.serialize_map(Some(tags.len()))?;
+    for (k, v) in tags {
+        map.serialize_entry(&k.to_string(), &v)?;
+    }
+    map.end()
+}
+
+#[cfg(feature = "ts")]
+fn dur_ms<S: serde::Serializer>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_u64(duration.as_secs())
+}
+#[cfg(feature = "ts")]
+fn ms_dur<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
+    use std::marker::PhantomData;
+
+    use serde::de::Visitor;
+
+    struct De(PhantomData<fn() -> Duration>);
+    impl<'de> Visitor<'de> for De {
+        type Value = Duration;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("Duration as seconds in the form of a u64")
+        }
+
+        fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(Duration::from_secs(v))
+        }
+    }
+    deserializer.deserialize_u64(De(PhantomData))
 }
 
 impl Song {
@@ -257,13 +328,13 @@ impl Song {
         for item in tag.items() {
             let key = match item.key() {
                 ItemKey::TrackTitle => Tag::Title,
-                ItemKey::TrackNumber => Tag::Track,
+                ItemKey::TrackNumber => Tag::TrackNumber,
                 ItemKey::TrackArtist => Tag::Artist,
                 ItemKey::AlbumArtist => Tag::AlbumArtist,
                 ItemKey::Genre => Tag::Genre,
                 ItemKey::Comment => Tag::Comment,
                 ItemKey::AlbumTitle => Tag::Album,
-                ItemKey::DiscNumber => Tag::Disk,
+                ItemKey::DiscNumber => Tag::DiskNumber,
                 ItemKey::Unknown(unknown)
                     if unknown == "ACOUSTID_FINGERPRINT" || unknown == "Acoustid Fingerprint" =>
                 {
@@ -400,7 +471,10 @@ impl Song {
                     tags.insert(Tag::Artist, artist.clone());
                 }
 
-                tags.insert(Tag::Track, track.no.parse().unwrap_or((i + 1).to_string()));
+                tags.insert(
+                    Tag::TrackNumber,
+                    track.no.parse().unwrap_or((i + 1).to_string()),
+                );
                 match track.title.clone() {
                     Some(title) => tags.insert(Tag::Title, title),
                     None => match track.isrc.clone() {
@@ -498,13 +572,16 @@ impl Song {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum URI {
     Local(PathBuf),
     Cue {
         location: PathBuf,
         index: usize,
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         start: Duration,
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         end: Duration,
     },
     Remote(Service, String),
@@ -590,6 +667,7 @@ impl Display for URI {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Service {
     InternetRadio,
@@ -1134,7 +1212,7 @@ impl MusicLibrary {
             //let norm_title = normalize(&album_title);
 
             let disc_num = song
-                .get_tag(&Tag::Disk)
+                .get_tag(&Tag::DiskNumber)
                 .unwrap_or(&"".to_string())
                 .parse::<u16>()
                 .unwrap_or(1);
@@ -1143,7 +1221,7 @@ impl MusicLibrary {
                 // If the album is in the list, add the track to the appropriate disc within the album
                 Some(album) => match album.discs.get_mut(&disc_num) {
                     Some(disc) => disc.push((
-                        song.get_tag(&Tag::Track)
+                        song.get_tag(&Tag::TrackNumber)
                             .unwrap_or(&String::new())
                             .parse::<u16>()
                             .unwrap_or_default(),
@@ -1153,7 +1231,7 @@ impl MusicLibrary {
                         album.discs.insert(
                             disc_num,
                             vec![(
-                                song.get_tag(&Tag::Track)
+                                song.get_tag(&Tag::TrackNumber)
                                     .unwrap_or(&String::new())
                                     .parse::<u16>()
                                     .unwrap_or_default(),
@@ -1171,7 +1249,7 @@ impl MusicLibrary {
                         discs: BTreeMap::from([(
                             disc_num,
                             vec![(
-                                song.get_tag(&Tag::Track)
+                                song.get_tag(&Tag::TrackNumber)
                                     .unwrap_or(&String::new())
                                     .parse::<u16>()
                                     .unwrap_or_default(),
@@ -1308,8 +1386,8 @@ mod test {
                 &vec![
                     Tag::Field("location".to_string()),
                     Tag::Album,
-                    Tag::Disk,
-                    Tag::Track,
+                    Tag::DiskNumber,
+                    Tag::TrackNumber,
                 ],
             )
             .unwrap();

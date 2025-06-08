@@ -7,8 +7,10 @@ use std::{
 use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
 use thiserror::Error;
+use ts_rs::TS;
 use uuid::Uuid;
 
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigLibrary {
     pub name: String,
@@ -51,6 +53,7 @@ impl ConfigLibrary {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ConfigLibraries {
     pub default_library: Uuid,
@@ -92,6 +95,7 @@ impl ConfigLibraries {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ConfigConnections {
     pub discord_rpc_client_id: Option<u64>,
@@ -99,6 +103,7 @@ pub struct ConfigConnections {
     pub last_fm_session: Option<String>,
 }
 
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct Config {

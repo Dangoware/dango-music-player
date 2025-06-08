@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use async_channel::{Receiver, Sender};
-use discord_presence::models::Command;
 use uuid::Uuid;
 
 use crate::music_storage::{

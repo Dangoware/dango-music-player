@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, State, Wry};
 use tempfile::TempDir;
 use uuid::Uuid;
 
-use crate::{LAST_FM_API_KEY, LAST_FM_API_SECRET, wrappers::_Song};
+use crate::{LAST_FM_API_KEY, LAST_FM_API_SECRET};
 
 #[tauri::command]
 pub async fn add_song_to_queue(
@@ -47,7 +47,7 @@ pub async fn play_now(
         Err(e) => return Err(e.to_string()),
     };
     app.emit("queue_updated", ()).unwrap();
-    app.emit("now_playing_change", _Song::from(&song)).unwrap();
+    app.emit("now_playing_change", &song).unwrap();
     app.emit("playing", true).unwrap();
     Ok(())
 }

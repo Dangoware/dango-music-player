@@ -1,7 +1,4 @@
-use crate::music_storage::{
-    library::Song,
-    queue::{Queue, QueueError, QueueItemType},
-};
+use crate::music_storage::queue::{Queue, QueueError, QueueItemType};
 
 use super::{
     controller::{Controller, QueueCommand, QueueResponse},

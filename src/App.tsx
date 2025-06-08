@@ -1,18 +1,19 @@
 import React, { MutableRefObject, useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import "./App.css";
-import { Config, playbackInfo } from "./types";
 // import { EventEmitter } from "@tauri-apps/plugin-shell";
 // import { listen } from "@tauri-apps/api/event";
 // import { fetch } from "@tauri-apps/plugin-http";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { PhysicalPosition } from "@tauri-apps/api/window";
 import { Menu, Submenu, SubmenuOptions } from "@tauri-apps/api/menu";
-
+import { Config } from "./bindings/Config";
+import { PlaybackInfo } from "./bindings/PlaybackInfo";
+import { PlayerLocation } from "./bindings/PlayerLocation";
+import { URI } from "./bindings/URI";
+import { Song } from "./bindings/Song";
 
 const appWindow = getCurrentWebviewWindow();
-
-type Location = "Library" | { "Playlist": string };
 
 // This needs to be changed to properly reflect cursor position
 // this will do for now.
@@ -43,16 +44,16 @@ function App() {
 
 
   useEffect(() => {
-    const unlisten = appWindow.listen<any>("now_playing_change", ({ payload, }) => {
+    const unlisten = appWindow.listen<Song>("now_playing_change", ({ payload, }) => {
         const displayArtwork = () => {
           invoke('display_album_art', { uuid: payload.uuid }).then(() => {})
         }
-        // console.log(event);
+                
         setNowPlaying(
           <NowPlaying
-            title={ payload.tags.TrackTitle }
-            album={ payload.tags.AlbumTitle }
-            artist={ payload.tags.TrackArtist }
+            title={ payload.tags.Title }
+            album={ payload.tags.Album }
+            artist={ payload.tags.Artist }
             artwork={ <img src={convertFileSrc("abc") + "?" + payload.uuid } id="nowPlayingArtwork" alt="Now Playing Artwork" key={payload.uuid} onDoubleClick={ displayArtwork } /> }
           />
         )
@@ -62,15 +63,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const unlisten = appWindow.listen<any>("queue_updated", (_) => {
+    const unlisten = appWindow.listen<null>("queue_updated", (_) => {
         // console.log(event);
         invoke('get_queue').then((_songs) => {
-          let songs = _songs as any[];
+          let songs = _songs as [Song, PlayerLocation][];
             setQueue(
               songs.filter((_, i) => i != 0).map((song, i) =>
                 <QueueSong
                   song={ song[0] }
-                  location={ song[1] as "Library" | {"Playlist" : string}}
+                  location={ song[1] }
                   index={i+1}
                   key={ Math.floor((Math.random() * 100_000_000_000) + 1) + '_' + Date.now() }
                   setSelectedSong={ setSelectedSongQueue }
@@ -83,8 +84,8 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const unlisten = appWindow.listen<any>("playing", (isPlaying) => {
-        setPlaying(isPlaying.payload as boolean)
+    const unlisten = appWindow.listen<boolean>("playing", (isPlaying) => {
+        setPlaying(isPlaying.payload)
     })
     return () => { unlisten.then((f) => f()) }
   }, []);
@@ -133,11 +134,11 @@ interface PlaylistHeadProps {
 function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playlistsInfo, setSelected }: PlaylistHeadProps) {
   function getPlaylist(playlist: PlaylistInfo) {
     invoke('get_playlist', { uuid: playlist.uuid }).then((list) => {
-      setLibrary([...(list as any[]).map((song, i) => {
+      setLibrary([...(list as Song[]).map((song, i) => {
         // console.log(song);
         const reload = () => getPlaylist(playlist)
         return (
-          <Song
+          <MainViewSong
             key={ song.uuid + Math.floor(Math.random() * 100_000_000_000) }
             location={ song.location }
             playerLocation={ {"Playlist" : playlist.uuid } }
@@ -157,42 +158,42 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playli
   }
 
   useEffect(() => {
-    const unlisten = appWindow.listen<any[]>("playlists_gotten", (_res) => {
-        // console.log(event);
-        let res = _res.payload as PlaylistInfo[];
-        playlistsInfo.current = [...res];
-        // console.log(playlistsInfo, res);
+    const unlisten = appWindow.listen<PlaylistInfo[]>("playlists_gotten", (_res) => {
+      const res = _res.payload;
+      // console.log(event);
+      playlistsInfo.current = [...res];
+      // console.log(playlistsInfo, res);
 
-        setPlaylists([
-          ...res.map( (list) => {
-            const _getPlaylist = () => getPlaylist(list)
-            const deletePlaylist = () => {
-              invoke('delete_playlist', { uuid: list.uuid }).then(() => {});
-              invoke('get_playlists').then(() => {});
-            }
-            async function menuHandler(event: React.MouseEvent) {
-              event.preventDefault();
-              const menu = await Menu.new({
-                items: [
-                  { id: "delete_playlist" + list.uuid, text: "Delete Playlist", action: deletePlaylist }
-                ]
-              });
-              menu.popup(await contextMenuPosition(event));
-            }
+      setPlaylists([
+        ...res.map( (list) => {
+          const _getPlaylist = () => getPlaylist(list)
+          const deletePlaylist = () => {
+            invoke('delete_playlist', { uuid: list.uuid }).then(() => {});
+            invoke('get_playlists').then(() => {});
+          }
+          async function menuHandler(event: React.MouseEvent) {
+            event.preventDefault();
+            const menu = await Menu.new({
+              items: [
+                { id: "delete_playlist" + list.uuid, text: "Delete Playlist", action: deletePlaylist }
+              ]
+            });
+            menu.popup(await contextMenuPosition(event));
+          }
 
-            return (
-              <button onClick={ _getPlaylist }
-                onContextMenu={ menuHandler }
-                 key={ 'playlist_' + list.uuid }>{ list.name }</button>
-            )
-          })
-        ])
+          return (
+            <button onClick={ _getPlaylist }
+              onContextMenu={ menuHandler }
+               key={ 'playlist_' + list.uuid }>{ list.name }</button>
+          )
+        })
+      ])
     })
     return () => { unlisten.then((f) => f()) }
   }, []);
     let handle_import = () => {
     invoke('import_playlist').then((_res) => {
-      let res = _res as any;
+      let res = _res as PlaylistInfo;
 
       setPlaylists([
         ...playlists,
@@ -207,11 +208,11 @@ function PlaylistHead({ playlists, setPlaylists, setViewName, setLibrary, playli
         setViewName("Library");
         invoke('get_library').then((lib) => {
           let i = 0;
-          setLibrary([...(lib as any[]).map((song) => {
+          setLibrary([...(lib as Song[]).map((song) => {
             // console.log(song);
             i++;
             return (
-              <Song
+              <MainViewSong
                 key={ song.uuid + Math.floor(Math.random() * 100_000_000_000) }
                 location={ song.location }
                 playerLocation="Library"
@@ -247,7 +248,7 @@ function MainView({ lib_ref, viewName, playlistsInfo, setSelected, selectedSong 
 
 
   const addToQueue = (_: string) => {
-    invoke('add_song_to_queue', { uuid: selectedSong.current!.uuid, location: selectedSong.current!.playerLocation }).then(() => {});
+    invoke('add_song_to_queue', { uuid: selectedSong.current?.uuid, location: selectedSong.current?.playerLocation }).then(() => {});
     }
   const playNow = () => invoke("play_now", { uuid: selectedSong.current!.uuid, location: selectedSong.current!.playerLocation }).then(() => {})
   const playNext = () => invoke("play_next_queue", { uuid: selectedSong.current!.uuid, location: selectedSong.current!.playerLocation }).then(() => {})
@@ -289,14 +290,13 @@ function MainView({ lib_ref, viewName, playlistsInfo, setSelected, selectedSong 
 
 
   useEffect(() => {
-    const unlisten = appWindow.listen<any>("library_loaded", (_) => {
+    const unlisten = appWindow.listen<null>("library_loaded", (_) => {
       console.log("library_loaded");
       invoke('get_library').then((lib) => {
-        let i = 0;
-        setLibrary([...(lib as any[]).map((song) => {
-          i++;
+        setLibrary([...(lib as Song[]).map((song, i) => {
+          console.log("duration", song.duration)
           return (
-            <Song
+            <MainViewSong
               key={ song.uuid + Math.floor(Math.random() * 100_000_000_000) }
               location={ song.location }
               playerLocation="Library"
@@ -305,7 +305,7 @@ function MainView({ lib_ref, viewName, playlistsInfo, setSelected, selectedSong 
               duration={ song.duration }
               tags={ song.tags }
               playlists={ playlistsInfo }
-              index={ i - 1 }
+              index={ i }
               setSelected={ setSelected }
             />
           )
@@ -331,12 +331,12 @@ function MainView({ lib_ref, viewName, playlistsInfo, setSelected, selectedSong 
 
 
 interface SongProps {
-  location: any,
-  playerLocation: string | {"Playlist" : any},
+  location: URI[],
+  playerLocation: PlayerLocation,
   uuid: string,
   plays: number,
   format?: string,
-  duration: string,
+  duration: number,
   last_played?: string,
   date_added?: string,
   date_modified?: string,
@@ -347,7 +347,7 @@ interface SongProps {
   reload?: () => void
 }
 
-function Song(props: SongProps) {
+function MainViewSong(props: SongProps) {
   // console.log(props.tags);
     // useEffect(() => {
   //   const unlistenPromise = listen<string>("add_song_to_queue", (event) => {
@@ -363,16 +363,16 @@ function Song(props: SongProps) {
   // }, []);
   const setSelected = () => {
         props.setSelected(props);
-        console.log(props.tags.TrackTitle);
+        console.log(props.tags.Title);
       }
   return(
     <div
       onContextMenu={ setSelected }
       onClick={ setSelected }
       className="song">
-      <p className="artist unselectable">{ props.tags.TrackArtist }</p>
-      <p className="title  unselectable">{ props.tags.TrackTitle }</p>
-      <p className="album  unselectable">{ props.tags.AlbumTitle }</p>
+      <p className="artist unselectable">{ props.tags.Artist }</p>
+      <p className="title  unselectable">{ props.tags.Title }</p>
+      <p className="album  unselectable">{ props.tags.Album }</p>
       <p className="duration  unselectable">
         { Math.round(+props.duration / 60) }:
         { (+props.duration % 60).toString().padStart(2, "0") }
@@ -397,8 +397,7 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
   const [lastFmLoggedIn, setLastFmLoggedIn] = useState(false);
 
   useEffect(() => {
-    const unlisten = appWindow.listen<any>("playback_info", ({ payload, }) => {
-      const info = payload as playbackInfo;
+    const unlisten = appWindow.listen<PlaybackInfo>("playback_info", ({ payload: info, }) => {
       const pos_ = Array.isArray(info.position) ? info.position![0] : 0;
       const dur_ = Array.isArray(info.duration) ? info.duration![0] : 0;
 
@@ -463,9 +462,9 @@ function PlayBar({ playing, setPlaying }: PlayBarProps) {
 }
 
 interface NowPlayingProps {
-  title: string,
-  artist: string,
-  album: string,
+  title: string | undefined,
+  artist: string | undefined,
+  album: string | undefined,
   artwork: JSX.Element
 }
 
@@ -475,7 +474,7 @@ function NowPlaying({ title, artist, album, artwork }: NowPlayingProps) {
       <div className="artworkWrapper unselectable">
         { artwork }
       </div>
-      <h3>{ title }</h3>
+      <h3>{ title? title : "Unknown Title" }</h3>
       <p>{ artist }</p>
       <p>{ album }</p>
     </section>
@@ -491,7 +490,7 @@ interface QueueProps {
 interface selectedQueueSong {
   uuid: string,
   index: number
-  location: Location,
+  location: PlayerLocation,
 }
 
 function Queue({ songs, selectedSong, }: QueueProps) {
@@ -530,8 +529,8 @@ function Queue({ songs, selectedSong, }: QueueProps) {
 }
 
 interface QueueSongProps {
-  song: any,
-  location: Location,
+  song: Song,
+  location: PlayerLocation,
   index: number,
   setSelectedSong: (song: selectedQueueSong) => void,
 }
@@ -545,8 +544,8 @@ function QueueSong({ song, location, index, setSelectedSong }: QueueSongProps) {
     <div className="queueSong unselectable"  onAuxClickCapture={ setSelected } onClick={ setSelected } onContextMenu={ setSelected }>
       <img className="queueSongCoverArt" src={ convertFileSrc('abc') + '?' + song.uuid } key={ 'coverArt_' + song.uuid }/>
       <div className="queueSongTags">
-        <p className="queueSongTitle">{ song.tags.TrackTitle }</p>
-        <p className="queueSongArtist">{ song.tags.TrackArtist }</p>
+        <p className="queueSongTitle">{ song.tags.Title }</p>
+        <p className="queueSongArtist">{ song.tags.Artist }</p>
       </div>
     </div>
   )

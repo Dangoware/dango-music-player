@@ -6,7 +6,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterato
 use crate::{
     config::Config,
     music_storage::{
-        library::{self, MusicLibrary},
+        library::MusicLibrary,
         playlist::{ExternalPlaylist, Playlist, PlaylistFolderItem},
     },
 };

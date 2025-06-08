@@ -28,6 +28,8 @@ use super::connections::{ConnectionsNotification, ControllerConnections};
 use super::controller_handle::{LibraryCommandInput, PlayerCommandInput, QueueCommandInput};
 use super::queue::{QueueAlbum, QueueSong};
 
+use ts_rs::TS;
+
 pub struct Controller();
 
 type QueueItem_ = QueueItem<QueueSong, QueueAlbum>;
@@ -43,6 +45,7 @@ pub enum ControllerError {
 }
 
 // TODO: move this to a different location to be used elsewhere
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum PlayerLocation {
@@ -370,8 +373,11 @@ impl Controller {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Debug, Default, Serialize, Clone)]
 pub struct PlaybackInfo {
+    #[ts(as = "(f64, f64)")]
     pub position: Option<TimeDelta>,
+    #[ts(as = "(f64, f64)")]
     pub duration: Option<TimeDelta>,
 }

@@ -21,12 +21,12 @@ use dmp_core::{
 use parking_lot::RwLock;
 use tauri::{AppHandle, Emitter, Manager, http::Response};
 use uuid::Uuid;
-use wrappers::{_Song, stop};
+use wrappers::stop;
 
 use crate::wrappers::{
     add_song_to_playlist, clear_queue, delete_playlist, get_library, get_playlist, get_playlists,
-    get_queue, get_song, import_playlist, next, pause, play, play_next_queue, prev,
-    remove_from_queue, seek, set_volume, queue_move_to
+    get_queue, get_song, import_playlist, next, pause, play, play_next_queue, prev, queue_move_to,
+    remove_from_queue, seek, set_volume,
 };
 use commands::{
     add_song_to_queue, display_album_art, last_fm_init_auth, play_now, remove_from_lib_playlist,
@@ -212,7 +212,7 @@ fn start_controller(app: AppHandle) -> Result<(), String> {
                         let next_song_notification = next_song_notification;
                         while true {
                             let song = next_song_notification.recv().unwrap();
-                            app.emit("now_playing_change", _Song::from(&song)).unwrap();
+                            app.emit("now_playing_change", &song).unwrap();
                             app.emit("queue_updated", ()).unwrap();
                             app.emit("playing", true).unwrap();
                             _ = now_playing.write().insert(song);
