@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
-import { Config, ConfigConnections } from "../types";
 import { TauriEvent } from "@tauri-apps/api/event";
+import { Config } from "../bindings/Config";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <>
@@ -65,7 +65,7 @@ function ListenBrainz({ config, setConfig }: ListenBrainzProps) {
     return (
         <>
             <label>{ "Listenbrainz Token" }</label>
-            <input type="text" value={ config?.connections.listenbrainz_token } onChange={updateToken} />
+            <input type="text" value={ config?.connections.listenbrainz_token! } onChange={updateToken} />
         </>
     )
 }
