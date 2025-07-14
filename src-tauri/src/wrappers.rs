@@ -117,7 +117,7 @@ pub async fn get_queue(
         .await
         .into_iter()
         .map(|item| {
-            let QueueItemType::Single(song) = item.item else {
+            let QueueItemType::Song(song) = item.item else {
                 unreachable!("There should be no albums in the queue right now")
             };
             (song.song, song.location)

@@ -26,13 +26,10 @@ use crate::{config::Config, music_storage::library::MusicLibrary};
 
 use super::connections::{ConnectionsNotification, ControllerConnections};
 use super::controller_handle::{LibraryCommandInput, PlayerCommandInput, QueueCommandInput};
-use super::queue::{QueueAlbum, QueueSong};
 
 use ts_rs::TS;
 
 pub struct Controller();
-
-type QueueItem_ = QueueItem<QueueSong, QueueAlbum>;
 
 #[derive(Error, Debug)]
 pub enum ControllerError {
@@ -138,7 +135,7 @@ pub enum LibraryResponse {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum QueueCommand {
-    Append(QueueItem<QueueSong, QueueAlbum>, bool),
+    Append(QueueItem, bool),
     Next,
     Prev,
     GetIndex(usize),
@@ -146,15 +143,15 @@ pub enum QueueCommand {
     Get,
     Clear,
     Remove(usize),
-    PlayNext(QueueItem<QueueSong, QueueAlbum>, bool),
+    PlayNext(QueueItem, bool),
     MoveTo(usize),
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum QueueResponse {
     Empty(Result<(), QueueError>),
-    Item(Result<QueueItem_, QueueError>),
-    GetAll(Vec<QueueItem_>),
+    Item(Result<QueueItem, QueueError>),
+    GetAll(Vec<QueueItem>),
 }
 
 pub struct ControllerInput {
@@ -275,11 +272,12 @@ impl Controller {
             notify_next_song,
         }: ControllerInput,
     ) -> Result<(), Box<dyn Error>> {
-        let queue: Queue<QueueSong, QueueAlbum> = Queue {
+        let queue: Queue = Queue {
             items: Vec::new(),
             played: Vec::new(),
-            loop_: false,
+            looping: false,
             shuffle: None,
+            pull_location: todo!(),
         };
 
         let state = {

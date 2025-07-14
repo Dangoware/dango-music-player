@@ -23,7 +23,7 @@ pub async fn add_song_to_queue(
     dbg!(&location);
     let (song, _) = ctrl_handle.lib_get_song(uuid).await;
     match ctrl_handle
-        .queue_append(QueueItem::from_item_type(QueueItemType::Single(
+        .queue_append(QueueItem::from_item_type(QueueItemType::Song(
             QueueSong { song, location },
         )))
         .await

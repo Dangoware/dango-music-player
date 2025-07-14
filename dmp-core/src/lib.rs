@@ -17,7 +17,6 @@ pub mod music_controller {
     pub mod library_command;
     pub mod player_command;
     pub mod player_monitor;
-    pub mod queue;
     pub mod queue_command;
 }
 

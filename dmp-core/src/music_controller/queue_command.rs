@@ -3,12 +3,11 @@ use crate::music_storage::queue::{Queue, QueueError, QueueItemType};
 use super::{
     controller::{Controller, QueueCommand, QueueResponse},
     controller_handle::QueueCommandInput,
-    queue::{QueueAlbum, QueueSong},
 };
 
 impl Controller {
     pub(super) async fn queue_loop(
-        mut queue: Queue<QueueSong, QueueAlbum>,
+        mut queue: Queue,
         queue_mail: async_channel::Receiver<QueueCommandInput>,
     ) {
         while true {
@@ -16,7 +15,9 @@ impl Controller {
             match command {
                 QueueCommand::Append(item, by_human) => {
                     match item.item {
-                        QueueItemType::Single(song) => queue.add_item(song, by_human),
+                        QueueItemType::Song(song) => {
+                            queue.add_item(QueueItemType::Song(song), by_human)
+                        }
                         _ => unimplemented!(),
                     }
                     res_rx.send(QueueResponse::Empty(Ok(()))).await.unwrap();
@@ -71,10 +72,10 @@ impl Controller {
                 }
                 QueueCommand::PlayNext(item, by_human) => {
                     match item.item {
-                        QueueItemType::Single(song) => {
-                            queue.add_item_next(song);
+                        QueueItemType::Song(song) => {
+                            queue.add_item_next(QueueItemType::Song(song));
                         }
-                        QueueItemType::Multi(album) => {
+                        QueueItemType::Album { .. } => {
                             unimplemented!()
                         }
                     };

@@ -3,11 +3,8 @@ use crossbeam_channel::Sender;
 use prismriver::{Prismriver, Volume};
 
 use crate::{
-    music_controller::{
-        controller::{LibraryCommand, LibraryResponse},
-        queue::QueueSong,
-    },
-    music_storage::queue::{QueueItem, QueueItemType},
+    music_controller::controller::{LibraryCommand, LibraryResponse},
+    music_storage::queue::{QueueItem, QueueItemType, QueueState},
 };
 
 use super::{
@@ -72,9 +69,7 @@ impl Controller {
                         match tx.recv().await.unwrap() {
                             QueueResponse::Item(Ok(item)) => {
                                 let uri = match &item.item {
-                                    QueueItemType::Single(song) => {
-                                        song.song.primary_uri().unwrap().0
-                                    }
+                                    QueueItemType::Song(song) => song.primary_uri().unwrap().0,
                                     _ => unimplemented!(),
                                 };
 
@@ -87,11 +82,11 @@ impl Controller {
                                 player.load_new(&prism_uri).unwrap();
                                 player.play();
 
-                                let QueueItemType::Single(np_song) = item.item else {
+                                let QueueItemType::Song(np_song) = item.item else {
                                     panic!("This is temporary, handle queueItemTypes at some point")
                                 };
 
-                                match np_song.location {
+                                match item.location {
                                     PlayerLocation::Library => {
                                         let (command, tx) =
                                             LibraryCommandInput::command(LibraryCommand::AllSongs);
@@ -103,7 +98,7 @@ impl Controller {
                                             continue;
                                         };
                                         let (command, tx) = LibraryCommandInput::command(
-                                            LibraryCommand::Song(np_song.song.uuid),
+                                            LibraryCommand::Song(np_song.uuid),
                                         );
                                         lib_mail.send(command).await.unwrap();
                                         let LibraryResponse::Song(_, i) = tx.recv().await.unwrap()
@@ -113,12 +108,12 @@ impl Controller {
                                         if let Some(song) = songs.get(i + 49) {
                                             let (command, tx) =
                                                 QueueCommandInput::command(QueueCommand::Append(
-                                                    QueueItem::from_item_type(
-                                                        QueueItemType::Single(QueueSong {
-                                                            song: song.clone(),
-                                                            location: np_song.location,
-                                                        }),
-                                                    ),
+                                                    QueueItem {
+                                                        item: QueueItemType::Song(song.clone()),
+                                                        state: QueueState::NoState,
+                                                        by_human: false,
+                                                        location: item.location,
+                                                    },
                                                     false,
                                                 ));
                                             queue_mail.send(command).await.unwrap();
@@ -144,7 +139,7 @@ impl Controller {
                                         let (command, tx) = LibraryCommandInput::command(
                                             LibraryCommand::PlaylistSong {
                                                 list_uuid: playlist.uuid,
-                                                item_uuid: np_song.song.uuid,
+                                                item_uuid: np_song.uuid,
                                             },
                                         );
                                         lib_mail.send(command).await.unwrap();
@@ -156,12 +151,12 @@ impl Controller {
                                         if let Some(song) = playlist.tracks.get(i + 49) {
                                             let (command, tx) =
                                                 QueueCommandInput::command(QueueCommand::Append(
-                                                    QueueItem::from_item_type(
-                                                        QueueItemType::Single(QueueSong {
-                                                            song: song.clone(),
-                                                            location: np_song.location,
-                                                        }),
-                                                    ),
+                                                    QueueItem {
+                                                        item: QueueItemType::Song(song.clone()),
+                                                        state: QueueState::NoState,
+                                                        by_human: false,
+                                                        location: PlayerLocation::Test,
+                                                    },
                                                     false,
                                                 ));
                                             queue_mail.send(command).await.unwrap();
@@ -177,14 +172,14 @@ impl Controller {
                                     _ => todo!(),
                                 }
                                 res_rx
-                                    .send(PlayerResponse::NowPlaying(Ok(np_song.song.clone())))
+                                    .send(PlayerResponse::NowPlaying(Ok(np_song.clone())))
                                     .await
                                     .unwrap();
 
-                                state.now_playing = np_song.song.uuid;
+                                state.now_playing = np_song.uuid;
                                 _ = state.write_file();
                                 notify_connections_
-                                    .send(ConnectionsNotification::SongChange(np_song.song))
+                                    .send(ConnectionsNotification::SongChange(np_song))
                                     .unwrap();
                             }
                             QueueResponse::Item(Err(e)) => {
@@ -203,9 +198,7 @@ impl Controller {
                         match tx.recv().await.unwrap() {
                             QueueResponse::Item(Ok(item)) => {
                                 let uri = match &item.item {
-                                    QueueItemType::Single(song) => {
-                                        song.song.primary_uri().unwrap().0
-                                    }
+                                    QueueItemType::Song(song) => song.primary_uri().unwrap().0,
                                     _ => unimplemented!(),
                                 };
 
@@ -215,18 +208,18 @@ impl Controller {
                                 player.load_new(&prism_uri).unwrap();
                                 player.play();
 
-                                let QueueItemType::Single(np_song) = item.item else {
+                                let QueueItemType::Song(np_song) = item.item else {
                                     panic!("This is temporary, handle queueItemTypes at some point")
                                 };
                                 res_rx
-                                    .send(PlayerResponse::NowPlaying(Ok(np_song.song.clone())))
+                                    .send(PlayerResponse::NowPlaying(Ok(np_song.clone())))
                                     .await
                                     .unwrap();
 
-                                state.now_playing = np_song.song.uuid;
+                                state.now_playing = np_song.uuid;
                                 _ = state.write_file();
                                 notify_connections_
-                                    .send(ConnectionsNotification::SongChange(np_song.song))
+                                    .send(ConnectionsNotification::SongChange(np_song))
                                     .unwrap();
                             }
                             QueueResponse::Item(Err(e)) => {
@@ -245,30 +238,24 @@ impl Controller {
                         queue_mail.send(command).await.unwrap();
                         match tx.recv().await.unwrap() {
                             QueueResponse::Item(Ok(item)) => {
-                                let mut song = match item.item {
-                                    QueueItemType::Single(np_song) => {
+                                let song = match item.item {
+                                    QueueItemType::Song(np_song) => {
                                         let prism_uri = prismriver::utils::path_to_uri(
-                                            &np_song
-                                                .song
-                                                .primary_uri()
-                                                .unwrap()
-                                                .0
-                                                .as_path()
-                                                .unwrap(),
+                                            &np_song.primary_uri().unwrap().0.as_path().unwrap(),
                                         )
                                         .unwrap();
                                         player.load_new(&prism_uri).unwrap();
                                         player.play();
 
-                                        state.now_playing = np_song.song.uuid;
+                                        state.now_playing = np_song.uuid;
                                         _ = state.write_file();
 
                                         notify_connections_
                                             .send(ConnectionsNotification::SongChange(
-                                                np_song.song.clone(),
+                                                np_song.clone(),
                                             ))
                                             .unwrap();
-                                        np_song.song
+                                        np_song
                                     }
                                     _ => unimplemented!(),
                                 };
@@ -311,12 +298,15 @@ impl Controller {
                         }
 
                         let (command, tx) = QueueCommandInput::command(QueueCommand::Append(
-                            QueueItem::from_item_type(QueueItemType::Single(QueueSong {
-                                song: np_song.clone(),
-                                location,
-                            })),
+                            QueueItem {
+                                item: QueueItemType::Song(np_song.clone()),
+                                state: QueueState::NoState,
+                                by_human: false,
+                                location: PlayerLocation::Test,
+                            },
                             true,
                         ));
+
                         queue_mail.send(command).await.unwrap();
                         match tx.recv().await.unwrap() {
                             QueueResponse::Empty(Ok(())) => (),
@@ -373,12 +363,12 @@ impl Controller {
                             if let Some(song) = songs.get(i) {
                                 let (command, tx) =
                                     QueueCommandInput::command(QueueCommand::Append(
-                                        QueueItem::from_item_type(QueueItemType::Single(
-                                            QueueSong {
-                                                song: song.clone(),
-                                                location,
-                                            },
-                                        )),
+                                        QueueItem {
+                                            item: QueueItemType::Song(song.clone()),
+                                            state: QueueState::NoState,
+                                            by_human: false,
+                                            location: PlayerLocation::Test,
+                                        },
                                         false,
                                     ));
                                 queue_mail.send(command).await.unwrap();

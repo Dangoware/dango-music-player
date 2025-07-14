@@ -10,69 +10,49 @@ pub enum QueueState {
 
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub struct QueueItem<
-    T: Debug + Clone + PartialEq,                // T: The Singular Item Type
-    U: Debug + PartialEq + Clone + IntoIterator, // U: an Iterator
-> {
-    pub item: QueueItemType<T, U>,
+pub struct QueueItem {
+    pub item: QueueItemType,
     pub state: QueueState,
     pub by_human: bool,
+    pub location: PlayerLocation,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub enum QueueItemType<
-    T: Debug + Clone + PartialEq,                // T: The Singular Item Type
-    U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
-> {
-    Single(T),
-    Multi(U),
+pub enum QueueItemType {
+    Song(Song),
+    Album {
+        album: Album,
+        current: usize,
+        shuffled: bool,
+        looping: bool,
+    },
 }
 
-impl<
-    T: Debug + Clone + PartialEq,                // T: The Singular Item Type
-    U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
-> QueueItemType<T, U>
-{
-    pub fn from_single(item: T) -> Self {
-        QueueItemType::Single(item)
-    }
-
-    pub fn from_multi(item: U) -> Self {
-        QueueItemType::Multi(item)
-    }
-}
-
-impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> QueueItem<T, U> {
-    pub fn from_item_type(item: QueueItemType<T, U>) -> Self {
+impl From<QueueItemType> for QueueItem {
+    fn from(value: QueueItemType) -> Self {
         QueueItem {
-            item,
+            item: value,
             state: QueueState::NoState,
             by_human: false,
+            location: todo!(),
         }
     }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Queue<
-    T: Debug + Clone + PartialEq,                // T: The Singular Item Type
-    U: Debug + PartialEq + Clone + IntoIterator, // U: The Multi-Item Type. Needs to be tracked as multiple items
-> {
-    pub items: Vec<QueueItem<T, U>>,
-    pub played: Vec<QueueItem<T, U>>,
-    pub loop_: bool,
+pub struct Queue {
+    pub items: Vec<QueueItem>,
+    pub played: Vec<QueueItem>,
+    pub looping: bool,
     pub shuffle: Option<Vec<usize>>,
+    pub pull_location: Option<PlayerLocation>,
 }
 
 // TODO: HAndle the First QueueState[looping] and shuffle
-impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> Queue<T, U> {
+impl Queue {
     fn has_addhere(&self) -> bool {
-        for item in &self.items {
-            if item.state == QueueState::AddHere {
-                return true;
-            }
-        }
-        false
+        todo!()
     }
 
     #[allow(unused)]
@@ -81,7 +61,7 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
             self.items
                 .iter()
                 .map(|item| (&item.item, item.state))
-                .collect::<Vec<(&QueueItemType<T, U>, QueueState)>>(),
+                .collect::<Vec<(&QueueItemType, QueueState)>>(),
             self.items.len()
         );
     }
@@ -90,20 +70,19 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
         Queue {
             items: Vec::new(),
             played: Vec::new(),
-            loop_,
+            looping: loop_,
             shuffle,
         }
     }
 
-    pub fn set_items(&mut self, tracks: Vec<QueueItem<T, U>>) {
+    pub fn set_items(&mut self, tracks: Vec<QueueItem>) {
         let mut tracks = tracks;
         self.items.clear();
         self.items.append(&mut tracks);
     }
 
     /// Inserts an item after the AddHere item
-    pub fn add_item(&mut self, item: T, by_human: bool) {
-        let item = QueueItemType::from_single(item);
+    pub fn add_item(&mut self, item: QueueItemType, by_human: bool) {
         let mut i: usize = 0;
 
         self.items = self
@@ -119,7 +98,7 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
                 }
                 item_
             })
-            .collect::<Vec<QueueItem<T, U>>>();
+            .collect::<Vec<QueueItem>>();
         let empty = self.items.is_empty();
 
         if !empty {
@@ -136,6 +115,7 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
                     item,
                     state: QueueState::AddHere,
                     by_human,
+                    location: PlayerLocation::Test,
                 },
             );
         } else {
@@ -143,13 +123,13 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
                 item,
                 state: QueueState::NoState,
                 by_human,
+                location: PlayerLocation::Test,
             });
         }
     }
 
     /// Inserts an item after the currently playing item
-    pub fn add_item_next(&mut self, item: T) {
-        let item = QueueItemType::from_single(item);
+    pub fn add_item_next(&mut self, item: QueueItemType) {
         use QueueState::*;
         let empty = self.items.is_empty();
 
@@ -170,7 +150,7 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
         )
     }
 
-    pub fn add_multi(&mut self, items: Vec<QueueItemType<T, U>>, by_human: bool) {
+    pub fn add_multi(&mut self, items: Vec<QueueItemType>, by_human: bool) {
         let mut i: usize = 0;
 
         self.items = self
@@ -186,7 +166,7 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
                 }
                 item_
             })
-            .collect::<Vec<QueueItem<T, U>>>();
+            .collect::<Vec<QueueItem>>();
 
         let empty = self.items.is_empty();
         if !empty {
@@ -219,7 +199,7 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
     }
 
     /// Add multiple Items after the currently playing Item
-    pub fn add_multiple_next(&mut self, items: Vec<QueueItemType<T, U>>) {
+    pub fn add_multiple_next(&mut self, items: Vec<QueueItemType>) {
         use QueueState::*;
         let empty = self.items.is_empty();
 
@@ -245,7 +225,7 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
         }
     }
 
-    pub fn remove_item(&mut self, remove_index: usize) -> Result<QueueItem<T, U>, QueueError> {
+    pub fn remove_item(&mut self, remove_index: usize) -> Result<QueueItem, QueueError> {
         // dbg!(/*&remove_index, self.current_index(), &index,*/ &self.items[remove_index]);
 
         if remove_index < self.items.len() {
@@ -262,32 +242,10 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
     pub fn insert(
         &mut self,
         index: usize,
-        new_item: QueueItemType<T, U>,
+        new_item: QueueItemType,
         addhere: bool,
     ) -> Result<(), QueueError> {
-        if self.items.get_mut(index).is_none()
-            && index > 0
-            && self.items.get_mut(index - 1).is_none()
-        {
-            return Err(QueueError::OutOfBounds {
-                index,
-                len: self.items.len(),
-            });
-        }
-        if addhere {
-            let mut new_item = QueueItem::from_item_type(new_item);
-            for item in &mut self.items {
-                if item.state == QueueState::AddHere {
-                    item.state = QueueState::NoState
-                }
-            }
-            new_item.state = QueueState::AddHere;
-            self.items.insert(index, new_item);
-        } else {
-            let new_item = QueueItem::from_item_type(new_item);
-            self.items.insert(index, new_item);
-        }
-        Ok(())
+        todo!()
     }
 
     pub fn clear(&mut self) {
@@ -346,9 +304,9 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
     }
 
     #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> Result<&QueueItem<T, U>, QueueError> {
+    pub fn next(&mut self) -> Result<&QueueItem, QueueError> {
         if self.items.is_empty() {
-            if self.loop_ {
+            if self.looping {
                 unimplemented!() // TODO: add function to loop the queue
             } else {
                 return Err(QueueError::EmptyQueue);
@@ -356,7 +314,7 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
         }
 
         if self.items[0].state == QueueState::AddHere || !self.has_addhere() {
-            if let QueueItemType::Multi(_) = self.items[0].item {
+            if let QueueItemType::Album { .. } = self.items[0].item {
                 unimplemented!(); // TODO: Handle Multi items here?
             }
 
@@ -375,16 +333,16 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
         }
     }
 
-    pub fn prev(&mut self) -> Result<&QueueItem<T, U>, QueueError> {
+    pub fn prev(&mut self) -> Result<&QueueItem, QueueError> {
         if let Some(item) = self.played.pop() {
-            if item.state == QueueState::First && self.loop_ {
+            if item.state == QueueState::First && self.looping {
                 todo!()
             }
 
-            if let QueueItemType::Multi(_) = self.items[0].item {
+            if let QueueItemType::Album { .. } = self.items[0].item {
                 unimplemented!(); // TODO: Handle Multi items here?
             }
-            if let QueueItemType::Multi(_) = item.item {
+            if let QueueItemType::Album { .. } = item.item {
                 unimplemented!(); // TODO: Handle Multi items here?
             }
 
@@ -395,9 +353,9 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
         }
     }
 
-    pub fn current(&self) -> Result<&QueueItem<T, U>, QueueError> {
+    pub fn current(&self) -> Result<&QueueItem, QueueError> {
         if !self.items.is_empty() {
-            if let QueueItemType::Multi(_) = self.items[0].item {
+            if let QueueItemType::Album { .. } = self.items[0].item {
                 unimplemented!(); // TODO: Handle Multi items here?
             }
             Ok(&self.items[0])
@@ -414,6 +372,10 @@ impl<T: Debug + Clone + PartialEq, U: Debug + PartialEq + Clone + IntoIterator> 
 }
 
 use thiserror::Error;
+
+use crate::music_controller::controller::PlayerLocation;
+
+use super::library::{Album, Song};
 
 #[derive(Error, Debug, PartialEq, Eq, PartialOrd, Clone)]
 pub enum QueueError {

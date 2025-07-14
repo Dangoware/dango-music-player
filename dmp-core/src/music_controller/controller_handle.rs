@@ -9,12 +9,9 @@ use crate::music_storage::{
     queue::{QueueError, QueueItem, QueueItemType},
 };
 
-use super::{
-    controller::{
-        ControllerHandle, LibraryCommand, LibraryResponse, PlayerCommand, PlayerError,
-        PlayerLocation, PlayerResponse, QueueCommand, QueueResponse,
-    },
-    queue::{QueueAlbum, QueueSong},
+use super::controller::{
+    ControllerHandle, LibraryCommand, LibraryResponse, PlayerCommand, PlayerError, PlayerLocation,
+    PlayerResponse, QueueCommand, QueueResponse,
 };
 
 impl ControllerHandle {
@@ -109,10 +106,7 @@ impl ControllerHandle {
     }
 
     // The Queue Section
-    pub async fn queue_append(
-        &self,
-        item: QueueItem<QueueSong, QueueAlbum>,
-    ) -> Result<(), QueueError> {
+    pub async fn queue_append(&self, item: QueueItem) -> Result<(), QueueError> {
         let (command, tx) = QueueCommandInput::command(QueueCommand::Append(item, true));
         self.queue_mail_rx.send(command).await.unwrap();
         let QueueResponse::Empty(res) = tx.recv().await.unwrap() else {
@@ -121,10 +115,7 @@ impl ControllerHandle {
         res
     }
 
-    pub async fn queue_remove(
-        &self,
-        index: usize,
-    ) -> Result<QueueItem<QueueSong, QueueAlbum>, QueueError> {
+    pub async fn queue_remove(&self, index: usize) -> Result<QueueItem, QueueError> {
         let (command, tx) = QueueCommandInput::command(QueueCommand::Remove(index));
         self.queue_mail_rx.send(command).await.unwrap();
         let QueueResponse::Item(res) = tx.recv().await.unwrap() else {
@@ -133,7 +124,7 @@ impl ControllerHandle {
         res
     }
 
-    pub async fn queue_get_all(&self) -> Vec<QueueItem<QueueSong, QueueAlbum>> {
+    pub async fn queue_get_all(&self) -> Vec<QueueItem> {
         let (command, tx) = QueueCommandInput::command(QueueCommand::Get);
         self.queue_mail_rx.send(command).await.unwrap();
         let QueueResponse::GetAll(queue) = tx.recv().await.unwrap() else {
@@ -153,7 +144,7 @@ impl ControllerHandle {
             unimplemented!()
         };
         let (command, tx) = QueueCommandInput::command(QueueCommand::PlayNext(
-            QueueItem::from_item_type(QueueItemType::from_single(QueueSong { song, location })),
+            QueueItem::from(QueueItemType::Song(song)),
             false,
         ));
         self.queue_mail_rx.send(command).await.unwrap();
