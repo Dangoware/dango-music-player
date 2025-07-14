@@ -14,6 +14,7 @@ pub mod music_controller {
     pub mod connections;
     pub mod controller;
     pub mod controller_handle;
+    pub mod library;
     pub mod library_command;
     pub mod player_command;
     pub mod player_monitor;
