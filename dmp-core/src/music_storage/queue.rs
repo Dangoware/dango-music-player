@@ -1,4 +1,21 @@
 use std::{fmt::Debug, path::PathBuf};
+use thiserror::Error;
+use uuid::Uuid;
+
+use crate::music_controller::controller::PlayerLocation;
+
+use super::library::{Album, Song};
+
+#[derive(Debug, Clone, Default)]
+pub struct Queue {
+    pub queue: Vec<QueueItem>,
+    pub up_next_visible: Vec<QueueItem>,
+    pub up_next_invisible: Vec<UpNextSong>,
+    pub played: Vec<QueueItem>,
+    pub looping: Loop,
+    pub shuffle: Shuffle,
+    pub pull_location: Option<PlayerLocation>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -19,30 +36,32 @@ pub enum QueueItemType {
     },
 }
 
-impl From<QueueItemType> for QueueItem {
-    fn from(value: QueueItemType) -> Self {
-        QueueItem {
-            item: value,
-            location: todo!(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct Queue {
-    pub queue: Vec<QueueItem>,
-    pub up_next_visible: Vec<QueueItem>,
-    pub up_next_invisible: Vec<UpNextSong>,
-    pub played: Vec<QueueItem>,
-    pub looping: bool,
-    pub shuffle: Option<Vec<usize>>,
-    pub pull_location: Option<PlayerLocation>,
-}
-
 #[derive(Debug, Clone)]
 enum UpNextSong {
     Library(Uuid),
     File(PathBuf),
+}
+
+#[derive(Debug, Clone, Default)]
+enum Shuffle {
+    #[default]
+    NoShuffle,
+    ShuffleAllSongs,
+    ShuffleInCategory,
+    ShuffleCategories,
+    ShuffleInCategoriesAndCategories,
+    // Future feature: Add Dango Shuffle Option
+}
+
+#[derive(Debug, Clone, Default)]
+pub enum Loop {
+    #[default]
+    NoLoop,
+    LoopCategory,
+    LoopSong,
+    LoopAlbum,
+    ABLoop,
+    PlayOnce,
 }
 
 // TODO: HAndle the First QueueState[looping] and shuffle
@@ -342,13 +361,6 @@ impl Queue {
         }
     }
 }
-
-use thiserror::Error;
-use uuid::Uuid;
-
-use crate::music_controller::controller::PlayerLocation;
-
-use super::library::{Album, Song};
 
 #[derive(Error, Debug, PartialEq, Eq, PartialOrd, Clone)]
 pub enum QueueError {

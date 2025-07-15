@@ -144,7 +144,10 @@ impl ControllerHandle {
             unimplemented!()
         };
         let (command, tx) = QueueCommandInput::command(QueueCommand::PlayNext(
-            QueueItem::from(QueueItemType::Song(song)),
+            QueueItem {
+                item: QueueItemType::Song(song),
+                location,
+            },
             false,
         ));
         self.queue_mail_rx.send(command).await.unwrap();
