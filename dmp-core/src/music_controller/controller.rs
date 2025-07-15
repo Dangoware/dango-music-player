@@ -272,13 +272,7 @@ impl Controller {
             notify_next_song,
         }: ControllerInput,
     ) -> Result<(), Box<dyn Error>> {
-        let queue: Queue = Queue {
-            items: Vec::new(),
-            played: Vec::new(),
-            looping: false,
-            shuffle: None,
-            pull_location: todo!(),
-        };
+        let queue: Queue = Queue::default();
 
         let state = {
             let path = &config.read().state_path;

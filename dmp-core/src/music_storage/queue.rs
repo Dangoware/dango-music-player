@@ -1,19 +1,9 @@
-use std::fmt::Debug;
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum QueueState {
-    Played,
-    First,
-    AddHere,
-    NoState,
-}
+use std::{fmt::Debug, path::PathBuf};
 
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct QueueItem {
     pub item: QueueItemType,
-    pub state: QueueState,
-    pub by_human: bool,
     pub location: PlayerLocation,
 }
 
@@ -33,8 +23,6 @@ impl From<QueueItemType> for QueueItem {
     fn from(value: QueueItemType) -> Self {
         QueueItem {
             item: value,
-            state: QueueState::NoState,
-            by_human: false,
             location: todo!(),
         }
     }
@@ -42,51 +30,35 @@ impl From<QueueItemType> for QueueItem {
 
 #[derive(Debug, Clone, Default)]
 pub struct Queue {
-    pub items: Vec<QueueItem>,
+    pub queue: Vec<QueueItem>,
+    pub up_next_visible: Vec<QueueItem>,
+    pub up_next_invisible: Vec<UpNextSong>,
     pub played: Vec<QueueItem>,
     pub looping: bool,
     pub shuffle: Option<Vec<usize>>,
     pub pull_location: Option<PlayerLocation>,
 }
 
+#[derive(Debug, Clone)]
+enum UpNextSong {
+    Library(Uuid),
+    File(PathBuf),
+}
+
 // TODO: HAndle the First QueueState[looping] and shuffle
 impl Queue {
-    fn has_addhere(&self) -> bool {
-        todo!()
-    }
-
-    #[allow(unused)]
-    pub(crate) fn dbg_items(&self) {
-        dbg!(
-            self.items
-                .iter()
-                .map(|item| (&item.item, item.state))
-                .collect::<Vec<(&QueueItemType, QueueState)>>(),
-            self.items.len()
-        );
-    }
-
-    pub fn new(loop_: bool, shuffle: Option<Vec<usize>>) -> Self {
-        Queue {
-            items: Vec::new(),
-            played: Vec::new(),
-            looping: loop_,
-            shuffle,
-        }
-    }
-
     pub fn set_items(&mut self, tracks: Vec<QueueItem>) {
         let mut tracks = tracks;
-        self.items.clear();
-        self.items.append(&mut tracks);
+        self.queue.clear();
+        self.queue.append(&mut tracks);
     }
 
     /// Inserts an item after the AddHere item
     pub fn add_item(&mut self, item: QueueItemType, by_human: bool) {
         let mut i: usize = 0;
 
-        self.items = self
-            .items
+        self.queue = self
+            .queue
             .iter()
             .enumerate()
             .map(|(j, item_)| {
@@ -99,17 +71,17 @@ impl Queue {
                 item_
             })
             .collect::<Vec<QueueItem>>();
-        let empty = self.items.is_empty();
+        let empty = self.queue.is_empty();
 
         if !empty {
-            self.items
+            self.queue
                 .get_mut(i)
                 .expect("There should be an item at index {i}")
                 .state = QueueState::NoState;
         }
 
         if by_human {
-            self.items.insert(
+            self.queue.insert(
                 i + if empty { 0 } else { 1 },
                 QueueItem {
                     item,
@@ -119,7 +91,7 @@ impl Queue {
                 },
             );
         } else {
-            self.items.push(QueueItem {
+            self.queue.push(QueueItem {
                 item,
                 state: QueueState::NoState,
                 by_human,
@@ -131,14 +103,14 @@ impl Queue {
     /// Inserts an item after the currently playing item
     pub fn add_item_next(&mut self, item: QueueItemType) {
         use QueueState::*;
-        let empty = self.items.is_empty();
+        let empty = self.queue.is_empty();
 
-        self.items.insert(
+        self.queue.insert(
             if empty { 0 } else { 1 },
             QueueItem {
                 item,
-                state: if (self.items.get(1).is_none()
-                    || !self.has_addhere() && self.items.get(1).is_some())
+                state: if (self.queue.get(1).is_none()
+                    || !self.has_addhere() && self.queue.get(1).is_some())
                     || empty
                 {
                     AddHere
@@ -153,8 +125,8 @@ impl Queue {
     pub fn add_multi(&mut self, items: Vec<QueueItemType>, by_human: bool) {
         let mut i: usize = 0;
 
-        self.items = self
-            .items
+        self.queue = self
+            .queue
             .iter()
             .enumerate()
             .map(|(j, item_)| {
@@ -168,9 +140,9 @@ impl Queue {
             })
             .collect::<Vec<QueueItem>>();
 
-        let empty = self.items.is_empty();
+        let empty = self.queue.is_empty();
         if !empty {
-            self.items
+            self.queue
                 .get_mut(i)
                 .expect("There should be an item at index {i}")
                 .state = QueueState::NoState;
@@ -179,7 +151,7 @@ impl Queue {
         let len = items.len();
         for item in items.into_iter().rev() {
             if by_human {
-                self.items.insert(
+                self.queue.insert(
                     i + if empty { 0 } else { 1 },
                     QueueItem {
                         item,
@@ -188,29 +160,29 @@ impl Queue {
                     },
                 );
             } else {
-                self.items.push(QueueItem {
+                self.queue.push(QueueItem {
                     item,
                     state: QueueState::NoState,
                     by_human, // false
                 });
             }
         }
-        self.items[i + len - if empty { 1 } else { 0 }].state = QueueState::AddHere;
+        self.queue[i + len - if empty { 1 } else { 0 }].state = QueueState::AddHere;
     }
 
     /// Add multiple Items after the currently playing Item
     pub fn add_multiple_next(&mut self, items: Vec<QueueItemType>) {
         use QueueState::*;
-        let empty = self.items.is_empty();
+        let empty = self.queue.is_empty();
 
-        let add_here = (self.items.get(1).is_none()
-            || !self.has_addhere() && self.items.get(1).is_some())
+        let add_here = (self.queue.get(1).is_none()
+            || !self.has_addhere() && self.queue.get(1).is_some())
             || empty;
 
         let len = items.len();
 
         for item in items {
-            self.items.insert(
+            self.queue.insert(
                 if empty { 0 } else { 1 },
                 QueueItem {
                     item,
@@ -221,19 +193,19 @@ impl Queue {
         }
 
         if add_here {
-            self.items[len - if empty { 1 } else { 0 }].state = QueueState::AddHere;
+            self.queue[len - if empty { 1 } else { 0 }].state = QueueState::AddHere;
         }
     }
 
     pub fn remove_item(&mut self, remove_index: usize) -> Result<QueueItem, QueueError> {
         // dbg!(/*&remove_index, self.current_index(), &index,*/ &self.items[remove_index]);
 
-        if remove_index < self.items.len() {
+        if remove_index < self.queue.len() {
             // update the state of the next item to replace the item being removed
-            if self.items.get(remove_index + 1).is_some() {
-                self.items[remove_index + 1].state = self.items[remove_index].state;
+            if self.queue.get(remove_index + 1).is_some() {
+                self.queue[remove_index + 1].state = self.queue[remove_index].state;
             }
-            Ok(self.items.remove(remove_index))
+            Ok(self.queue.remove(remove_index))
         } else {
             Err(QueueError::EmptyQueue)
         }
@@ -249,23 +221,23 @@ impl Queue {
     }
 
     pub fn clear(&mut self) {
-        self.items.clear();
+        self.queue.clear();
     }
 
     pub fn clear_except(&mut self, index: usize) -> Result<(), QueueError> {
         use QueueState::*;
-        let empty = self.items.is_empty();
+        let empty = self.queue.is_empty();
 
-        if !empty && index < self.items.len() {
-            let i = self.items[index].clone();
-            self.items.retain(|item| *item == i);
-            self.items[0].state = AddHere;
+        if !empty && index < self.queue.len() {
+            let i = self.queue[index].clone();
+            self.queue.retain(|item| *item == i);
+            self.queue[0].state = AddHere;
         } else if empty {
             return Err(QueueError::EmptyQueue);
         } else {
             return Err(QueueError::OutOfBounds {
                 index,
-                len: self.items.len(),
+                len: self.queue.len(),
             });
         }
         Ok(())
@@ -276,12 +248,12 @@ impl Queue {
     }
 
     pub fn clear_all(&mut self) {
-        self.items.clear();
+        self.queue.clear();
         self.played.clear();
     }
 
     pub fn move_to(&mut self, index: usize) -> Result<(), QueueError> {
-        if self.items.is_empty() {
+        if self.queue.is_empty() {
             return Err(QueueError::EmptyQueue);
         }
         for _ in 0..index {
@@ -292,20 +264,20 @@ impl Queue {
     }
 
     pub fn swap(&mut self, a: usize, b: usize) {
-        self.items.swap(a, b)
+        self.queue.swap(a, b)
     }
 
     pub fn move_item(&mut self, from: usize, to: usize) {
-        let item = self.items[from].to_owned();
+        let item = self.queue[from].to_owned();
         if from != to {
-            self.items.remove(from);
+            self.queue.remove(from);
         }
-        self.items.insert(to, item);
+        self.queue.insert(to, item);
     }
 
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<&QueueItem, QueueError> {
-        if self.items.is_empty() {
+        if self.queue.is_empty() {
             if self.looping {
                 unimplemented!() // TODO: add function to loop the queue
             } else {
@@ -313,23 +285,23 @@ impl Queue {
             }
         }
 
-        if self.items[0].state == QueueState::AddHere || !self.has_addhere() {
-            if let QueueItemType::Album { .. } = self.items[0].item {
+        if self.queue[0].state == QueueState::AddHere || !self.has_addhere() {
+            if let QueueItemType::Album { .. } = self.queue[0].item {
                 unimplemented!(); // TODO: Handle Multi items here?
             }
 
-            self.items[0].state = QueueState::NoState;
-            if self.items.get(1).is_some() {
-                self.items[1].state = QueueState::AddHere;
+            self.queue[0].state = QueueState::NoState;
+            if self.queue.get(1).is_some() {
+                self.queue[1].state = QueueState::AddHere;
             }
         }
-        let item = self.items.remove(0);
+        let item = self.queue.remove(0);
         self.played.push(item);
 
-        if self.items.is_empty() {
+        if self.queue.is_empty() {
             Err(QueueError::NoNext)
         } else {
-            Ok(&self.items[0])
+            Ok(&self.queue[0])
         }
     }
 
@@ -339,26 +311,26 @@ impl Queue {
                 todo!()
             }
 
-            if let QueueItemType::Album { .. } = self.items[0].item {
+            if let QueueItemType::Album { .. } = self.queue[0].item {
                 unimplemented!(); // TODO: Handle Multi items here?
             }
             if let QueueItemType::Album { .. } = item.item {
                 unimplemented!(); // TODO: Handle Multi items here?
             }
 
-            self.items.insert(0, item);
-            Ok(&self.items[0])
+            self.queue.insert(0, item);
+            Ok(&self.queue[0])
         } else {
             Err(QueueError::EmptyPlayed)
         }
     }
 
     pub fn current(&self) -> Result<&QueueItem, QueueError> {
-        if !self.items.is_empty() {
-            if let QueueItemType::Album { .. } = self.items[0].item {
+        if !self.queue.is_empty() {
+            if let QueueItemType::Album { .. } = self.queue[0].item {
                 unimplemented!(); // TODO: Handle Multi items here?
             }
-            Ok(&self.items[0])
+            Ok(&self.queue[0])
         } else {
             Err(QueueError::EmptyQueue)
         }
@@ -372,6 +344,7 @@ impl Queue {
 }
 
 use thiserror::Error;
+use uuid::Uuid;
 
 use crate::music_controller::controller::PlayerLocation;
 

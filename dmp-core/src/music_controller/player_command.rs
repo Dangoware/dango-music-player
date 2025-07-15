@@ -4,7 +4,7 @@ use prismriver::{Prismriver, Volume};
 
 use crate::{
     music_controller::controller::{LibraryCommand, LibraryResponse},
-    music_storage::queue::{QueueItem, QueueItemType, QueueState},
+    music_storage::queue::{QueueItem, QueueItemType},
 };
 
 use super::{
@@ -110,8 +110,6 @@ impl Controller {
                                                 QueueCommandInput::command(QueueCommand::Append(
                                                     QueueItem {
                                                         item: QueueItemType::Song(song.clone()),
-                                                        state: QueueState::NoState,
-                                                        by_human: false,
                                                         location: item.location,
                                                     },
                                                     false,
@@ -153,8 +151,6 @@ impl Controller {
                                                 QueueCommandInput::command(QueueCommand::Append(
                                                     QueueItem {
                                                         item: QueueItemType::Song(song.clone()),
-                                                        state: QueueState::NoState,
-                                                        by_human: false,
                                                         location: PlayerLocation::Test,
                                                     },
                                                     false,
@@ -300,8 +296,6 @@ impl Controller {
                         let (command, tx) = QueueCommandInput::command(QueueCommand::Append(
                             QueueItem {
                                 item: QueueItemType::Song(np_song.clone()),
-                                state: QueueState::NoState,
-                                by_human: false,
                                 location: PlayerLocation::Test,
                             },
                             true,
@@ -365,8 +359,6 @@ impl Controller {
                                     QueueCommandInput::command(QueueCommand::Append(
                                         QueueItem {
                                             item: QueueItemType::Song(song.clone()),
-                                            state: QueueState::NoState,
-                                            by_human: false,
                                             location: PlayerLocation::Test,
                                         },
                                         false,

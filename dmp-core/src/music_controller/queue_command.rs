@@ -41,10 +41,10 @@ impl Controller {
                         .unwrap();
                 }
                 QueueCommand::GetIndex(index) => {
-                    let item = queue.items.get(index).map_or(
+                    let item = queue.queue.get(index).map_or(
                         Err(QueueError::OutOfBounds {
                             index,
-                            len: queue.items.len(),
+                            len: queue.queue.len(),
                         }),
                         |s| Ok(s.clone()),
                     );
@@ -56,7 +56,7 @@ impl Controller {
                 }
                 QueueCommand::Get => {
                     res_rx
-                        .send(QueueResponse::GetAll(queue.items.clone()))
+                        .send(QueueResponse::GetAll(queue.queue.clone()))
                         .await
                         .unwrap();
                 }
