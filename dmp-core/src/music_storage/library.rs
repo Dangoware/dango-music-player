@@ -379,8 +379,6 @@ impl Song {
             tags.insert(Tag::Title, String::from(filename));
         }
 
-        println!("{:?}", tags.get(&Tag::Title));
-
         // TODO: Handle creation of internal tag: Song Type and Song Links
         let internal_tags = { Vec::new() };
         let new_song = Song {
