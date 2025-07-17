@@ -374,6 +374,13 @@ impl Song {
         // TODO: Fix error handling
         let binding = fs::canonicalize(target_file).unwrap();
 
+        if tags.get(&Tag::Title) == None {
+            let filename = binding.file_name().unwrap().to_str().unwrap();
+            tags.insert(Tag::Title, String::from(filename));
+        }
+
+        println!("{:?}", tags.get(&Tag::Title));
+
         // TODO: Handle creation of internal tag: Song Type and Song Links
         let internal_tags = { Vec::new() };
         let new_song = Song {
