@@ -10,6 +10,8 @@ use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 
+use crate::music_storage::queue::{Loop, Shuffle};
+
 #[cfg_attr(feature = "ts", derive(TS), ts(export))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigLibrary {
@@ -112,6 +114,16 @@ pub struct Config {
     pub libraries: ConfigLibraries,
     pub connections: ConfigConnections,
     pub state_path: PathBuf,
+    pub queue_defaults: QueueConfig,
+}
+
+/// The default options for a queue upon creation
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QueueConfig {
+    pub looping: Loop,
+    pub shuffle: Shuffle,
+    pub up_next_limit: usize,
 }
 
 impl Config {
@@ -181,6 +193,16 @@ impl Config {
             self.libraries.default_library = lib.uuid;
         }
         self.libraries.libraries.push(lib);
+    }
+}
+
+impl Default for QueueConfig {
+    fn default() -> Self {
+        QueueConfig {
+            looping: Loop::NoLoop,
+            shuffle: Shuffle::NoShuffle,
+            up_next_limit: 50,
+        }
     }
 }
 
