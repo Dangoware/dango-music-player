@@ -23,24 +23,34 @@ impl Controller {
         config: Arc<RwLock<Config>>,
     ) -> Result<(), ()> {
         while true {
-            let LibraryCommandInput { res_rx, command } = lib_mail.recv().await.unwrap();
+            let LibraryCommandInput {
+                res_rx: res_tx,
+                command,
+            } = lib_mail.recv().await.unwrap();
             match command {
                 LibraryCommand::Song(uuid) => {
                     let (song, i) = library.query_uuid(&uuid).unwrap();
-                    res_rx
+                    res_tx
                         .send(LibraryResponse::Song(song.clone(), i))
                         .await
                         .unwrap();
                 }
                 LibraryCommand::AllSongs => {
-                    res_rx
+                    res_tx
                         .send(LibraryResponse::AllSongs(library.library.clone()))
+                        .await
+                        .unwrap();
+                }
+                LibraryCommand::Playlist(uuid) => {
+                    let playlist = library.query_playlist_uuid(&uuid).unwrap();
+                    res_tx
+                        .send(LibraryResponse::Playlist(playlist.clone()))
                         .await
                         .unwrap();
                 }
                 LibraryCommand::ExternalPlaylist(uuid) => {
                     let playlist = library.query_playlist_uuid(&uuid).unwrap();
-                    res_rx
+                    res_tx
                         .send(LibraryResponse::ExternalPlaylist(
                             ExternalPlaylist::from_playlist(playlist, library),
                         ))
@@ -56,7 +66,7 @@ impl Controller {
                         .items
                         .push(PlaylistFolderItem::List(playlist));
 
-                    res_rx
+                    res_tx
                         .send(LibraryResponse::ImportM3UPlayList(uuid, name))
                         .await
                         .unwrap();
@@ -73,7 +83,7 @@ impl Controller {
                                 .clone(),
                         )
                         .unwrap();
-                    res_rx.send(LibraryResponse::Ok).await.unwrap();
+                    res_tx.send(LibraryResponse::Ok).await.unwrap();
                 }
                 LibraryCommand::Playlists => {
                     let mut lists = vec![];
@@ -84,7 +94,7 @@ impl Controller {
                         .map(|list| (list.uuid, list.title.clone()))
                         .collect_into_vec(&mut lists);
 
-                    res_rx
+                    res_tx
                         .send(LibraryResponse::Playlists(lists))
                         .await
                         .unwrap();
@@ -100,7 +110,7 @@ impl Controller {
                     let Some((song, _)) = library.query_uuid(uuid) else {
                         todo!()
                     };
-                    res_rx
+                    res_tx
                         .send(LibraryResponse::PlaylistSong(song.clone(), index))
                         .await
                         .unwrap();
@@ -120,7 +130,7 @@ impl Controller {
                                 .clone(),
                         )
                         .unwrap();
-                    res_rx.send(LibraryResponse::Ok).await.unwrap();
+                    res_tx.send(LibraryResponse::Ok).await.unwrap();
                 }
                 LibraryCommand::DeletePlaylist(uuid) => {
                     _ = library.playlists.delete_uuid(uuid);
@@ -136,7 +146,7 @@ impl Controller {
                                 .clone(),
                         )
                         .unwrap();
-                    res_rx.send(LibraryResponse::Ok).await.unwrap();
+                    res_tx.send(LibraryResponse::Ok).await.unwrap();
                 }
                 LibraryCommand::LibraryRemoveSong(uuid) => {
                     library.remove_uuid(&uuid).unwrap();
@@ -152,7 +162,7 @@ impl Controller {
                                 .clone(),
                         )
                         .unwrap();
-                    res_rx.send(LibraryResponse::Ok).await.unwrap();
+                    res_tx.send(LibraryResponse::Ok).await.unwrap();
                 }
                 LibraryCommand::PlaylistRemoveSong { playlist, song } => {
                     library.playlists.delete_song(song, &playlist).unwrap();
@@ -169,7 +179,31 @@ impl Controller {
                                 .clone(),
                         )
                         .unwrap();
-                    res_rx.send(LibraryResponse::Ok).await.unwrap();
+                    res_tx.send(LibraryResponse::Ok).await.unwrap();
+                }
+                LibraryCommand::AllUuids => {
+                    let uuids = library.library.iter().map(|track| track.uuid).collect();
+                    res_tx.send(LibraryResponse::AllUuids(uuids)).await.unwrap();
+                }
+                LibraryCommand::FilteredPlaylist(uuid) => {
+                    let uuids = if let Some(list) = library.query_playlist_uuid(&uuid) {
+                        list.tracks
+                            .iter()
+                            .filter_map(|uuid| {
+                                if library.query_uuid(uuid).is_some() {
+                                    Some(*uuid)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect()
+                    } else {
+                        panic!("Playlist shouldn't be full of invalid values?")
+                    };
+                    res_tx
+                        .send(LibraryResponse::FilteredPlaylist(uuids))
+                        .await
+                        .unwrap();
                 }
                 _ => {
                     todo!()

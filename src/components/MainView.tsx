@@ -66,7 +66,7 @@ export default function MainView({ lib_ref, viewName, playlistsInfo, setSelected
       console.log("library_loaded");
       invoke('get_library').then((lib) => {
         setLibrary([...(lib as Song[]).map((song, i) => {
-          console.log("duration", song.duration)
+          console.log("uri", song.location[0])
           return (
             <MainViewSong
               key={ song.uuid + Math.floor(Math.random() * 100_000_000_000) }

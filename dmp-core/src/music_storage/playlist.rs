@@ -171,7 +171,6 @@ impl Playlist {
         if self.tracks.contains(&uuid) {
             for track in &self.tracks {
                 if &uuid == track {
-                    dbg!("Index gotted! ", i);
                     return Some(i);
                 }
                 i += 1;

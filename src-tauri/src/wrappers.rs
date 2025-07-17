@@ -120,7 +120,7 @@ pub async fn get_queue(
             let QueueItemType::Song(song) = item.item else {
                 unreachable!("There should be no albums in the queue right now")
             };
-            (song.song, song.location)
+            (song, item.location)
         })
         .collect_vec())
 }

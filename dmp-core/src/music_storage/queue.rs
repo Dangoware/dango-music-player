@@ -21,7 +21,6 @@ pub struct Queue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct QueueItem {
     pub item: QueueItemType,
     pub location: PlayerLocation,
@@ -35,13 +34,19 @@ pub enum QueueItemType {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum UpNextSong {
+pub struct UpNextSong {
+    pub inner: UpNextSongInner,
+    pub location: PlayerLocation,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum UpNextSongInner {
     Library(Uuid),
     File(PathBuf),
 }
 
 #[cfg_attr(feature = "ts", derive(TS), ts(export))]
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub enum Shuffle {
     #[default]
     NoShuffle,
@@ -53,7 +58,7 @@ pub enum Shuffle {
 }
 
 #[cfg_attr(feature = "ts", derive(TS), ts(export))]
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub enum Loop {
     #[default]
     NoLoop,
@@ -100,6 +105,15 @@ impl Queue {
         self.queue.push(item);
     }
 
+    pub fn add_up_next(&mut self, item: QueueItem) {
+        self.up_next_visible.push(item);
+    }
+
+    pub fn add_up_next_invis(&mut self, items: Vec<UpNextSong>) {
+        let mut items = items;
+        self.up_next_invisible.append(&mut items);
+    }
+
     /// Inserts an item in the queue after the now playing item
     pub fn add_after_np(&mut self, item: QueueItem) {
         if self.queue.is_empty() {
@@ -131,20 +145,17 @@ impl Queue {
     }
 
     /// Remove an item from the queue at the selected index
-    pub fn remove_queue(&mut self, index: usize) -> Result<QueueItem, QueueError> {
-        let len = self.queue.len();
-        if len > 0 && len > index {
-            Ok(self.queue.remove(index))
-        } else {
-            Err(QueueError::OutOfBounds { index, len })
-        }
-    }
+    /// This will also remove from the up next section if the index is above the length of the queue
+    pub fn remove(&mut self, index: usize) -> Result<QueueItem, QueueError> {
+        let queue_len = self.queue.len();
+        let len = queue_len + self.up_next_visible.len();
 
-    /// Remove an item from the next up section at the selected index
-    pub fn remove_next_up(&mut self, index: usize) -> Result<QueueItem, QueueError> {
-        let len = self.up_next_visible.len();
-        if len > 0 && len > index {
-            Ok(self.up_next_visible.remove(index))
+        if index > 0 && index < len {
+            if index < queue_len {
+                Ok(self.queue.remove(index))
+            } else {
+                Ok(self.up_next_visible.remove(index - queue_len))
+            }
         } else {
             Err(QueueError::OutOfBounds { index, len })
         }
@@ -155,6 +166,17 @@ impl Queue {
         let len = self.queue.len();
         if len > index || len == 0 && index == 0 {
             self.queue.insert(index, item);
+            Ok(())
+        } else {
+            Err(QueueError::OutOfBounds { index, len })
+        }
+    }
+
+    /// Insert an item into the up next section at the selected index
+    pub fn insert_up_next(&mut self, index: usize, item: QueueItem) -> Result<(), QueueError> {
+        let len = self.up_next_visible.len();
+        if len > index || len == 0 && index == 0 {
+            self.up_next_visible.insert(index, item);
             Ok(())
         } else {
             Err(QueueError::OutOfBounds { index, len })
@@ -210,42 +232,31 @@ impl Queue {
         self.up_next_invisible.clear();
     }
 
+    /// Moves the queue forward to the selected index.
+    /// It will pull into the queue from up next if there are none left
     pub fn move_to(&mut self, index: usize) -> Result<QueueMove, QueueError> {
         let queue_len = self.queue.len();
         let up_next_len = self.up_next_visible.len();
-        let prev = self.queue.remove(0);
-        self.played.push(prev);
+        let mut first = true;
+
         let mut up_next_items = vec![];
 
-        if index < queue_len {
-            if let Some(_) = self.queue.get(index) {
-                for _ in 0..index {
-                    if let Ok(QueueNext {
+        if index < (queue_len + up_next_len) {
+            for _ in 0..index {
+                match self.next(!first) {
+                    Ok(QueueNext {
                         up_next_item: Some(next),
                         ..
-                    }) = self.skip()
-                    {
+                    }) => {
                         up_next_items.push(next);
+                        first = false;
                     }
-                }
-            } else {
-                unreachable!("Queue couldn't get item to move to");
-            }
-        } else if index < self.up_next_visible.len() {
-            if let Some(_) = self.queue.get(index) {
-                for _ in 0..(index - queue_len) {
-                    for _ in 0..index {
-                        if let Ok(QueueNext {
-                            up_next_item: Some(next),
-                            ..
-                        }) = self.skip()
-                        {
-                            up_next_items.push(next);
-                        }
+                    Err(e) => {
+                        println!("{e}");
+                        continue;
                     }
+                    _ => continue,
                 }
-            } else {
-                unreachable!("Queue couldn't get item to move to");
             }
         } else {
             return Err(QueueError::OutOfBounds {
@@ -259,11 +270,13 @@ impl Queue {
         })
     }
 
+    /// Moves the Queue foreward and returns the currently playing item, as well as the next item for the up next section, if applicable
+    /// If skip is true, the queue will not put the current item in the played stack
     #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> Result<QueueNext, QueueError> {
+    pub fn next(&mut self, skip: bool) -> Result<QueueNext, QueueError> {
         if !self.queue.is_empty() {
             'album: {
-                match self.queue.get(0) {
+                match self.queue.first() {
                     Some(item) => {
                         if let QueueItemType::Album {
                             ref album,
@@ -285,7 +298,7 @@ impl Queue {
                                         album: album.clone(),
                                         current: new_index,
                                     },
-                                    location: item.location.clone(),
+                                    location: item.location,
                                 },
                                 up_next_item: None,
                             };
@@ -297,12 +310,21 @@ impl Queue {
                 }
             }
 
-            let prev = self.queue.remove(0);
-            self.played.push(prev);
-            if self.queue.is_empty() {
+            if skip {
+                _ = self.queue.remove(0);
+            } else {
+                self.played.push(self.queue.remove(0));
+            }
+
+            dbg!(
+                &self.up_next_visible.len(),
+                &self.up_next_limit,
+                self.up_next_invisible.is_empty()
+            );
+            if !self.queue.is_empty() {
                 Ok(QueueNext {
                     item: self.queue[0].clone(),
-                    up_next_item: if self.up_next_invisible.get(0).is_some()
+                    up_next_item: if !self.up_next_invisible.is_empty()
                         && self.up_next_visible.len() < self.up_next_limit
                     {
                         Some(self.up_next_invisible.remove(0))
@@ -313,9 +335,10 @@ impl Queue {
             } else if self.queue.is_empty() && !self.up_next_visible.is_empty() {
                 let new = self.up_next_visible.remove(0);
                 self.queue.push(new);
+
                 Ok(QueueNext {
                     item: self.queue[0].clone(),
-                    up_next_item: if self.up_next_invisible.get(0).is_some()
+                    up_next_item: if !self.up_next_invisible.is_empty()
                         && self.up_next_visible.len() < self.up_next_limit
                     {
                         Some(self.up_next_invisible.remove(0))
@@ -332,83 +355,36 @@ impl Queue {
     }
 
     pub fn prev(&mut self) -> Result<&QueueItem, QueueError> {
+        'album: {
+            let current = {
+                let Ok(QueueItem {
+                    item: QueueItemType::Album { current, .. },
+                    ..
+                }) = self.current()
+                else {
+                    break 'album;
+                };
+                current.clone()
+            };
+
+            if current > 0 {
+                {
+                    if let QueueItemType::Album { current, .. } =
+                        &mut self.queue.get_mut(0).unwrap().item
+                    {
+                        *current -= 1;
+                    }
+                };
+                return Ok(&self.queue[0]);
+            }
+        };
+
         let Some(prev) = self.played.pop() else {
             return Err(QueueError::EmptyPlayed);
         };
 
         self.queue.insert(0, prev);
         Ok(&self.queue[0])
-    }
-
-    pub fn skip(&mut self) -> Result<QueueNext, QueueError> {
-        if !self.queue.is_empty() {
-            'album: {
-                match self.queue.get(0) {
-                    Some(item) => {
-                        if let QueueItemType::Album {
-                            ref album,
-                            ref current,
-                        } = item.item
-                        {
-                            let new_index = if current < &album.len() {
-                                *current + 1
-                            } else if *current >= album.len()
-                                && let Loop::LoopAlbum = self.looping
-                            {
-                                0
-                            } else {
-                                break 'album;
-                            };
-                            let next = QueueNext {
-                                item: QueueItem {
-                                    item: QueueItemType::Album {
-                                        album: album.clone(),
-                                        current: new_index,
-                                    },
-                                    location: item.location.clone(),
-                                },
-                                up_next_item: None,
-                            };
-
-                            return Ok(next);
-                        }
-                    }
-                    None => unreachable!(),
-                }
-            }
-
-            // This is the only line changed from the `Queue::next()` function
-            _ = self.queue.remove(0);
-            if self.queue.is_empty() {
-                Ok(QueueNext {
-                    item: self.queue[0].clone(),
-                    up_next_item: if self.up_next_invisible.get(0).is_some()
-                        && self.up_next_visible.len() < self.up_next_limit
-                    {
-                        Some(self.up_next_invisible.remove(0))
-                    } else {
-                        None
-                    },
-                })
-            } else if self.queue.is_empty() && !self.up_next_visible.is_empty() {
-                let new = self.up_next_visible.remove(0);
-                self.queue.push(new);
-                Ok(QueueNext {
-                    item: self.queue[0].clone(),
-                    up_next_item: if self.up_next_invisible.get(0).is_some()
-                        && self.up_next_visible.len() < self.up_next_limit
-                    {
-                        Some(self.up_next_invisible.remove(0))
-                    } else {
-                        None
-                    },
-                })
-            } else {
-                Err(QueueError::NoNext)
-            }
-        } else {
-            Err(QueueError::EmptyQueue)
-        }
     }
 
     pub fn current(&self) -> Result<&QueueItem, QueueError> {
@@ -419,6 +395,7 @@ impl Queue {
         }
     }
 
+    /// Checks the played stack and removes any items beyond the limit
     pub fn check_played(&mut self, limit: usize) {
         let len = self.played.len();
         if len > limit {
@@ -428,11 +405,12 @@ impl Queue {
         }
     }
 
+    /// Returns a vector of the number of up next songs equal to the limit
     pub fn get_next_up_to_limit(&mut self) -> Vec<UpNextSong> {
         let mut out = vec![];
 
         for _ in 0..self.up_next_limit {
-            if self.up_next_invisible.get(0).is_some() {
+            if !self.up_next_invisible.is_empty() {
                 out.push(self.up_next_invisible.remove(0));
             } else {
                 break;

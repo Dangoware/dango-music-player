@@ -21,7 +21,9 @@ use crate::config::ConfigError;
 use crate::music_controller::connections::handle_connections;
 use crate::music_storage::library::Song;
 use crate::music_storage::playlist::{ExternalPlaylist, Playlist};
-use crate::music_storage::queue::{Queue, QueueError, QueueItem, QueueMove, QueueNext};
+use crate::music_storage::queue::{
+    Loop, Queue, QueueError, QueueItem, QueueMove, QueueNext, Shuffle, UpNextSong,
+};
 use crate::{config::Config, music_storage::library::MusicLibrary};
 
 use super::connections::{ConnectionsNotification, ControllerConnections};
@@ -107,6 +109,7 @@ pub enum PlayerError {
 pub enum LibraryCommand {
     Song(Uuid),
     AllSongs,
+    AllUuids,
     GetLibrary,
     LibraryRemoveSong(Uuid),
     ExternalPlaylist(Uuid),
@@ -118,6 +121,7 @@ pub enum LibraryCommand {
     PlaylistAddSong { playlist: Uuid, song: Uuid },
     PlaylistRemoveSong { playlist: Uuid, song: Uuid },
     DeletePlaylist(Uuid),
+    FilteredPlaylist(Uuid),
 }
 
 #[derive(Debug, Clone)]
@@ -125,12 +129,14 @@ pub enum LibraryResponse {
     Ok,
     Song(Song, usize),
     AllSongs(Vec<Song>),
+    AllUuids(Vec<Uuid>),
     Library(MusicLibrary),
     ExternalPlaylist(ExternalPlaylist),
     PlaylistSong(Song, usize),
     Playlist(Playlist),
     ImportM3UPlayList(Uuid, String),
     Playlists(Vec<(Uuid, String)>),
+    FilteredPlaylist(Vec<Uuid>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -143,9 +149,11 @@ pub enum QueueCommand {
     Get,
     Clear,
     RemoveQueue(usize),
-    RemoveNextUp(usize),
     AddAfterNP(QueueItem),
     MoveTo(usize),
+    AddUpNext(QueueItem),
+    AddUpNextInvis(Vec<UpNextSong>),
+    Info,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -155,6 +163,12 @@ pub enum QueueResponse {
     Next(Result<QueueNext, QueueError>),
     Move(Result<QueueMove, QueueError>),
     GetAll(Vec<QueueItem>),
+    Info {
+        looping: Loop,
+        shuffle: Shuffle,
+        up_next_limit: usize,
+        pull_location: Option<PlayerLocation>,
+    },
 }
 
 pub struct ControllerInput {
@@ -275,7 +289,7 @@ impl Controller {
             notify_next_song,
         }: ControllerInput,
     ) -> Result<(), Box<dyn Error>> {
-        let queue: Queue = Queue::default();
+        let queue: Queue = Queue::new();
 
         let state = {
             let path = &config.read().state_path;
