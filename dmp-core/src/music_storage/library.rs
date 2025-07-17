@@ -375,7 +375,7 @@ impl Song {
         let binding = fs::canonicalize(target_file).unwrap();
 
         if tags.get(&Tag::Title) == None {
-            let filename = binding.file_name().unwrap().to_str().unwrap();
+            let filename = binding.file_stem().unwrap().to_str().unwrap();
             tags.insert(Tag::Title, String::from(filename));
         }
 
