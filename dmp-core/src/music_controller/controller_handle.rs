@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::music_storage::{
     library::Song,
     playlist::ExternalPlaylist,
-    queue::{QueueError, QueueItem, QueueItemType},
+    queue::{QueueError, QueueItem, QueueItemType, QueueMove},
 };
 
 use super::controller::{
@@ -107,7 +107,7 @@ impl ControllerHandle {
 
     // The Queue Section
     pub async fn queue_append(&self, item: QueueItem) -> Result<(), QueueError> {
-        let (command, tx) = QueueCommandInput::command(QueueCommand::Append(item, true));
+        let (command, tx) = QueueCommandInput::command(QueueCommand::Append(item));
         self.queue_mail_rx.send(command).await.unwrap();
         let QueueResponse::Empty(res) = tx.recv().await.unwrap() else {
             unreachable!()
@@ -116,7 +116,7 @@ impl ControllerHandle {
     }
 
     pub async fn queue_remove(&self, index: usize) -> Result<QueueItem, QueueError> {
-        let (command, tx) = QueueCommandInput::command(QueueCommand::Remove(index));
+        let (command, tx) = QueueCommandInput::command(QueueCommand::RemoveQueue(index));
         self.queue_mail_rx.send(command).await.unwrap();
         let QueueResponse::Item(res) = tx.recv().await.unwrap() else {
             unreachable!()
@@ -133,7 +133,7 @@ impl ControllerHandle {
         queue
     }
 
-    pub async fn queue_play_next(
+    pub async fn queue_add_after_np(
         &self,
         uuid: Uuid,
         location: PlayerLocation,
@@ -143,13 +143,10 @@ impl ControllerHandle {
         let LibraryResponse::Song(song, _) = tx.recv().await.unwrap() else {
             unimplemented!()
         };
-        let (command, tx) = QueueCommandInput::command(QueueCommand::PlayNext(
-            QueueItem {
-                item: QueueItemType::Song(song),
-                location,
-            },
-            false,
-        ));
+        let (command, tx) = QueueCommandInput::command(QueueCommand::AddAfterNP(QueueItem {
+            item: QueueItemType::Song(song),
+            location,
+        }));
         self.queue_mail_rx.send(command).await.unwrap();
         let QueueResponse::Empty(_) = tx.recv().await.unwrap() else {
             unimplemented!()
@@ -166,10 +163,10 @@ impl ControllerHandle {
         res
     }
 
-    pub async fn queue_move_to(&self, index: usize) -> Result<(), QueueError> {
+    pub async fn queue_move_to(&self, index: usize) -> Result<QueueMove, QueueError> {
         let (command, tx) = QueueCommandInput::command(QueueCommand::MoveTo(index));
         self.queue_mail_rx.send(command).await.unwrap();
-        let QueueResponse::Empty(res) = tx.recv().await.unwrap() else {
+        let QueueResponse::Move(res) = tx.recv().await.unwrap() else {
             unreachable!()
         };
         res

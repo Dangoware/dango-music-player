@@ -67,7 +67,7 @@ impl Controller {
                         queue_mail.send(command).await.unwrap();
 
                         match tx.recv().await.unwrap() {
-                            QueueResponse::Item(Ok(item)) => {
+                            QueueResponse::Next(Ok(item)) => {
                                 let uri = match &item.item {
                                     QueueItemType::Song(song) => song.primary_uri().unwrap().0,
                                     _ => unimplemented!(),

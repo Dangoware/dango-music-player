@@ -254,7 +254,7 @@ pub async fn play_next_queue(
     location: PlayerLocation,
 ) -> Result<(), String> {
     let res = ctrl_handle
-        .queue_play_next(uuid, location)
+        .queue_add_after_np(uuid, location)
         .await
         .map_err(|e| e.to_string());
     app.emit("queue_updated", ()).unwrap();

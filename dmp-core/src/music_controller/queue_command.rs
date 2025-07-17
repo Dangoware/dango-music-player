@@ -1,4 +1,4 @@
-use crate::music_storage::queue::{Queue, QueueError, QueueItemType};
+use crate::music_storage::queue::{Queue, QueueError};
 
 use super::{
     controller::{Controller, QueueCommand, QueueResponse},
@@ -13,13 +13,8 @@ impl Controller {
         while true {
             let QueueCommandInput { res_rx, command } = queue_mail.recv().await.unwrap();
             match command {
-                QueueCommand::Append(item, by_human) => {
-                    match item.item {
-                        QueueItemType::Song(song) => {
-                            queue.add_item(QueueItemType::Song(song), by_human)
-                        }
-                        _ => unimplemented!(),
-                    }
+                QueueCommand::Append(item) => {
+                    queue.add_item(item);
                     res_rx.send(QueueResponse::Empty(Ok(()))).await.unwrap();
                 }
                 QueueCommand::Next => {
@@ -27,7 +22,7 @@ impl Controller {
                         .next()
                         .map_or(Err(QueueError::NoNext), |s| Ok(s.clone()));
                     res_rx
-                        .send(QueueResponse::Item(next.clone()))
+                        .send(QueueResponse::Next(next.clone()))
                         .await
                         .unwrap();
                 }
@@ -64,26 +59,25 @@ impl Controller {
                     queue.clear();
                     res_rx.send(QueueResponse::Empty(Ok(()))).await.unwrap();
                 }
-                QueueCommand::Remove(index) => {
+                QueueCommand::RemoveQueue(index) => {
                     res_rx
-                        .send(QueueResponse::Item(queue.remove_item(index)))
+                        .send(QueueResponse::Item(queue.remove_queue(index)))
                         .await
                         .unwrap();
                 }
-                QueueCommand::PlayNext(item, by_human) => {
-                    match item.item {
-                        QueueItemType::Song(song) => {
-                            queue.add_item_next(QueueItemType::Song(song));
-                        }
-                        QueueItemType::Album { .. } => {
-                            unimplemented!()
-                        }
-                    };
+                QueueCommand::RemoveNextUp(index) => {
+                    res_rx
+                        .send(QueueResponse::Item(queue.remove_next_up(index)))
+                        .await
+                        .unwrap();
+                }
+                QueueCommand::AddAfterNP(item) => {
+                    queue.add_after_np(item);
                     res_rx.send(QueueResponse::Empty(Ok(()))).await.unwrap();
                 }
                 QueueCommand::MoveTo(index) => {
                     res_rx
-                        .send(QueueResponse::Empty(queue.move_to(index)))
+                        .send(QueueResponse::Move(queue.move_to(index)))
                         .await
                         .unwrap();
                 }

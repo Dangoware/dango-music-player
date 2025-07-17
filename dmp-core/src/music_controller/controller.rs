@@ -21,7 +21,7 @@ use crate::config::ConfigError;
 use crate::music_controller::connections::handle_connections;
 use crate::music_storage::library::Song;
 use crate::music_storage::playlist::{ExternalPlaylist, Playlist};
-use crate::music_storage::queue::{Queue, QueueError, QueueItem};
+use crate::music_storage::queue::{Queue, QueueError, QueueItem, QueueMove, QueueNext};
 use crate::{config::Config, music_storage::library::MusicLibrary};
 
 use super::connections::{ConnectionsNotification, ControllerConnections};
@@ -135,15 +135,16 @@ pub enum LibraryResponse {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum QueueCommand {
-    Append(QueueItem, bool),
+    Append(QueueItem),
     Next,
     Prev,
     GetIndex(usize),
     NowPlaying,
     Get,
     Clear,
-    Remove(usize),
-    PlayNext(QueueItem, bool),
+    RemoveQueue(usize),
+    RemoveNextUp(usize),
+    AddAfterNP(QueueItem),
     MoveTo(usize),
 }
 
@@ -151,6 +152,8 @@ pub enum QueueCommand {
 pub enum QueueResponse {
     Empty(Result<(), QueueError>),
     Item(Result<QueueItem, QueueError>),
+    Next(Result<QueueNext, QueueError>),
+    Move(Result<QueueMove, QueueError>),
     GetAll(Vec<QueueItem>),
 }
 
