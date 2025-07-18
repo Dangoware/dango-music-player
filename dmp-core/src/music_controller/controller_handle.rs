@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::music_storage::{
     library::Song,
     playlist::ExternalPlaylist,
-    queue::{QueueError, QueueItem, QueueItemType, QueueMove},
+    queue::{QueueError, QueueItem, QueueItemType, QueueMove, Shuffle},
 };
 
 use super::controller::{
@@ -17,44 +17,44 @@ use super::controller::{
 impl ControllerHandle {
     // The Library Section
     pub async fn lib_get_song(&self, uuid: Uuid) -> (Song, usize) {
-        let (command, tx) = LibraryCommandInput::command(LibraryCommand::Song(uuid));
+        let (command, rx) = LibraryCommandInput::command(LibraryCommand::Song(uuid));
         self.lib_mail_rx.send(command).await.unwrap();
-        let LibraryResponse::Song(song, index) = tx.recv().await.unwrap() else {
+        let LibraryResponse::Song(song, index) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         (song, index)
     }
 
     pub async fn lib_get_all(&self) -> Vec<Song> {
-        let (command, tx) = LibraryCommandInput::command(LibraryCommand::AllSongs);
+        let (command, rx) = LibraryCommandInput::command(LibraryCommand::AllSongs);
         self.lib_mail_rx.send(command).await.unwrap();
-        let LibraryResponse::AllSongs(songs) = tx.recv().await.unwrap() else {
+        let LibraryResponse::AllSongs(songs) = rx.recv().await.unwrap() else {
             unreachable!("It has been reached")
         };
         songs
     }
 
     pub async fn lib_save(&self) {
-        let (command, tx) = LibraryCommandInput::command(LibraryCommand::Save);
+        let (command, rx) = LibraryCommandInput::command(LibraryCommand::Save);
         self.lib_mail_rx.send(command).await.unwrap();
-        let LibraryResponse::Ok = tx.recv().await.unwrap() else {
+        let LibraryResponse::Ok = rx.recv().await.unwrap() else {
             unreachable!()
         };
     }
 
     pub async fn lib_remove_song(&self, song: Uuid) {
-        let (command, tx) = LibraryCommandInput::command(LibraryCommand::LibraryRemoveSong(song));
+        let (command, rx) = LibraryCommandInput::command(LibraryCommand::LibraryRemoveSong(song));
         self.lib_mail_rx.send(command).await.unwrap();
-        let LibraryResponse::Ok = tx.recv().await.unwrap() else {
+        let LibraryResponse::Ok = rx.recv().await.unwrap() else {
             unreachable!()
         };
     }
 
     // The Playlist Section
     pub async fn playlist_get(&self, uuid: Uuid) -> Result<ExternalPlaylist, ()> {
-        let (command, tx) = LibraryCommandInput::command(LibraryCommand::ExternalPlaylist(uuid));
+        let (command, rx) = LibraryCommandInput::command(LibraryCommand::ExternalPlaylist(uuid));
         self.lib_mail_rx.send(command).await.unwrap();
-        let LibraryResponse::ExternalPlaylist(playlist) = tx.recv().await.unwrap() else {
+        let LibraryResponse::ExternalPlaylist(playlist) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         Ok(playlist)
@@ -62,72 +62,72 @@ impl ControllerHandle {
 
     /// Returns a `Vec<(Uuid, String)>` containing the Uuid of the playlist and the name after
     pub async fn playlist_get_all(&self) -> Vec<(Uuid, String)> {
-        let (command, tx) = LibraryCommandInput::command(LibraryCommand::Playlists);
+        let (command, rx) = LibraryCommandInput::command(LibraryCommand::Playlists);
         self.lib_mail_rx.send(command).await.unwrap();
-        let LibraryResponse::Playlists(lists) = tx.recv().await.unwrap() else {
+        let LibraryResponse::Playlists(lists) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         lists
     }
 
     pub async fn playlist_import_m3u(&self, path: PathBuf) -> Result<(Uuid, String), ()> {
-        let (command, tx) = LibraryCommandInput::command(LibraryCommand::ImportM3UPlayList(path));
+        let (command, rx) = LibraryCommandInput::command(LibraryCommand::ImportM3UPlayList(path));
         self.lib_mail_rx.send(command).await.unwrap();
-        let LibraryResponse::ImportM3UPlayList(uuid, name) = tx.recv().await.unwrap() else {
+        let LibraryResponse::ImportM3UPlayList(uuid, name) = rx.recv().await.unwrap() else {
             unreachable!("It has been reached")
         };
         Ok((uuid, name))
     }
 
     pub async fn playlist_add_song(&self, playlist: Uuid, song: Uuid) {
-        let (command, tx) =
+        let (command, rx) =
             LibraryCommandInput::command(LibraryCommand::PlaylistAddSong { playlist, song });
         self.lib_mail_rx.send(command).await.unwrap();
-        let LibraryResponse::Ok = tx.recv().await.unwrap() else {
+        let LibraryResponse::Ok = rx.recv().await.unwrap() else {
             unreachable!()
         };
     }
 
     pub async fn playlist_delete(&self, playlist: Uuid) {
-        let (command, tx) = LibraryCommandInput::command(LibraryCommand::DeletePlaylist(playlist));
+        let (command, rx) = LibraryCommandInput::command(LibraryCommand::DeletePlaylist(playlist));
         self.lib_mail_rx.send(command).await.unwrap();
-        let LibraryResponse::Ok = tx.recv().await.unwrap() else {
+        let LibraryResponse::Ok = rx.recv().await.unwrap() else {
             unreachable!()
         };
     }
 
     pub async fn playlist_remove_song(&self, song: Uuid, playlist: Uuid) {
-        let (command, tx) =
+        let (command, rx) =
             LibraryCommandInput::command(LibraryCommand::PlaylistRemoveSong { song, playlist });
         self.lib_mail_rx.send(command).await.unwrap();
-        let LibraryResponse::Ok = tx.recv().await.unwrap() else {
+        let LibraryResponse::Ok = rx.recv().await.unwrap() else {
             unreachable!()
         };
     }
 
     // The Queue Section
     pub async fn queue_append(&self, item: QueueItem) -> Result<(), QueueError> {
-        let (command, tx) = QueueCommandInput::command(QueueCommand::Append(item));
-        self.queue_mail_rx.send(command).await.unwrap();
-        let QueueResponse::Empty(res) = tx.recv().await.unwrap() else {
+        let (command, rx) = QueueCommandInput::command(QueueCommand::Append(item));
+        self.queue_mail_tx.send(command).await.unwrap();
+        let QueueResponse::Empty(res) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         res
     }
 
     pub async fn queue_remove(&self, index: usize) -> Result<QueueItem, QueueError> {
-        let (command, tx) = QueueCommandInput::command(QueueCommand::RemoveQueue(index));
-        self.queue_mail_rx.send(command).await.unwrap();
-        let QueueResponse::Item(res) = tx.recv().await.unwrap() else {
+        let (command, rx) = QueueCommandInput::command(QueueCommand::RemoveQueue(index));
+        self.queue_mail_tx.send(command).await.unwrap();
+        let QueueResponse::Item(res) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         res
     }
 
     pub async fn queue_get_all(&self) -> Vec<QueueItem> {
-        let (command, tx) = QueueCommandInput::command(QueueCommand::Get);
-        self.queue_mail_rx.send(command).await.unwrap();
-        let QueueResponse::GetAll(queue) = tx.recv().await.unwrap() else {
+        let (command, rx) = QueueCommandInput::command(QueueCommand::Get);
+        self.queue_mail_tx.send(command).await.unwrap();
+        let QueueResponse::GetAll(queue) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         queue
@@ -138,116 +138,125 @@ impl ControllerHandle {
         uuid: Uuid,
         location: PlayerLocation,
     ) -> Result<(), QueueError> {
-        let (command, tx) = LibraryCommandInput::command(LibraryCommand::Song(uuid));
+        let (command, rx) = LibraryCommandInput::command(LibraryCommand::Song(uuid));
         self.lib_mail_rx.send(command).await.unwrap();
-        let LibraryResponse::Song(song, _) = tx.recv().await.unwrap() else {
+        let LibraryResponse::Song(song, _) = rx.recv().await.unwrap() else {
             unimplemented!()
         };
-        let (command, tx) = QueueCommandInput::command(QueueCommand::AddAfterNP(QueueItem {
+        let (command, rx) = QueueCommandInput::command(QueueCommand::AddAfterNP(QueueItem {
             item: QueueItemType::Song(song),
             location,
         }));
-        self.queue_mail_rx.send(command).await.unwrap();
-        let QueueResponse::Empty(_) = tx.recv().await.unwrap() else {
+        self.queue_mail_tx.send(command).await.unwrap();
+        let QueueResponse::Empty(_) = rx.recv().await.unwrap() else {
             unimplemented!()
         };
         Ok(())
     }
 
     pub async fn queue_clear(&self) -> Result<(), QueueError> {
-        let (command, tx) = QueueCommandInput::command(QueueCommand::Clear);
-        self.queue_mail_rx.send(command).await.unwrap();
-        let QueueResponse::Empty(res) = tx.recv().await.unwrap() else {
+        let (command, rx) = QueueCommandInput::command(QueueCommand::Clear);
+        self.queue_mail_tx.send(command).await.unwrap();
+        let QueueResponse::Empty(res) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         res
     }
 
     pub async fn queue_move_to(&self, index: usize) -> Result<QueueMove, QueueError> {
-        let (command, tx) = QueueCommandInput::command(QueueCommand::MoveTo(index));
-        self.queue_mail_rx.send(command).await.unwrap();
-        let QueueResponse::Move(res) = tx.recv().await.unwrap() else {
+        let (command, rx) = QueueCommandInput::command(QueueCommand::MoveTo(index));
+        self.queue_mail_tx.send(command).await.unwrap();
+        let QueueResponse::Move(res) = rx.recv().await.unwrap() else {
             unreachable!()
+        };
+        res
+    }
+
+    pub async fn queue_shuffle(&self, shuffle: Shuffle) -> Result<(), PlayerError> {
+        let (command, rx) = PlayerCommandInput::command(PlayerCommand::Shuffle(shuffle));
+        self.player_mail_tx.send(command).await.unwrap();
+        let PlayerResponse::Empty(res) = rx.recv().await.unwrap() else {
+            unreachable!();
         };
         res
     }
 
     // The Player Section
     pub async fn play_now(&self, uuid: Uuid, location: PlayerLocation) -> Result<Song, QueueError> {
-        let (command, tx) = PlayerCommandInput::command(PlayerCommand::PlayNow(uuid, location));
-        self.player_mail_rx.send(command).await.unwrap();
-        let PlayerResponse::NowPlaying(res) = tx.recv().await.unwrap() else {
+        let (command, rx) = PlayerCommandInput::command(PlayerCommand::PlayNow(uuid, location));
+        self.player_mail_tx.send(command).await.unwrap();
+        let PlayerResponse::NowPlaying(res) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         res
     }
 
     pub async fn enqueue(&self, index: usize) -> Result<Song, QueueError> {
-        let (command, tx) = PlayerCommandInput::command(PlayerCommand::Enqueue(index));
-        self.player_mail_rx.send(command).await.unwrap();
-        let PlayerResponse::NowPlaying(song) = tx.recv().await.unwrap() else {
+        let (command, rx) = PlayerCommandInput::command(PlayerCommand::Enqueue(index));
+        self.player_mail_tx.send(command).await.unwrap();
+        let PlayerResponse::NowPlaying(song) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         song
     }
 
     pub async fn play(&self) -> Result<(), PlayerError> {
-        let (command, tx) = PlayerCommandInput::command(PlayerCommand::Play);
-        self.player_mail_rx.send(command).await.unwrap();
-        let PlayerResponse::Empty(res) = tx.recv().await.unwrap() else {
+        let (command, rx) = PlayerCommandInput::command(PlayerCommand::Play);
+        self.player_mail_tx.send(command).await.unwrap();
+        let PlayerResponse::Empty(res) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         res
     }
 
     pub async fn pause(&self) -> Result<(), PlayerError> {
-        let (command, tx) = PlayerCommandInput::command(PlayerCommand::Pause);
-        self.player_mail_rx.send(command).await.unwrap();
-        let PlayerResponse::Empty(res) = tx.recv().await.unwrap() else {
+        let (command, rx) = PlayerCommandInput::command(PlayerCommand::Pause);
+        self.player_mail_tx.send(command).await.unwrap();
+        let PlayerResponse::Empty(res) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         res
     }
 
     pub async fn stop(&self) -> Result<(), PlayerError> {
-        let (command, tx) = PlayerCommandInput::command(PlayerCommand::Stop);
-        self.player_mail_rx.send(command).await.unwrap();
-        let PlayerResponse::Empty(res) = tx.recv().await.unwrap() else {
+        let (command, rx) = PlayerCommandInput::command(PlayerCommand::Stop);
+        self.player_mail_tx.send(command).await.unwrap();
+        let PlayerResponse::Empty(res) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         res
     }
 
     pub async fn seek(&self, time: i64) -> Result<(), PlayerError> {
-        let (command, tx) = PlayerCommandInput::command(PlayerCommand::Seek(time));
-        self.player_mail_rx.send(command).await.unwrap();
-        let PlayerResponse::Empty(res) = tx.recv().await.unwrap() else {
+        let (command, rx) = PlayerCommandInput::command(PlayerCommand::Seek(time));
+        self.player_mail_tx.send(command).await.unwrap();
+        let PlayerResponse::Empty(res) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         res
     }
 
     pub async fn set_volume(&self, volume: f32) -> () {
-        let (command, tx) = PlayerCommandInput::command(PlayerCommand::SetVolume(volume));
-        self.player_mail_rx.send(command).await.unwrap();
-        let PlayerResponse::Empty(Ok(())) = tx.recv().await.unwrap() else {
+        let (command, rx) = PlayerCommandInput::command(PlayerCommand::SetVolume(volume));
+        self.player_mail_tx.send(command).await.unwrap();
+        let PlayerResponse::Empty(Ok(())) = rx.recv().await.unwrap() else {
             unreachable!()
         };
     }
 
     pub async fn next(&self) -> Result<Song, QueueError> {
-        let (command, tx) = PlayerCommandInput::command(PlayerCommand::NextSong);
-        self.player_mail_rx.send(command).await.unwrap();
-        let PlayerResponse::NowPlaying(res) = tx.recv().await.unwrap() else {
+        let (command, rx) = PlayerCommandInput::command(PlayerCommand::NextSong);
+        self.player_mail_tx.send(command).await.unwrap();
+        let PlayerResponse::NowPlaying(res) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         res
     }
 
     pub async fn prev(&self) -> Result<Song, QueueError> {
-        let (command, tx) = PlayerCommandInput::command(PlayerCommand::PrevSong);
-        self.player_mail_rx.send(command).await.unwrap();
-        let PlayerResponse::NowPlaying(res) = tx.recv().await.unwrap() else {
+        let (command, rx) = PlayerCommandInput::command(PlayerCommand::PrevSong);
+        self.player_mail_tx.send(command).await.unwrap();
+        let PlayerResponse::NowPlaying(res) = rx.recv().await.unwrap() else {
             unreachable!()
         };
         res

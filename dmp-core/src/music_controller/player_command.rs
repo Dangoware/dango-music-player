@@ -1,12 +1,14 @@
 use chrono::TimeDelta;
 use crossbeam_channel::Sender;
+use futures::FutureExt;
 use prismriver::{Prismriver, Volume};
+use rand::{seq::SliceRandom, thread_rng};
 
 use crate::{
     music_controller::controller::{LibraryCommand, LibraryResponse, PlayerError},
     music_storage::{
         library::Song,
-        queue::{QueueItem, QueueItemType, Shuffle, UpNextSong, UpNextSongInner},
+        queue::{QueueError, QueueItem, QueueItemType, Shuffle, UpNextSong, UpNextSongInner},
     },
 };
 
@@ -146,9 +148,9 @@ impl Controller {
                     }
 
                     PlayerCommand::PrevSong => {
-                        let (command, tx) = QueueCommandInput::command(QueueCommand::Prev);
+                        let (command, rx) = QueueCommandInput::command(QueueCommand::Prev);
                         queue_mail.send(command).await.unwrap();
-                        match tx.recv().await.unwrap() {
+                        match rx.recv().await.unwrap() {
                             QueueResponse::Item(Ok(item)) => {
                                 let uri = match &item.item {
                                     QueueItemType::Song(song) => song.primary_uri().unwrap().0,
@@ -186,10 +188,10 @@ impl Controller {
                     }
 
                     PlayerCommand::Enqueue(index) => {
-                        let (command, tx) =
+                        let (command, rx) =
                             QueueCommandInput::command(QueueCommand::GetIndex(index));
                         queue_mail.send(command).await.unwrap();
-                        match tx.recv().await.unwrap() {
+                        match rx.recv().await.unwrap() {
                             QueueResponse::Item(Ok(item)) => {
                                 let song = match item.item {
                                     QueueItemType::Song(np_song) => {
@@ -229,16 +231,16 @@ impl Controller {
 
                     PlayerCommand::PlayNow(uuid, location) => {
                         // TODO: This assumes the uuid doesn't point to an album. we've been over this.
-                        let (command, tx) =
+                        let (command, rx) =
                             LibraryCommandInput::command(LibraryCommand::Song(uuid));
                         lib_mail.send(command).await.unwrap();
-                        let LibraryResponse::Song(np_song, index) = tx.recv().await.unwrap() else {
+                        let LibraryResponse::Song(np_song, index) = rx.recv().await.unwrap() else {
                             unreachable!()
                         };
 
-                        let (command, tx) = QueueCommandInput::command(QueueCommand::Clear);
+                        let (command, rx) = QueueCommandInput::command(QueueCommand::Clear);
                         queue_mail.send(command).await.unwrap();
-                        match tx.recv().await.unwrap() {
+                        match rx.recv().await.unwrap() {
                             QueueResponse::Empty(Ok(())) => (),
                             QueueResponse::Empty(Err(e)) => {
                                 res_tx
@@ -250,14 +252,14 @@ impl Controller {
                             _ => unreachable!(),
                         }
 
-                        let (command, tx) =
+                        let (command, rx) =
                             QueueCommandInput::command(QueueCommand::Append(QueueItem {
                                 item: QueueItemType::Song(np_song.clone()),
                                 location: PlayerLocation::Test,
                             }));
 
                         queue_mail.send(command).await.unwrap();
-                        match tx.recv().await.unwrap() {
+                        match rx.recv().await.unwrap() {
                             QueueResponse::Empty(Ok(())) => (),
                             QueueResponse::Empty(Err(e)) => {
                                 res_tx
@@ -295,22 +297,22 @@ impl Controller {
 
                         let (mut uuids, index) = match location {
                             PlayerLocation::Library => {
-                                let (command, tx) =
+                                let (command, rx) =
                                     LibraryCommandInput::command(LibraryCommand::AllUuids);
                                 lib_mail.send(command).await.unwrap();
-                                let LibraryResponse::AllUuids(uuids) = tx.recv().await.unwrap()
+                                let LibraryResponse::AllUuids(uuids) = rx.recv().await.unwrap()
                                 else {
                                     unreachable!()
                                 };
                                 (uuids, index)
                             }
                             PlayerLocation::Playlist(uuid) => {
-                                let (command, tx) = LibraryCommandInput::command(
+                                let (command, rx) = LibraryCommandInput::command(
                                     LibraryCommand::FilteredPlaylist(uuid),
                                 );
                                 lib_mail.send(command).await.unwrap();
                                 let LibraryResponse::FilteredPlaylist(list) =
-                                    tx.recv().await.unwrap()
+                                    rx.recv().await.unwrap()
                                 else {
                                     unreachable!()
                                 };
@@ -320,8 +322,6 @@ impl Controller {
                                         index = i;
                                     }
                                 }
-                                // It crashes if I don't do this. I don't know why
-                                // somehow the returned playlist uuids don't match up unless I do
                                 (list, index)
                             }
                             _ => todo!("Got Location other than Library or Playlist"),
@@ -331,6 +331,9 @@ impl Controller {
                             for _ in 0..(index + 1) {
                                 _ = uuids.remove(0)
                             }
+                        }
+                        if let Shuffle::ShuffleAllSongs = shuffle {
+                            uuids.shuffle(&mut rand::rng());
                         }
                         for _ in 0..up_next_limit {
                             if !uuids.is_empty() {
@@ -354,7 +357,7 @@ impl Controller {
                                     QueueResponse::Empty(Ok(())) => (),
                                     QueueResponse::Empty(Err(e)) => {
                                         res_tx
-                                            .send(PlayerResponse::NowPlaying(Err(e.into())))
+                                            .send(PlayerResponse::NowPlaying(Err(e)))
                                             .await
                                             .unwrap();
                                         continue 'outer;
@@ -378,9 +381,14 @@ impl Controller {
                                     .collect(),
                             ));
                         queue_mail.send(command).await.unwrap();
-                        let QueueResponse::Empty(res) = rx.recv().await.unwrap() else {
-                            unreachable!()
-                        };
+                        // This can't fail either I guess
+                        _ = rx.recv().await.unwrap();
+
+                        let (command, rx) =
+                            QueueCommandInput::command(QueueCommand::SetPullLocation(location));
+                        queue_mail.send(command).await.unwrap();
+                        // This can't fail
+                        _ = rx.recv().await.unwrap();
 
                         // ^ This be my solution for now ^
                         res_tx
@@ -393,6 +401,200 @@ impl Controller {
                         notify_connections_
                             .send(ConnectionsNotification::SongChange(np_song))
                             .unwrap();
+                    }
+
+                    PlayerCommand::Shuffle(shuffle) => {
+                        // this is a temporary solution, as categories aren't yet supported
+                        let shuffled = match shuffle {
+                            Shuffle::NoShuffle => true,
+                            Shuffle::ShuffleAllSongs => false,
+                            s => {
+                                unimplemented!("{s:?} is currently unsupported!");
+                            }
+                        };
+
+                        let (command, rx) = QueueCommandInput::command(QueueCommand::NowPlaying);
+                        queue_mail.send(command).await.unwrap();
+                        let QueueResponse::Item(res) = rx.recv().await.unwrap() else {
+                            unreachable!()
+                        };
+
+                        let np_item = match res {
+                            Ok(item) => item,
+                            Err(e) => {
+                                res_tx
+                                    .send(PlayerResponse::Empty(Err(e.into())))
+                                    .await
+                                    .unwrap();
+                                continue;
+                            }
+                        };
+
+                        let QueueItem {
+                            item: QueueItemType::Song(np_song),
+                            ..
+                        } = np_item.clone()
+                        else {
+                            unimplemented!("Albums not yet supported in the Queue up next section");
+                        };
+
+                        let (command, rx) = QueueCommandInput::command(QueueCommand::ClearExceptQueue);
+                        queue_mail.send(command).await.unwrap();
+                        match rx.recv().await.unwrap() {
+                            QueueResponse::Empty(Ok(())) => (),
+                            QueueResponse::Empty(Err(e)) => {
+                                res_tx
+                                    .send(PlayerResponse::Empty(Err(e.into())))
+                                    .await
+                                    .unwrap();
+                                continue;
+                            }
+                            _ => unreachable!(),
+                        }
+
+                        // let (command, rx) =
+                        //     QueueCommandInput::command(QueueCommand::Append(np_item));
+
+                        // queue_mail.send(command).await.unwrap();
+                        // if let QueueResponse::Empty(Err(e)) = rx.recv().await.unwrap() {
+                        //     res_tx
+                        //         .send(PlayerResponse::Empty(Err(e.into())))
+                        //         .await
+                        //         .unwrap();
+                        // }
+
+                        let (command, rx) = QueueCommandInput::command(QueueCommand::Info);
+                        queue_mail.send(command).await.unwrap();
+                        let QueueResponse::Info {
+                            up_next_limit,
+                            pull_location,
+                            ..
+                        } = rx.recv().await.unwrap()
+                        else {
+                            unreachable!()
+                        };
+
+                        let location = if let Some(location) = pull_location {
+                            location
+                        } else {
+                            res_tx
+                                .send(PlayerResponse::Empty(Err(PlayerError::QueueError(
+                                    QueueError::NoPullLocation,
+                                ))))
+                                .await
+                                .unwrap();
+                            continue;
+                        };
+
+                        let (mut uuids, index) = match location {
+                            PlayerLocation::Library => {
+                                let (command, rx) =
+                                    LibraryCommandInput::command(LibraryCommand::AllUuids);
+                                lib_mail.send(command).await.unwrap();
+                                let LibraryResponse::AllUuids(uuids) = rx.recv().await.unwrap()
+                                else {
+                                    unreachable!()
+                                };
+
+                                let (command, rx) = LibraryCommandInput::command(
+                                    LibraryCommand::Song(np_song.uuid),
+                                );
+                                lib_mail.send(command).await.unwrap();
+                                let LibraryResponse::Song(_, index) = rx.recv().await.unwrap()
+                                else {
+                                    unreachable!()
+                                };
+
+                                (uuids, index)
+                            }
+                            PlayerLocation::Playlist(uuid) => {
+                                let (command, rx) = LibraryCommandInput::command(
+                                    LibraryCommand::FilteredPlaylist(uuid),
+                                );
+                                lib_mail.send(command).await.unwrap();
+                                let LibraryResponse::FilteredPlaylist(list) =
+                                    rx.recv().await.unwrap()
+                                else {
+                                    unreachable!()
+                                };
+                                let mut index = 0;
+                                for (i, uuid) in list.iter().enumerate() {
+                                    if &np_song.uuid == uuid {
+                                        index = i;
+                                    }
+                                }
+                                (list, index)
+                            }
+                            _ => todo!("Got Location other than Library or Playlist"),
+                        };
+
+                        if shuffled {
+                            for _ in 0..(index + 1) {
+                                _ = uuids.remove(0)
+                            }
+                        } else {
+                            uuids.shuffle(&mut rand::rng());
+                        }
+
+                        for _ in 0..up_next_limit {
+                            if !uuids.is_empty() {
+                                let uuid = uuids.remove(0);
+                                let (command, rx) =
+                                    LibraryCommandInput::command(LibraryCommand::Song(uuid));
+                                lib_mail.send(command).await.unwrap();
+                                let LibraryResponse::Song(song, _) = rx.recv().await.unwrap()
+                                else {
+                                    unreachable!()
+                                };
+
+                                let (command, rx) = QueueCommandInput::command(
+                                    QueueCommand::AddUpNext(QueueItem {
+                                        item: QueueItemType::Song(song.clone()),
+                                        location: PlayerLocation::Test,
+                                    }),
+                                );
+                                queue_mail.send(command).await.unwrap();
+                                match rx.recv().await.unwrap() {
+                                    QueueResponse::Empty(Ok(())) => (),
+                                    QueueResponse::Empty(Err(e)) => {
+                                        res_tx
+                                            .send(PlayerResponse::NowPlaying(Err(e)))
+                                            .await
+                                            .unwrap();
+                                        continue 'outer;
+                                    }
+                                    _ => unreachable!(),
+                                }
+                            } else {
+                                println!("End of Library / Playlist");
+                                break;
+                            }
+                        }
+
+                        let (command, rx) =
+                            QueueCommandInput::command(QueueCommand::AddUpNextInvis(
+                                uuids
+                                    .into_iter()
+                                    .map(|uuid| UpNextSong {
+                                        inner: UpNextSongInner::Library(uuid),
+                                        location,
+                                    })
+                                    .collect(),
+                            ));
+                        queue_mail.send(command).await.unwrap();
+                        _ = rx.recv().await.unwrap();
+
+                        let (command, rx) =
+                            QueueCommandInput::command(QueueCommand::Shuffle(shuffle));
+                        queue_mail.send(command).await.unwrap();
+                        if let QueueResponse::Empty(Err(e)) = rx.recv().await.unwrap() {
+                            res_tx
+                                .send(PlayerResponse::Empty(Err(e.into())))
+                                .await
+                                .unwrap();
+                        };
+
+                        res_tx.send(PlayerResponse::Empty(Ok(()))).await.unwrap();
                     }
                 }
             } else {

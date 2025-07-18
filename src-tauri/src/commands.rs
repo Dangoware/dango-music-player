@@ -19,7 +19,6 @@ pub async fn add_song_to_queue(
     uuid: Uuid,
     location: PlayerLocation,
 ) -> Result<(), String> {
-    dbg!(&location);
     let (song, _) = ctrl_handle.lib_get_song(uuid).await;
     match ctrl_handle
         .queue_append(QueueItem {

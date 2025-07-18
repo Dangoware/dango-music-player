@@ -89,6 +89,7 @@ pub enum PlayerCommand {
     Enqueue(usize),
     SetVolume(f32),
     PlayNow(Uuid, PlayerLocation),
+    Shuffle(Shuffle),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -148,12 +149,15 @@ pub enum QueueCommand {
     NowPlaying,
     Get,
     Clear,
+    ClearExceptQueue,
     RemoveQueue(usize),
     AddAfterNP(QueueItem),
     MoveTo(usize),
     AddUpNext(QueueItem),
     AddUpNextInvis(Vec<UpNextSong>),
     Info,
+    Shuffle(Shuffle),
+    SetPullLocation(PlayerLocation),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -196,8 +200,8 @@ pub struct ControllerInput {
 
 pub struct ControllerHandle {
     pub(super) lib_mail_rx: async_channel::Sender<LibraryCommandInput>,
-    pub(super) player_mail_rx: async_channel::Sender<PlayerCommandInput>,
-    pub(super) queue_mail_rx: async_channel::Sender<QueueCommandInput>,
+    pub(super) player_mail_tx: async_channel::Sender<PlayerCommandInput>,
+    pub(super) queue_mail_tx: async_channel::Sender<QueueCommandInput>,
     pub(super) connections_rx: crossbeam_channel::Sender<ConnectionsNotification>,
     pub config: Arc<RwLock<Config>>,
 }
@@ -221,8 +225,8 @@ impl ControllerHandle {
         (
             ControllerHandle {
                 lib_mail_rx: lib_mail_rx.clone(),
-                player_mail_rx: player_mail_rx.clone(),
-                queue_mail_rx: queue_mail_rx.clone(),
+                player_mail_tx: player_mail_rx.clone(),
+                queue_mail_tx: queue_mail_rx.clone(),
                 connections_rx: connections_mail_rx.clone(),
                 config: config.clone(),
             },

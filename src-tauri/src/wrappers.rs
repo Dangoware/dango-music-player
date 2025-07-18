@@ -5,7 +5,7 @@ use dmp_core::{
     music_controller::controller::{ControllerHandle, PlayerLocation},
     music_storage::{
         library::{Song, Tag},
-        queue::QueueItemType,
+        queue::{QueueItemType, Shuffle},
     },
 };
 use itertools::Itertools;
@@ -291,4 +291,24 @@ pub async fn queue_move_to(
         }
         Err(e) => Err(e),
     }
+}
+
+#[tauri::command]
+pub async fn queue_shuffle(
+    app: AppHandle<Wry>,
+    ctrl_handle: State<'_, ControllerHandle>,
+    shuffle: bool,
+) -> Result<(), String> {
+    // Temporary solution as categories haven't been implemented yet
+    ctrl_handle
+        .queue_shuffle(if shuffle {
+            Shuffle::ShuffleAllSongs
+        } else {
+            Shuffle::NoShuffle
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+
+    app.emit("queue_updated", ()).unwrap();
+    Ok(())
 }

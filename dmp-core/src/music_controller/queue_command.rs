@@ -1,3 +1,5 @@
+use crossbeam::queue;
+
 use crate::music_storage::queue::{Queue, QueueError};
 
 use super::{
@@ -58,6 +60,11 @@ impl Controller {
                     queue.clear();
                     res_tx.send(QueueResponse::Empty(Ok(()))).await.unwrap();
                 }
+                QueueCommand::ClearExceptQueue => {
+                    queue.up_next_visible.clear();
+                    queue.up_next_invisible.clear();
+                    res_tx.send(QueueResponse::Empty(Ok(()))).await.unwrap();
+                }
                 QueueCommand::RemoveQueue(index) => {
                     res_tx
                         .send(QueueResponse::Item(queue.remove(index)))
@@ -92,6 +99,14 @@ impl Controller {
                     })
                     .await
                     .unwrap(),
+                QueueCommand::Shuffle(shuffle) => {
+                    queue.shuffle = shuffle;
+                    res_tx.send(QueueResponse::Empty(Ok(()))).await.unwrap();
+                }
+                QueueCommand::SetPullLocation(location) => {
+                    queue.pull_location = Some(location);
+                    res_tx.send(QueueResponse::Empty(Ok(()))).await.unwrap();
+                }
             }
         }
     }

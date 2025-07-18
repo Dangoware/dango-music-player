@@ -46,7 +46,7 @@ pub enum UpNextSongInner {
 }
 
 #[cfg_attr(feature = "ts", derive(TS), ts(export))]
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum Shuffle {
     #[default]
     NoShuffle,
@@ -316,11 +316,6 @@ impl Queue {
                 self.played.push(self.queue.remove(0));
             }
 
-            dbg!(
-                &self.up_next_visible.len(),
-                &self.up_next_limit,
-                self.up_next_invisible.is_empty()
-            );
             if !self.queue.is_empty() {
                 Ok(QueueNext {
                     item: self.queue[0].clone(),
@@ -430,4 +425,6 @@ pub enum QueueError {
     EmptyPlayed,
     #[error("There is no item after this in the Queue")]
     NoNext,
+    #[error("Nowhere for the Queue to pull from")]
+    NoPullLocation,
 }
